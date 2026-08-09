@@ -12,7 +12,11 @@ import type {
 } from "@/type/event";
 import { aggregateDayPlans, resolveEventDates } from "@/type/event";
 import type { AttendanceStatus, JobRole } from "@/type/staff";
-import { calculateReputationScore } from "@/type/staff";
+import {
+  calculateReputationScore,
+  canConfirmAssignment,
+  DOCUMENT_BLOCK_MESSAGE,
+} from "@/type/staff";
 import { clients } from "../db/client";
 import {
   defaultWageOf,
@@ -576,9 +580,22 @@ export const eventHandlers = [
         0,
       );
 
+      /** 서류가 없어 확정하지 못한 사람. 무엇 때문에 빠졌는지 돌려줘야 한다. */
+      const documentBlocked: string[] = [];
+
       body.staffIds.forEach((staffId) => {
         const staff = findStaff(staffId);
         if (!staff) return;
+
+        /*
+          서류(신분증 · 통장사본)가 없으면 확정 배치를 막는다.
+          일을 다 시킨 뒤에 통장사본이 없다는 걸 알면 지급할 방법이 없다.
+          제안 · 대기는 그대로 둔다. 서류는 보통 "같이 하기로 한 뒤에" 받는다.
+        */
+        if (body.status === "CONFIRMED" && !canConfirmAssignment(staff)) {
+          documentBlocked.push(staff.name);
+          return;
+        }
 
         const blockedDates: string[] = [];
 
@@ -637,6 +654,18 @@ export const eventHandlers = [
       await delay(MOCK_DELAY_MS);
 
       if (createdCount === 0) {
+        /*
+          서류 때문에 막힌 것과 일정이 겹쳐 막힌 것은 담당자가 할 일이 다르다.
+          (서류는 받아 오면 되고, 겹침은 다른 사람을 찾아야 한다)
+          한 문장으로 뭉뚱그리면 무엇을 해야 할지 알 수 없다.
+        */
+        if (documentBlocked.length > 0) {
+          return badRequest(
+            `${documentBlocked.join(", ")}님은 ${DOCUMENT_BLOCK_MESSAGE}`,
+            "DOCUMENT_REQUIRED",
+          );
+        }
+
         return badRequest(
           skipped.length > 0
             ? `배치할 수 있는 날이 없습니다. 일정이 겹칩니다: ${skipped.join(", ")}`
@@ -646,7 +675,7 @@ export const eventHandlers = [
       }
 
       return HttpResponse.json(
-        { event, createdCount, skipped },
+        { event, createdCount, skipped, documentBlocked },
         { status: 201 },
       );
     },
@@ -732,6 +761,22 @@ export const eventHandlers = [
       );
 
       if (!event || !assignment) return notFound("존재하지 않는 배치입니다.");
+
+      /*
+        대기 · 제안을 확정으로 올릴 때도 같은 규칙을 건다.
+        생성에서만 막으면 "제안으로 넣어 두고 나중에 확정"이라는 우회로가 남아,
+        결국 서류 없는 사람이 현장에 나가게 된다.
+      */
+      if (body.status === "CONFIRMED" && assignment.status !== "CONFIRMED") {
+        const staff = findStaff(assignment.staffId);
+
+        if (staff && !canConfirmAssignment(staff)) {
+          return badRequest(
+            `${staff.name}님은 ${DOCUMENT_BLOCK_MESSAGE}`,
+            "DOCUMENT_REQUIRED",
+          );
+        }
+      }
 
       const { checkInAt, checkOutAt, actualBreakMinutes, ...rest } = body;
 

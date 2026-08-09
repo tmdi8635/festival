@@ -18,7 +18,11 @@ import {
   type AssignmentStatus,
   type EventDetail,
 } from "@/type/event";
-import { formatRegion, type JobRole } from "@/type/staff";
+import {
+  formatRegion,
+  REQUIRED_DOCUMENT_LABEL,
+  type JobRole,
+} from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -366,7 +370,16 @@ const StaffPickerModal = ({
                   candidate.assignedDates.includes(date),
               );
               const availableCount = targetDates.length - blockedDates.length;
-              const isFullyBlocked = availableCount === 0;
+              /*
+                서류(신분증 · 통장사본)가 없으면 **확정 배치만** 막는다.
+                일을 다 시킨 뒤에 통장사본이 없다는 걸 알면 지급할 방법이 없다.
+                제안 · 대기로는 그대로 담을 수 있다 — 서류는 보통 같이 하기로 한
+                뒤에 받으므로, 여기까지 막으면 새 인력을 부를 방법이 없어진다.
+              */
+              const isDocumentBlocked =
+                status === "CONFIRMED" && !candidate.isDocumentComplete;
+              const isFullyBlocked =
+                availableCount === 0 || isDocumentBlocked;
               const hasPartialConflict =
                 blockedDates.length > 0 && !isFullyBlocked;
               const isSelected = selectedIds.includes(candidate.staffId);
@@ -448,7 +461,9 @@ const StaffPickerModal = ({
 
                     <div className="flex shrink-0 items-center gap-2">
                       {!candidate.isDocumentComplete && (
-                        <Badge tone="warning">서류 미제출</Badge>
+                        <Badge tone={isDocumentBlocked ? "danger" : "warning"}>
+                          서류 미제출
+                        </Badge>
                       )}
 
                       {/*
@@ -467,7 +482,18 @@ const StaffPickerModal = ({
                     </div>
                   </label>
 
-                  {isFullyBlocked && (
+                  {isDocumentBlocked && (
+                    <p className="mt-1 flex items-start gap-1 pl-4 text-[12px] text-danger">
+                      <Warning size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        {REQUIRED_DOCUMENT_LABEL}이 없어 확정 배치할 수 없습니다.
+                        인력 상세에서 서류를 등록하거나, 위 배치 상태를 &lsquo;제안
+                        단계&rsquo;로 바꿔 먼저 담아 두세요.
+                      </span>
+                    </p>
+                  )}
+
+                  {isFullyBlocked && !isDocumentBlocked && (
                     <p className="mt-1 flex items-center gap-1 pl-4 text-[12px] text-danger">
                       <Warning size={13} />
                       고른 날에 모두 일정이 있습니다.

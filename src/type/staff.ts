@@ -374,6 +374,29 @@ export const ATTENDANCE_STATUS_LABEL: Record<AttendanceStatus, string> = {
 };
 
 /** 인력 생성·수정 폼 값 */
+/**
+ * 서류가 갖춰지지 않으면 **확정 배치할 수 없다.**
+ *
+ * 신분증과 통장사본은 있으면 좋은 서류가 아니라 **돈을 보낼 수 있는 조건**이다.
+ * 계약서를 쓰고 일을 다 시킨 뒤에야 통장사본이 없다는 걸 알면,
+ * 근로는 이미 제공됐는데 지급할 방법이 없는 상태가 된다.
+ * 그때는 사람을 다시 찾아 서류를 받는 것 말고 방법이 없고, 연락이 닿지 않으면
+ * 미지급으로 남는다. 그래서 **일을 시키기 전에** 막는다.
+ *
+ * 제안 · 대기까지 막지는 않는다. 서류는 보통 "같이 하기로 한 뒤에" 받으므로,
+ * 제안 단계에서 막으면 새 인력을 부를 방법 자체가 없어진다.
+ * 확정 하나만 막아도 "서류 없이 현장에 나가는" 일은 생기지 않는다.
+ */
+export const REQUIRED_DOCUMENT_LABEL = "신분증 · 통장사본";
+
+export const DOCUMENT_BLOCK_MESSAGE =
+  "신분증 또는 통장사본이 없어 확정 배치할 수 없습니다. 서류를 먼저 등록해 주세요.";
+
+/** 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다. */
+export const canConfirmAssignment = (staff: {
+  isDocumentComplete: boolean;
+}): boolean => staff.isDocumentComplete;
+
 export interface StaffFormValues {
   name: string;
   phoneNumber: string;
