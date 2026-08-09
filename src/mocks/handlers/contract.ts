@@ -29,6 +29,7 @@ import {
   notFound,
   paginate,
 } from "../utils";
+import type { JobRole } from "@/type/staff";
 
 export const contractHandlers = [
   http.get(`${BASE_URI}/admin/contracts`, async ({ request }) => {
@@ -86,6 +87,15 @@ export const contractHandlers = [
       eventId: number;
       templateId: number;
       assignmentIds?: number[];
+      /**
+       * 이 직무만 발급한다. 비우면 전체.
+       *
+       * 한 행사 안에서도 직무마다 계약 조건이 다르다. 팀장은 책임 범위와 수당이,
+       * 설치는 일급과 안전 조항이 따로 붙는다. 그래서 템플릿을 직무별로 나눠 쓰는데,
+       * 발급이 '전체'뿐이면 첫 직무 템플릿으로 전원이 묶여 나가고
+       * 나머지 직무는 계약서를 손으로 다시 만들어야 한다.
+       */
+      role?: JobRole;
     };
 
     const event = findEvent(body.eventId);
@@ -104,6 +114,7 @@ export const contractHandlers = [
     const byStaff = groupAssignmentsByStaff(
       event.assignments.filter((assignment) => {
         if (assignment.status !== "CONFIRMED") return false;
+        if (body.role && assignment.role !== body.role) return false;
 
         return (
           !body.assignmentIds ||
@@ -121,6 +132,15 @@ export const contractHandlers = [
             contract.staffId === assignments[0].staffId,
         ),
     );
+
+    if (targets.length === 0) {
+      return badRequest(
+        body.role
+          ? "이 직무에는 계약서를 만들 대상이 없습니다. (확정 배치가 없거나 이미 전원 발급됨)"
+          : "계약서를 만들 대상이 없습니다. (확정 배치가 없거나 이미 전원 발급됨)",
+        "NO_CONTRACT_TARGET",
+      );
+    }
 
     const created: Contract[] = targets.map((assignments, index) => {
       const [first] = assignments;

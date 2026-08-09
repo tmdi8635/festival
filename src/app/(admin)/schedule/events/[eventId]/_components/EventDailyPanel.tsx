@@ -8,7 +8,7 @@ import {
   FILL_STATE_CHIP_CLASS,
   FILL_STATE_TEXT_CLASS,
 } from "@/constants/eventOptions";
-import { Plus, Trash } from "@/icons";
+import { Plus, Sliders, Trash } from "@/icons";
 import {
   ASSIGNMENT_CONTRACT_COLUMNS,
   ASSIGNMENT_WAGE_COLUMNS,
@@ -30,6 +30,7 @@ import {
   type Assignment,
   type EventDetail,
   type FillState,
+  type EventDayPlan,
 } from "@/type/event";
 import { type JobRole } from "@/type/staff";
 import Badge from "@/components/ui/Badge";
@@ -40,6 +41,7 @@ import CsvExportButton from "@/components/ui/CsvExportButton";
 import EmptyState from "@/components/ui/EmptyState";
 import StaffCell from "@/components/domain/StaffCell";
 import WageEditModal from "@/components/domain/WageEditModal";
+import DayRoleEditModal from "./DayRoleEditModal";
 import WageText from "@/components/domain/WageText";
 
 /**
@@ -107,6 +109,8 @@ const EventDailyPanel = ({
 
   const [onlyUnderstaffed, setOnlyUnderstaffed] = useState(false);
   const [wageTarget, setWageTarget] = useState<Assignment | null>(null);
+  /** 발주 인원을 고칠 근무일. 날마다 필요한 사람이 달라 하루 단위로 고친다. */
+  const [roleEditDay, setRoleEditDay] = useState<EventDayPlan | null>(null);
 
   const activeAssignments = event.assignments.filter(
     (assignment) => assignment.status !== "CANCELED",
@@ -328,6 +332,22 @@ const EventDailyPanel = ({
                       >
                         이 날 배치
                       </Button>
+
+                      {/*
+                        발주는 행사 폼에서 모든 날에 똑같이 깔린다.
+                        설치는 첫날만, 철거는 마지막 날만 필요한데 그걸 표현할 자리가
+                        여기밖에 없다. 배치 옆에 두어 "몇 명 필요한가 → 누구를 넣는가"가
+                        한자리에서 끝나게 한다.
+                      */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        leftIcon={<Sliders size={14} />}
+                        onClick={() => setRoleEditDay(day)}
+                        title="이 날에만 적용되는 발주 인원을 고칩니다."
+                      >
+                        발주 수정
+                      </Button>
                     </div>
 
                     {assignments.length === 0 ? (
@@ -423,6 +443,12 @@ const EventDailyPanel = ({
         assignment={wageTarget}
         event={event}
         onClose={() => setWageTarget(null)}
+      />
+
+      <DayRoleEditModal
+        event={event}
+        day={roleEditDay}
+        onClose={() => setRoleEditDay(null)}
       />
     </>
   );

@@ -2,7 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
-import type { EventDetail, EventFormValues, EventStatus } from "@/type/event";
+import type {
+  EventDetail,
+  EventFormValues,
+  EventRoleSlot,
+  EventStatus,
+} from "@/type/event";
 
 export const createEvent = async (body: EventFormValues) => {
   const response = await adminAxios.post<EventDetail>("/admin/events", body);
@@ -23,6 +28,20 @@ export const updateEventStatus = async (eventId: number, status: EventStatus) =>
   const response = await adminAxios.patch<EventDetail>(
     `/admin/events/${eventId}/status`,
     { status },
+  );
+
+  return response.data;
+};
+
+/** 근무일 하나의 발주 인원만 바꾼다. 행사 전체 발주는 건드리지 않는다. */
+export const updateEventDayRoles = async (
+  eventId: number,
+  date: string,
+  roles: Omit<EventRoleSlot, "assignedCount">[],
+) => {
+  const response = await adminAxios.put<EventDetail>(
+    `/admin/events/${eventId}/days/${date}/roles`,
+    { roles },
   );
 
   return response.data;
@@ -75,6 +94,21 @@ export const useEventMutation = () => {
     },
   });
 
+  const dayRolesMutation = useMutation<
+    EventDetail,
+    AppError,
+    { eventId: number; date: string; roles: Omit<EventRoleSlot, "assignedCount">[] }
+  >({
+    mutationFn: ({ eventId, date, roles }) =>
+      updateEventDayRoles(eventId, date, roles),
+    onSuccess: () => {
+      showAppToast("success", "이 날의 발주 인원을 저장했습니다.");
+      invalidateEvent();
+      // 배치 현황은 발주 대비 충원을 보여 주므로 함께 갱신한다.
+      queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
+    },
+  });
+
   const deleteMutation = useMutation<void, AppError, number>({
     mutationFn: deleteEvent,
     onSuccess: () => {
@@ -83,5 +117,11 @@ export const useEventMutation = () => {
     },
   });
 
-  return { createMutation, updateMutation, statusMutation, deleteMutation };
+  return {
+    createMutation,
+    updateMutation,
+    statusMutation,
+    deleteMutation,
+    dayRolesMutation,
+  };
 };

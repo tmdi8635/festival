@@ -5,10 +5,7 @@ import { useSelection } from "@/hooks/useSelection";
 import { useContractListQuery } from "@/api/contract/getContractList";
 import { useContractTemplateListQuery } from "@/api/contract/getContractTemplateList";
 import { useContractMutation } from "@/api/contract/mutateContract";
-import {
-  CONTRACT_STATUS_FILTER_OPTIONS,
-  CONTRACT_STATUS_TONE,
-} from "@/constants/contractOptions";
+import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import {
   CONTRACT_REVISION_COLUMNS,
   CONTRACT_STATUS_COLUMNS,
@@ -19,16 +16,21 @@ import {
 import { Check, Eye, FileText, Plus, Refresh, Send } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
-import { formatCurrency } from "@/lib/utils";
+import { showErrorToast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import { openConfirm } from "@/store/useConfirmStore";
-import { useJobRoleLabel } from "@/store/useOrgStore";
+import {
+  useJobRoleComparator,
+  useJobRoleFilterOptions,
+  useJobRoleLabel,
+} from "@/store/useOrgStore";
 import {
   CONTRACT_STATUS_LABEL,
   type Contract,
   type ContractStatus,
 } from "@/type/contract";
 import { type EventDetail } from "@/type/event";
-import { formatPhoneNumber } from "@/type/staff";
+import { formatPhoneNumber, type JobRole } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -39,9 +41,7 @@ import Select from "@/components/ui/Select";
 import Table, { TableCellStack, type TableColumn } from "@/components/ui/Table";
 import ContractAmendModal from "@/components/domain/ContractAmendModal";
 import ContractDetailModal from "@/components/domain/ContractDetailModal";
-import WageText from "@/components/domain/WageText";
 
-/** 행사 단위로 계약 이행 현황을 보관·확인할 때 쓰는 컬럼 */
 const CONTRACT_CSV_COLUMNS: CsvColumn<Contract>[] = [
   ...CONTRACT_WHO_COLUMNS,
   ...CONTRACT_WORK_COLUMNS,
@@ -53,6 +53,49 @@ const CONTRACT_CSV_COLUMNS: CsvColumn<Contract>[] = [
 /** 행사 하나의 계약서는 인원 수만큼이라 한 번에 받아 온다. */
 const CONTRACT_PAGE_SIZE = 200;
 
+/**
+ * 명단에서 한 사람이 놓인 자리.
+ * `NONE`은 "확정 배치는 됐는데 계약서가 아직 없다"는 뜻이다.
+ */
+type RosterState = "NONE" | ContractStatus;
+
+const ROSTER_STATE_LABEL: Record<RosterState, string> = {
+  NONE: "미발급",
+  ...CONTRACT_STATUS_LABEL,
+};
+
+/** 미발급은 '아직 시작도 안 한 것'이라 계약 상태들과 다른 색으로 둔다. */
+const ROSTER_STATE_TONE = {
+  NONE: "danger",
+  ...CONTRACT_STATUS_TONE,
+} as const;
+
+/**
+ * 처리 순서대로 세운다.
+ * 담당자가 보는 것은 "어디까지 왔나"이므로 미발급 → 작성 → 발송 → 서명 순이어야 하고,
+ * 손이 더 가야 하는 반려 · 만료가 완료된 것보다 뒤에 묻히면 안 된다.
+ */
+const ROSTER_STATE_ORDER: RosterState[] = [
+  "NONE",
+  "REJECTED",
+  "EXPIRED",
+  "DRAFT",
+  "SENT",
+  "SIGNED",
+  "SUPERSEDED",
+];
+
+interface RosterRow {
+  staffId: number;
+  staffName: string;
+  staffPhone: string;
+  /** 이 행사에서 맡은 직무. 첫날 설치 · 이후 스태프처럼 둘 이상일 수 있다. */
+  roles: JobRole[];
+  workDates: string[];
+  contract: Contract | null;
+  state: RosterState;
+}
+
 interface EventContractPanelProps {
   event: EventDetail;
 }
@@ -60,31 +103,40 @@ interface EventContractPanelProps {
 /**
  * 근로계약서 탭.
  *
- * 가장 큰 구멍은 "근무 전에 계약서가 나가지 못하는 것"이었다.
- * 계약서를 행사에 붙여 두면 배치를 끝낸 자리에서 곧바로 생성 · 발송까지 이어진다.
- * (예전에는 계약서 메뉴로 나가 같은 행사를 다시 검색해야 했다)
+ * **이 탭의 주인공은 계약서가 아니라 사람이다.**
+ * 예전에는 이미 만들어진 계약서만 늘어놓아서, 정작 담당자가 제일 알고 싶은
+ * "아직 계약서를 못 받은 사람이 누구인가"가 목록에 아예 없었다.
+ * 미작성 인원은 경고 문구 안의 숫자로만 있었고, 그 숫자를 눌러도 명단이 나오지 않았다.
+ *
+ * 그래서 **확정 배치된 전원**을 먼저 세우고, 각자가 계약 절차의 어디에 있는지를
+ * 한 줄로 붙인다. 미발급 · 작성됨 · 발송됨 · 반려 · 서명완료가 한 화면에서 갈린다.
+ *
+ * 계약서는 사람 한 명당 한 장이다. 여러 날 나오는 사람도 한 장에 근무일이 모두 담긴다.
+ * (날짜마다 만들면 서명도 날짜 수만큼 받아야 한다)
  */
 const EventContractPanel = ({ event }: EventContractPanelProps) => {
   const roleLabel = useJobRoleLabel();
+  const compareRoles = useJobRoleComparator();
+  const jobRoleFilterOptions = useJobRoleFilterOptions();
 
-  const [status, setStatus] = useState<ContractStatus | "">("");
+  const [state, setState] = useState<RosterState | "">("");
+  const [role, setRole] = useState<JobRole | "">("");
   const [detailContractId, setDetailContractId] = useState<number | null>(null);
   const [amendTarget, setAmendTarget] = useState<Contract | null>(null);
   // 고르기 전에는 기본 템플릿을 그대로 쓰고, 고르면 draft가 화면을 담당한다.
   const [draftTemplateId, setDraftTemplateId] = useState<string | null>(null);
+  /** 발급 대상 직무. 비우면 전체. */
+  const [generateRole, setGenerateRole] = useState<JobRole | "">("");
 
   const { data, isLoading } = useContractListQuery({
     page: 1,
     size: CONTRACT_PAGE_SIZE,
     eventId: String(event.eventId),
-    status: status || undefined,
   });
   const { data: templateData } = useContractTemplateListQuery();
   const { generateMutation, statusMutation } = useContractMutation();
 
-  const rows = data?.content ?? [];
-  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
-    useSelection(rows.map((row) => row.contractId));
+  const contracts = data?.content ?? [];
 
   const templates = (templateData?.items ?? []).filter(
     (template) => template.isActive,
@@ -102,46 +154,104 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   }));
 
   /*
-    계약서는 사람 단위로 한 장이 나간다. (여러 날 나오는 인력도 한 장에 근무일이 모두 담긴다)
-    그래서 "아직 계약서가 없는 사람"은 확정 배치의 인력 중 계약서에 없는 사람이다.
-    상태 필터가 걸려 있으면 목록만으로는 셀 수 없어 전체 목록을 따로 받는다.
+    명단은 **확정 배치**에서 만든다. 계약서 목록에서 만들면 아직 계약서가 없는 사람이
+    영영 나오지 않는다. 그게 이 화면에서 가장 먼저 보여야 할 사람인데도.
   */
-  const { data: allContractData } = useContractListQuery({
-    page: 1,
-    size: CONTRACT_PAGE_SIZE,
-    eventId: String(event.eventId),
-  });
-  const contractedStaffIds = new Set(
-    (allContractData?.content ?? []).map((contract) => contract.staffId),
-  );
-  const missingStaff = [
-    ...new Map(
-      event.assignments
-        .filter(
-          (assignment) =>
-            assignment.status === "CONFIRMED" &&
-            !contractedStaffIds.has(assignment.staffId),
-        )
-        .map((assignment) => [assignment.staffId, assignment]),
-    ).values(),
-  ];
+  const rosterMap = new Map<number, RosterRow>();
+
+  for (const assignment of event.assignments) {
+    if (assignment.status !== "CONFIRMED") continue;
+
+    const existing = rosterMap.get(assignment.staffId);
+
+    if (existing) {
+      if (!existing.roles.includes(assignment.role)) {
+        existing.roles.push(assignment.role);
+      }
+      if (!existing.workDates.includes(assignment.workDate)) {
+        existing.workDates.push(assignment.workDate);
+      }
+      continue;
+    }
+
+    rosterMap.set(assignment.staffId, {
+      staffId: assignment.staffId,
+      staffName: assignment.staffName,
+      staffPhone: assignment.staffPhone,
+      roles: [assignment.role],
+      workDates: [assignment.workDate],
+      contract: null,
+      state: "NONE",
+    });
+  }
 
   /*
-    재작성한 뒤 아직 서명을 못 받은 건.
-
-    중도 종료를 처리하고 나면 새 차수가 '작성됨'으로 남는데, 이건
-    "계약서가 있다"에 걸려 미작성 인원 알림에는 잡히지 않는다.
-    그대로 두면 서명 없는 문서로 정산까지 가므로 따로 세어 보여 준다.
+    한 사람에게 차수가 여럿일 수 있다. (중도 종료로 재작성한 경우)
+    지나간 문서(SUPERSEDED)가 대표로 잡히면 "이미 끝난 사람"으로 보이므로
+    가장 높은 차수를 그 사람의 현재 상태로 삼는다.
   */
-  const amendedUnsigned = (allContractData?.content ?? []).filter(
-    (contract) => contract.revision > 1 && contract.status !== "SIGNED",
-  );
+  for (const contract of contracts) {
+    const row = rosterMap.get(contract.staffId);
 
-  const handleGenerate = () => {
-    generateMutation.mutate({
-      eventId: event.eventId,
-      templateId: Number(templateId),
-    });
+    if (!row) continue;
+    if (row.contract && row.contract.revision >= contract.revision) continue;
+
+    row.contract = contract;
+    row.state = contract.status;
+  }
+
+  const roster = [...rosterMap.values()].map((row) => ({
+    ...row,
+    roles: [...row.roles].sort(compareRoles),
+    workDates: [...row.workDates].sort(),
+  }));
+
+  const rows = roster
+    .filter((row) => {
+      if (state && row.state !== state) return false;
+      if (role && !row.roles.includes(role)) return false;
+
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        ROSTER_STATE_ORDER.indexOf(a.state) -
+          ROSTER_STATE_ORDER.indexOf(b.state) ||
+        compareRoles(a.roles[0], b.roles[0]) ||
+        a.staffName.localeCompare(b.staffName),
+    );
+
+  /** 상태별 인원. 눌러서 그 상태만 걸러 볼 수 있게 한다. */
+  const stateCounts = ROSTER_STATE_ORDER.map((value) => ({
+    value,
+    count: roster.filter((row) => row.state === value).length,
+  })).filter((item) => item.count > 0);
+
+  /* 상태를 한꺼번에 바꾸는 건 계약서가 있는 사람만 가능하다. */
+  const selectableIds = rows
+    .filter((row) => row.contract)
+    .map((row) => row.contract!.contractId);
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(selectableIds);
+
+  const missingCount = roster.filter((row) => row.state === "NONE").length;
+  /** 발급 대상 직무에서 아직 계약서가 없는 인원 */
+  const generateTargetCount = roster.filter(
+    (row) =>
+      row.state === "NONE" &&
+      (!generateRole || row.roles.includes(generateRole)),
+  ).length;
+
+  const handleGenerate = async () => {
+    try {
+      await generateMutation.mutateAsync({
+        eventId: event.eventId,
+        templateId: Number(templateId),
+        role: generateRole || undefined,
+      });
+    } catch (error) {
+      showErrorToast(error);
+    }
   };
 
   const handleBulkStatus = (nextStatus: ContractStatus) => {
@@ -161,7 +271,7 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
     });
   };
 
-  const columns: TableColumn<Contract>[] = [
+  const columns: TableColumn<RosterRow>[] = [
     {
       key: "select",
       header: (
@@ -173,155 +283,140 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
       ),
       width: "44px",
       align: "center",
-      render: (contract) => (
-        <div onClick={(clickEvent) => clickEvent.stopPropagation()}>
-          <Checkbox
-            aria-label={`${contract.staffName} 선택`}
-            checked={isSelected(contract.contractId)}
-            onChange={() => toggle(contract.contractId)}
-          />
-        </div>
-      ),
+      render: (row) =>
+        row.contract ? (
+          <div onClick={(clickEvent) => clickEvent.stopPropagation()}>
+            <Checkbox
+              aria-label={`${row.staffName} 선택`}
+              checked={isSelected(row.contract.contractId)}
+              onChange={() => toggle(row.contract!.contractId)}
+            />
+          </div>
+        ) : null,
     },
     {
       key: "staff",
       header: "근로자",
-      render: (contract) => (
+      render: (row) => (
         <TableCellStack
-          primary={contract.staffName}
+          primary={row.staffName}
           secondary={
             <span className="tabular-nums">
-              {formatPhoneNumber(contract.staffPhone)}
+              {formatPhoneNumber(row.staffPhone)}
             </span>
           }
         />
-      ),
-    },
-    {
-      /*
-        재작성본은 계약번호만 보고 알 수 있어야 한다.
-        같은 사람의 계약서가 두 줄 있는데 어느 쪽이 유효한지 모르면
-        옛 문서를 들고 서명을 받으러 간다.
-      */
-      key: "contractNumber",
-      header: "계약번호",
-      render: (contract) => (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13px] text-font-2 tabular-nums">
-            {contract.contractNumber}
-          </span>
-          {contract.revision > 1 && (
-            <Badge tone="info" title={contract.amendReason}>
-              {contract.revision}차
-            </Badge>
-          )}
-        </div>
       ),
     },
     {
       key: "role",
       header: "직무",
-      render: (contract) => (
-        <Badge tone="neutral">{roleLabel(contract.role)}</Badge>
+      render: (row) => (
+        <div className="flex flex-wrap items-center gap-1">
+          {row.roles.map((item) => (
+            <Badge key={item} tone="neutral">
+              {roleLabel(item)}
+            </Badge>
+          ))}
+        </div>
       ),
     },
     {
-      /* 여러 날 나오는 인력은 근무일이 여러 개다. 며칠짜리 계약인지가 금액의 근거다. */
-      key: "workDates",
-      header: "계약 근무일",
-      render: (contract) => (
+      key: "work",
+      header: "근무일",
+      render: (row) => (
         <TableCellStack
-          primary={
-            <span className="tabular-nums">
-              {formatDate(contract.workDates[0])}
-              {contract.workDates.length > 1 &&
-                ` 외 ${contract.workDates.length - 1}일`}
-            </span>
-          }
+          primary={<span className="tabular-nums">{row.workDates.length}일</span>}
           secondary={
             <span className="tabular-nums">
-              총 {contract.totalWorkHours}시간
-              {/* 중도 종료로 빠진 날은 이 줄에서 바로 보여야 금액이 설명된다. */}
-              {contract.removedWorkDates &&
-                contract.removedWorkDates.length > 0 &&
-                ` · 제외 ${contract.removedWorkDates.length}일`}
+              {formatDate(row.workDates[0])}
+              {row.workDates.length > 1 &&
+                ` ~ ${formatDate(row.workDates[row.workDates.length - 1])}`}
             </span>
           }
         />
       ),
     },
     {
-      key: "wage",
-      header: "임금",
-      align: "right",
-      numeric: true,
-      render: (contract) =>
-        /*
-          날마다 금액이 다른 건은 대표 금액 하나를 적으면 안 된다.
-          "시급 12,000원"과 총 지급액이 맞지 않아 오히려 계산을 의심하게 된다.
-        */
-        contract.hasMixedWage ? (
-          <Badge tone="neutral" title="근무일마다 지급 조건이 다릅니다.">
-            근무일별 상이
+      key: "state",
+      header: "계약서",
+      render: (row) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={ROSTER_STATE_TONE[row.state]}>
+            {ROSTER_STATE_LABEL[row.state]}
           </Badge>
-        ) : (
-          <WageText wageType={contract.wageType} wage={contract.wage} />
-        ),
-    },
-    {
-      key: "totalWage",
-      header: "총 지급액",
-      align: "right",
-      numeric: true,
-      render: (contract) => (
-        <span className="font-medium">{formatCurrency(contract.totalWage)}</span>
+          {row.contract && row.contract.revision > 1 && (
+            <Badge tone="warning">{row.contract.revision}차</Badge>
+          )}
+        </div>
       ),
     },
     {
-      key: "status",
-      header: "상태",
-      render: (contract) => (
-        <Badge tone={CONTRACT_STATUS_TONE[contract.status]}>
-          {CONTRACT_STATUS_LABEL[contract.status]}
-        </Badge>
+      key: "number",
+      header: "계약번호",
+      render: (row) => (
+        <span
+          className={cn(
+            "text-[13px] tabular-nums",
+            row.contract ? "text-font-1" : "text-font-disabled",
+          )}
+        >
+          {/* 번호는 계약서를 만들 때 붙는다. 없다는 것 자체가 "아직 시작 전"이라는 뜻이다. */}
+          {row.contract?.contractNumber ?? "발급 전"}
+        </span>
       ),
     },
     {
       key: "actions",
       header: "",
-      width: "220px",
       align: "right",
-      render: (contract) => (
+      render: (row) => (
         <div
-          className="flex justify-end"
+          className="flex flex-wrap items-center justify-end gap-1"
           onClick={(clickEvent) => clickEvent.stopPropagation()}
         >
-          {/*
-            재작성은 여러 날짜 계약에서만 뜻이 있다.
-            하루짜리 계약은 뺄 날이 없어서, 안 나왔으면 재작성이 아니라 해지다.
-            이미 대체된 문서도 손대지 않는다. 항상 마지막 차수에서만 이어 간다.
-          */}
-          {contract.workDates.length > 1 &&
-            contract.status !== "SUPERSEDED" && (
+          {row.contract ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                leftIcon={<Eye size={14} />}
+                onClick={() => setDetailContractId(row.contract!.contractId)}
+              >
+                상세
+              </Button>
+
+              {/* 중도 종료는 계약서 · 배치 · 정산이 함께 움직여야 한다. */}
               <Button
                 size="sm"
                 variant="ghost"
                 leftIcon={<Refresh size={14} />}
-                onClick={() => setAmendTarget(contract)}
-                title="중도 종료된 인력의 계약서를 실제 근무일로 다시 만듭니다."
+                disabled={row.contract.status === "SUPERSEDED"}
+                onClick={() => setAmendTarget(row.contract)}
               >
-                중도 종료
+                재작성
               </Button>
-            )}
-
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon={<Eye size={14} />}
-            onClick={() => setDetailContractId(contract.contractId)}
-          >
-            미리보기
-          </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<FileText size={14} />}
+              isLoading={generateMutation.isPending}
+              onClick={() =>
+                generateMutation
+                  .mutateAsync({
+                    eventId: event.eventId,
+                    templateId: Number(templateId),
+                    role: row.roles[0],
+                  })
+                  .catch(showErrorToast)
+              }
+              title="선택한 템플릿으로 이 사람의 계약서를 만듭니다."
+            >
+              발급
+            </Button>
+          )}
         </div>
       ),
     },
@@ -329,135 +424,161 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
 
   return (
     <>
-      {/*
-        계약서가 없는 확정 인원을 먼저 보여 준다.
-        "몇 명 남았는가"를 세는 일과 "만들기"를 같은 자리에서 끝낸다.
-      */}
-      {missingStaff.length > 0 && (
+      {missingCount > 0 && (
         <Alert
           tone="danger"
-          title={`계약서가 없는 확정 인원이 ${missingStaff.length}명 있습니다.`}
+          title={`계약서를 아직 받지 못한 인원이 ${missingCount}명 있습니다.`}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => setState("NONE")}>
+              미발급만 보기
+            </Button>
+          }
         >
-          {missingStaff
-            .slice(0, 8)
-            .map((assignment) => assignment.staffName)
-            .join(", ")}
-          {missingStaff.length > 8 && ` 외 ${missingStaff.length - 8}명`} ·
-          서명이 끝나야 현장 투입이 가능합니다. 아래에서 템플릿을 고르고 한 번에
-          만드세요.
-        </Alert>
-      )}
-
-      {amendedUnsigned.length > 0 && (
-        <Alert
-          tone="warning"
-          title={`재작성한 계약서 ${amendedUnsigned.length}건의 서명이 아직입니다.`}
-        >
-          {amendedUnsigned
-            .map((contract) => `${contract.staffName}(${contract.revision}차)`)
-            .join(", ")}{" "}
-          · 재작성본은 <b>서명을 처음부터 다시</b> 받아야 합니다. 이전 차수의
-          서명은 바뀐 근무일 · 금액에 대한 동의가 아닙니다.
+          근로계약서는 현장 투입 **전에** 끝나야 합니다. 아래 목록에서 직무별로
+          템플릿을 골라 발급할 수 있습니다.
         </Alert>
       )}
 
       <Card noPadding>
+        {/* 발급 줄. 직무마다 계약 조건이 달라 템플릿을 나눠 쓰는 일이 흔하다. */}
         <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="계약서 템플릿"
-              options={
-                templateOptions.length > 0
-                  ? templateOptions
-                  : [{ label: "사용 가능한 템플릿이 없습니다", value: "0" }]
-              }
+              options={templateOptions}
               value={templateId}
               onChange={(changeEvent) =>
                 setDraftTemplateId(changeEvent.target.value)
               }
-              selectBoxClassName="w-52"
-            />
-
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Plus size={15} />}
-              onClick={handleGenerate}
-              disabled={templateId === "0" || missingStaff.length === 0}
-              isLoading={generateMutation.isPending}
-              title="계약서가 없는 확정 인원에게 한 번에 만듭니다."
-            >
-              계약서 일괄 생성
-              {missingStaff.length > 0 && ` (${missingStaff.length}명)`}
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <CsvExportButton
-              fileName={`${event.title}_근로계약서`}
-              rows={rows}
-              columns={CONTRACT_CSV_COLUMNS}
-              disabled={isLoading || rows.length === 0}
+              selectBoxClassName="lg:w-52"
             />
 
             <Select
-              aria-label="상태 필터"
-              options={CONTRACT_STATUS_FILTER_OPTIONS}
-              value={status}
-              onChange={(changeEvent) => {
-                setStatus(changeEvent.target.value as ContractStatus | "");
-                clear();
-              }}
-              selectBoxClassName="w-32"
+              aria-label="발급 대상 직무"
+              options={jobRoleFilterOptions}
+              value={generateRole}
+              onChange={(changeEvent) =>
+                setGenerateRole(changeEvent.target.value as JobRole | "")
+              }
+              selectBoxClassName="lg:w-32"
             />
+
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus size={15} />}
+              isLoading={generateMutation.isPending}
+              disabled={generateTargetCount === 0}
+              onClick={handleGenerate}
+              title={
+                generateRole
+                  ? `${roleLabel(generateRole)} 중 계약서가 없는 인원에게 발급합니다.`
+                  : "계약서가 없는 인원 전체에게 발급합니다."
+              }
+            >
+              {generateRole
+                ? `${roleLabel(generateRole)} ${generateTargetCount}명 발급`
+                : `미발급 ${generateTargetCount}명 발급`}
+            </Button>
           </div>
+
+          <CsvExportButton
+            fileName={`${event.title}_근로계약서`}
+            rows={contracts}
+            columns={CONTRACT_CSV_COLUMNS}
+            disabled={contracts.length === 0}
+          />
+        </div>
+
+        {/*
+          상태별 인원. 숫자만 보여 주고 끝내면 "반려 2건"을 보고도
+          그 두 사람을 찾으려 목록을 훑어야 한다. 눌러서 바로 걸러지게 한다.
+        */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border-main px-4 py-3 lg:px-5">
+          <button
+            type="button"
+            onClick={() => setState("")}
+            className={cn(
+              "rounded-field border px-2.5 py-1 text-[13px] whitespace-nowrap transition",
+              state === ""
+                ? "border-brand bg-surface-selected font-medium text-brand"
+                : "border-border-main text-font-2 hover:bg-surface-hover",
+            )}
+          >
+            전체 {roster.length}명
+          </button>
+
+          {stateCounts.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setState(item.value)}
+              className={cn(
+                "rounded-field border px-2.5 py-1 text-[13px] whitespace-nowrap transition",
+                state === item.value
+                  ? "border-brand bg-surface-selected font-medium text-brand"
+                  : "border-border-main text-font-2 hover:bg-surface-hover",
+              )}
+            >
+              {ROSTER_STATE_LABEL[item.value]} {item.count}
+            </button>
+          ))}
+
+          <Select
+            aria-label="직무 필터"
+            options={jobRoleFilterOptions}
+            value={role}
+            onChange={(changeEvent) => {
+              setRole(changeEvent.target.value as JobRole | "");
+              clear();
+            }}
+            selectBoxClassName="lg:w-32"
+          />
         </div>
 
         {selectedIds.length > 0 && (
-          <div className="flex items-center justify-between gap-3 border-b border-border-main bg-subtle px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border-main bg-subtle px-4 py-3 lg:px-5">
             <span className="text-[13px] text-font-2 tabular-nums">
               {selectedIds.length}건 선택
             </span>
 
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                leftIcon={<Send size={14} />}
-                onClick={() => handleBulkStatus("SENT")}
-              >
-                발송 처리
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                leftIcon={<Check size={14} />}
-                onClick={() => handleBulkStatus("SIGNED")}
-              >
-                서명 완료
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<Send size={14} />}
+              onClick={() => handleBulkStatus("SENT")}
+            >
+              발송 처리
+            </Button>
+
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<Check size={14} />}
+              onClick={() => handleBulkStatus("SIGNED")}
+            >
+              서명 완료
+            </Button>
           </div>
         )}
 
         <Table
           columns={columns}
           rows={rows}
-          getRowKey={(contract) => String(contract.contractId)}
+          getRowKey={(row) => String(row.staffId)}
           isLoading={isLoading}
-          onRowClick={(contract) => setDetailContractId(contract.contractId)}
-          emptyTitle="이 행사의 계약서가 아직 없습니다."
-          emptyDescription="확정 배치를 끝낸 뒤 템플릿을 고르고 '계약서 일괄 생성'을 눌러 보세요."
-          emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<FileText size={15} />}
-              onClick={handleGenerate}
-              disabled={templateId === "0" || missingStaff.length === 0}
-              isLoading={generateMutation.isPending}
-            >
-              계약서 일괄 생성
-            </Button>
+          emptyTitle={
+            roster.length === 0
+              ? "확정된 배치가 없습니다."
+              : "조건에 맞는 인원이 없습니다."
+          }
+          emptyDescription={
+            roster.length === 0
+              ? "인력을 배치하고 확정하면 여기에 계약 대상이 나타납니다."
+              : "상태나 직무 필터를 바꿔서 다시 찾아보세요."
+          }
+          onRowClick={(row) =>
+            row.contract && setDetailContractId(row.contract.contractId)
           }
         />
       </Card>
@@ -469,7 +590,6 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
 
       <ContractAmendModal
         contract={amendTarget}
-        event={event}
         onClose={() => setAmendTarget(null)}
       />
     </>

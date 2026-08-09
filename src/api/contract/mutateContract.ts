@@ -3,12 +3,21 @@ import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
 import type { Contract, ContractStatus } from "@/type/contract";
+import type { JobRole } from "@/type/staff";
 
 export interface GenerateContractRequest {
   eventId: number;
   templateId: number;
   /** 지정하지 않으면 계약서가 없는 확정 배치 전부를 대상으로 합니다. */
   assignmentIds?: number[];
+  /**
+   * 이 직무만 발급합니다. 비우면 전체.
+   *
+   * 직무마다 계약 조건이 달라 템플릿을 나눠 쓰는 경우가 많습니다.
+   * (팀장은 책임 범위, 설치는 일급과 안전 조항) 전체 발급만 있으면
+   * 첫 직무 템플릿으로 전원이 묶여 나갑니다.
+   */
+  role?: JobRole;
 }
 
 export const generateContracts = async (body: GenerateContractRequest) => {

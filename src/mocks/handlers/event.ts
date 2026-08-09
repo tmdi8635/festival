@@ -6,6 +6,7 @@ import type {
   CalendarEvent,
   EventDetail,
   EventFormValues,
+  EventRoleSlot,
   EventStatus,
   WageType,
 } from "@/type/event";
@@ -310,6 +311,72 @@ export const eventHandlers = [
 
     return HttpResponse.json(event);
   }),
+
+  /**
+   * 근무일 하나의 발주 인원을 고친다.
+   *
+   * 행사 폼의 발주는 **모든 날에 같은 인원**을 깔아 주는 초기값일 뿐이다.
+   * 실제 현장은 날마다 필요한 사람이 다르다. (설치는 첫날만, 철거는 마지막 날만,
+   * 주말에만 인원을 늘리는 식) 그걸 표현할 방법이 없으면 담당자는
+   * 가장 많이 필요한 날에 맞춰 발주를 잡아 두고 나머지 날은 머릿속으로 뺀다.
+   */
+  http.put(
+    `${BASE_URI}/admin/events/:eventId/days/:date/roles`,
+    async ({ params, request }) => {
+      const event = findEvent(Number(params.eventId));
+      const { roles } = (await request.json()) as {
+        roles: Omit<EventRoleSlot, "assignedCount">[];
+      };
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const day = event.days.find((item) => item.date === params.date);
+
+      if (!day) return notFound("존재하지 않는 근무일입니다.");
+
+      const duplicated = roles.find(
+        (slot, index) =>
+          roles.findIndex((other) => other.role === slot.role) !== index,
+      );
+
+      if (duplicated) {
+        return badRequest("같은 직무를 두 번 넣을 수 없습니다.", "DUPLICATED_ROLE");
+      }
+
+      /*
+        이미 배치된 사람이 있는 직무는 뺄 수 없다.
+        발주만 지우면 배치는 남아 "발주 0명인데 3명이 나오는 날"이 만들어지고,
+        그 사람들의 계약서 · 정산은 근거 없는 문서가 된다.
+      */
+      const removed = day.roles.filter(
+        (slot) => !roles.some((next) => next.role === slot.role),
+      );
+      const blocked = removed.find((slot) =>
+        event.assignments.some(
+          (assignment) =>
+            assignment.workDate === day.date &&
+            assignment.role === slot.role &&
+            assignment.status !== "CANCELED",
+        ),
+      );
+
+      if (blocked) {
+        return badRequest(
+          "이미 배치된 인력이 있는 직무는 뺄 수 없습니다. 배치를 먼저 해제해 주세요.",
+          "ROLE_HAS_ASSIGNMENT",
+        );
+      }
+
+      day.roles = roles.map((slot) => ({ ...slot, assignedCount: 0 }));
+
+      // 합계 · 충원 상태는 일자별 계획이 원본이다. 여기서 다시 세어 맞춘다.
+      recalculateEventCounts(event);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(event);
+    },
+  ),
 
   http.patch(
     `${BASE_URI}/admin/events/:eventId/status`,
