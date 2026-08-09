@@ -14,7 +14,7 @@ import { Check, Coin, Download, Wallet } from "@/icons";
 import { downloadCsv, type CsvColumn } from "@/lib/csv";
 import { showAppToast } from "@/lib/toast";
 import { formatCurrency } from "@/lib/utils";
-import { canViewPayrollDetail, useAdminStore } from "@/store/useAdminStore";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import {
   jobRoleLabel,
@@ -109,9 +109,8 @@ const PayrollManager = () => {
   const [role, setRole] = useState<JobRole | "">("");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
   const [adjustTarget, setAdjustTarget] = useState<PayrollItem | null>(null);
-
-  const admin = useAdminStore((state) => state.admin);
-  const canViewAccount = canViewPayrollDetail(admin?.role);
+  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  const canViewAccount = useHasPermission("payroll:read");
 
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   const roleLabel = useJobRoleLabel();

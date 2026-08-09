@@ -1,32 +1,46 @@
+import type { PermissionKey } from "./permission";
 import type { JobRoleDef } from "./staff";
 
 /** 운영 도메인 타입. 내부 담당자 · 로그 · 기준 설정을 다룬다. */
 
-export type ManagerRole = "OWNER" | "MANAGER" | "VIEWER";
-
-export const MANAGER_ROLE_LABEL: Record<ManagerRole, string> = {
-  OWNER: "대표",
-  MANAGER: "매니저",
-  VIEWER: "조회전용",
-};
-
 /**
- * 권한 설명.
- * 대표 한 사람에게 몰린 업무를 나누는 것이 이 시스템의 목적이므로
- * 매니저에게 어디까지 열어 줄지 화면에서 분명히 보여 준다.
+ * 직책.
+ *
+ * 권한은 사람이 아니라 **직책**이 갖는다. 담당자는 직책에 들어갈 뿐이다.
+ * 사람이 바뀌어도 직책은 남고, 규칙이 바뀌면 직책 하나만 고치면 된다.
  */
-export const MANAGER_ROLE_DESCRIPTION: Record<ManagerRole, string> = {
-  OWNER: "모든 기능과 정산 · 계좌 정보까지 접근합니다.",
-  MANAGER: "행사 · 배치 · 계약 · 공고를 처리합니다. 계좌 정보는 볼 수 없습니다.",
-  VIEWER: "일정과 배치 현황만 조회합니다.",
-};
+export interface AdminRole {
+  roleId: number;
+  name: string;
+  description: string;
+  permissions: PermissionKey[];
+  /**
+   * 시스템이 보장하는 직책. **최고관리자 하나뿐이다.**
+   *
+   * 권한을 뺄 수도, 지울 수도 없다. 뺄 수 있으면 실수 한 번으로
+   * "권한을 되돌릴 수 있는 사람이 아무도 없는" 상태가 만들어진다.
+   */
+  isSuperAdmin: boolean;
+  /** 이 직책에 속한 담당자 수. 지우기 전에 옮길 사람이 있는지 보여 준다. */
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface AdminRoleFormValues {
+  name: string;
+  description: string;
+  permissions: PermissionKey[];
+}
 
 export interface Manager {
   managerId: number;
   name: string;
   email: string;
   phoneNumber: string;
-  role: ManagerRole;
+  roleId: number;
+  /** 목록에서 바로 보여 주기 위한 직책 이름 */
+  roleName: string;
+  isSuperAdmin: boolean;
   isActive: boolean;
   /** 담당 중인 행사 수 */
   eventCount: number;
@@ -38,7 +52,7 @@ export interface ManagerFormValues {
   name: string;
   email: string;
   phoneNumber: string;
-  role: ManagerRole;
+  roleId: number;
   isActive: boolean;
 }
 

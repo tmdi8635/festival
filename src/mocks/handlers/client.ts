@@ -9,10 +9,15 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 export const clientHandlers = [
   http.get(`${BASE_URI}/admin/clients`, async ({ request }) => {
+    const denied = requirePermission(request, "client:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const isActive = url.searchParams.get("isActive") ?? "";
@@ -35,7 +40,11 @@ export const clientHandlers = [
     return HttpResponse.json(paginate(sorted, url));
   }),
 
-  http.get(`${BASE_URI}/admin/clients/:clientId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/clients/:clientId`, async ({ params , request }) => {
+    const denied = requirePermission(request, "client:read");
+
+    if (denied) return denied;
+
     const clientId = Number(params.clientId);
     const client = clients.find((item) => item.clientId === clientId);
 

@@ -32,6 +32,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 import type { JobRole } from "@/type/staff";
 
@@ -87,6 +88,10 @@ export const contractHandlers = [
    * 이미 계약서가 있는 배치는 건너뛰고 없는 것만 만든다.
    */
   http.post(`${BASE_URI}/admin/contracts/generate`, async ({ request }) => {
+      const denied = requirePermission(request, "contract:write");
+
+      if (denied) return denied;
+
     const body = (await request.json()) as {
       eventId: number;
       templateId: number;
@@ -219,6 +224,10 @@ export const contractHandlers = [
   http.post(
     `${BASE_URI}/admin/contracts/:contractId/amend`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:write");
+
+      if (denied) return denied;
+
       const previous = findContract(Number(params.contractId));
       const body = (await request.json()) as {
         workDates: string[];
@@ -432,6 +441,10 @@ export const contractHandlers = [
 
   /** 상태 변경 (발송 · 서명 완료 · 반려) */
   http.patch(`${BASE_URI}/admin/contracts/status`, async ({ request }) => {
+      const denied = requirePermission(request, "contract:send");
+
+      if (denied) return denied;
+
     const body = (await request.json()) as {
       contractIds: number[];
       status: ContractStatus;

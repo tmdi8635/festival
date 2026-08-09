@@ -1,4 +1,10 @@
 import { HttpResponse } from "msw";
+import {
+  hasPermission,
+  permissionLabel,
+  type PermissionKey,
+} from "@/type/permission";
+import { adminRoles, managers } from "./db/ops";
 import { DEFAULT_PAGE_SIZE, PageResponse } from "@/type/api";
 
 /**
@@ -103,3 +109,47 @@ export const randomInt = (seed: number, min: number, max: number): number =>
 /** seed 기반 배열 요소 선택 */
 export const pickOne = <T>(seed: number, items: readonly T[]): T =>
   items[randomInt(seed, 0, items.length - 1)];
+
+/* ------------------------------------------------------------------ */
+/* 권한                                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 이 요청을 보낸 담당자가 권한을 갖고 있는지 본다.
+ *
+ * **막는 책임은 서버에 있다.** 화면에서 버튼을 감추는 것은 실수를 줄이는 장치일 뿐,
+ * 주소를 직접 치거나 화면이 오래 열려 있는 사이 권한이 바뀌면 그대로 통과한다.
+ *
+ * 거부할 때는 **무슨 권한이 필요한지**를 함께 돌려준다.
+ * "권한이 없습니다"만 보여 주면 담당자는 무엇을 요청해야 하는지 모르고,
+ * 결국 최고관리자에게 "그냥 다 열어 달라"고 말하게 된다.
+ */
+export const requirePermission = (
+  request: Request,
+  required: PermissionKey,
+): Response | null => {
+  const managerId = Number(request.headers.get("X-Admin-Id"));
+  const manager = managers.find((item) => item.managerId === managerId);
+
+  if (!manager || !manager.isActive) {
+    return HttpResponse.json(
+      { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." },
+      { status: 401 },
+    );
+  }
+
+  const role = adminRoles.find((item) => item.roleId === manager.roleId);
+
+  if (hasPermission(role?.permissions, required, role?.isSuperAdmin)) {
+    return null;
+  }
+
+  return HttpResponse.json(
+    {
+      code: "FORBIDDEN",
+      message: `이 작업에는 '${permissionLabel(required)}' 권한이 필요합니다. 현재 직책은 '${manager.roleName}'입니다.`,
+      fields: { requiredPermission: required, roleName: manager.roleName },
+    },
+    { status: 403 },
+  );
+};

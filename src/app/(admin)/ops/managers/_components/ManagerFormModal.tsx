@@ -2,19 +2,16 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAdminRoleListQuery } from "@/api/ops/getAdminRoleList";
 import { Controller, useForm } from "react-hook-form";
 import { useManagerMutation } from "@/api/ops/mutateManager";
-import { MANAGER_ROLE_OPTIONS } from "@/constants/opsOptions";
 import {
   EMPTY_MANAGER_VALUES,
   managerSchema,
   type ManagerSchema,
 } from "@/schema/ops.schema";
-import {
-  MANAGER_ROLE_DESCRIPTION,
-  type Manager,
-  type ManagerRole,
-} from "@/type/ops";
+import { type Manager } from "@/type/ops";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
@@ -35,7 +32,9 @@ const ManagerFormModal = ({
   manager,
   onClose,
 }: ManagerFormModalProps) => {
+  const router = useRouter();
   const { createMutation, updateMutation } = useManagerMutation();
+  const { data: roleData } = useAdminRoleListQuery();
 
   const {
     register,
@@ -58,14 +57,21 @@ const ManagerFormModal = ({
             name: manager.name,
             email: manager.email,
             phoneNumber: manager.phoneNumber,
-            role: manager.role,
+            roleId: manager.roleId,
             isActive: manager.isActive,
           }
         : EMPTY_MANAGER_VALUES,
     );
   }, [isOpen, manager, reset]);
 
-  const role = watch("role");
+  const roleId = watch("roleId");
+
+  const roles = roleData?.items ?? [];
+  const roleOptions = roles.map((item) => ({
+    label: item.isSuperAdmin ? `${item.name} (전권)` : item.name,
+    value: String(item.roleId),
+  }));
+  const selectedRole = roles.find((item) => item.roleId === roleId);
 
   const onSubmit = handleSubmit((values) => {
     if (manager) {
@@ -118,25 +124,43 @@ const ManagerFormModal = ({
           />
         </FormField>
 
-        <FormField label="권한" required error={errors.role?.message}>
+        {/*
+          권한을 여기서 직접 고르지 않는다. **직책을 고른다.**
+          담당자마다 권한을 주면 규칙이 바뀔 때 전원을 다시 손봐야 하고,
+          한 명만 빠뜨리면 그 사람만 조용히 다른 권한을 갖게 된다.
+        */}
+        <FormField label="직책" required error={errors.roleId?.message}>
           <Controller
             control={control}
-            name="role"
+            name="roleId"
             render={({ field }) => (
               <Select
-                options={MANAGER_ROLE_OPTIONS}
-                value={field.value}
-                onChange={(event) =>
-                  field.onChange(event.target.value as ManagerRole)
-                }
+                options={roleOptions}
+                placeholder="직책을 선택하세요"
+                value={String(field.value || "")}
+                onChange={(event) => field.onChange(Number(event.target.value))}
               />
             )}
           />
         </FormField>
 
-        <Alert tone="info" title="이 권한으로 할 수 있는 일">
-          {MANAGER_ROLE_DESCRIPTION[role]}
-        </Alert>
+        {selectedRole && (
+          <Alert
+            tone="info"
+            title={`'${selectedRole.name}'이 할 수 있는 일`}
+            action={
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => router.push("/ops/roles")}
+              >
+                직책 설정
+              </Button>
+            }
+          >
+            {selectedRole.description}
+          </Alert>
+        )}
 
         <Controller
           control={control}

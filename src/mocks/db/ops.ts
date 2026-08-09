@@ -1,6 +1,89 @@
-import type { Manager, OperationLog, OperationSettings } from "@/type/ops";
+import type { AdminRole, Manager, OperationLog, OperationSettings } from "@/type/ops";
+import { normalizePermissions, type PermissionKey } from "@/type/permission";
 import { DEFAULT_JOB_ROLES } from "@/type/staff";
 import { daysAgo } from "../utils";
+
+/**
+ * 직책 목업.
+ *
+ * 처음부터 여러 개를 깔아 둔다. 하나만 두면 "직책을 나눈다"는 개념 자체가
+ * 화면에서 드러나지 않아, 결국 전원이 최고관리자로 굴러가게 된다.
+ *
+ * 권한 구성은 실제로 업무를 나누는 방식에서 왔다.
+ * 현장을 굴리는 사람에게 정산 승인까지 열어 줄 이유가 없고,
+ * 정산을 보는 사람이 인력 서류(개인정보)를 볼 이유도 없다.
+ */
+export const adminRoles: AdminRole[] = [
+  {
+    roleId: 1,
+    name: "최고관리자",
+    description: "모든 권한을 갖습니다. 직책과 담당자를 관리합니다.",
+    permissions: [],
+    isSuperAdmin: true,
+    memberCount: 0,
+    createdAt: daysAgo(900),
+  },
+  {
+    roleId: 2,
+    name: "운영 매니저",
+    description: "행사 · 배치 · 계약을 처리합니다. 정산 승인과 계좌는 볼 수 없습니다.",
+    permissions: normalizePermissions([
+      "event:read", "event:write",
+      "assignment:read", "assignment:write", "assignment:delete",
+      "staff:read", "staff:write",
+      "contract:read", "contract:write", "contract:send",
+      "recruit:read", "recruit:write",
+      "message:read", "message:write",
+      "settings:read",
+      "log:read",
+    ] as PermissionKey[]),
+    isSuperAdmin: false,
+    memberCount: 0,
+    createdAt: daysAgo(420),
+  },
+  {
+    roleId: 3,
+    name: "정산 담당",
+    description: "정산 금액을 확인하고 지급을 승인합니다. 현장 배치는 조회만 합니다.",
+    permissions: normalizePermissions([
+      "event:read",
+      "assignment:read",
+      "staff:read",
+      "contract:read",
+      "payroll:read", "payroll:write", "payroll:approve", "payroll:pay",
+      "client:read",
+      "log:read",
+    ] as PermissionKey[]),
+    isSuperAdmin: false,
+    memberCount: 0,
+    createdAt: daysAgo(300),
+  },
+  {
+    roleId: 4,
+    name: "조회 전용",
+    description: "일정과 배치 현황만 봅니다. 아무것도 바꿀 수 없습니다.",
+    permissions: normalizePermissions([
+      "event:read",
+      "assignment:read",
+      "staff:read",
+    ] as PermissionKey[]),
+    isSuperAdmin: false,
+    memberCount: 0,
+    createdAt: daysAgo(90),
+  },
+];
+
+export const findAdminRole = (roleId: number) =>
+  adminRoles.find((role) => role.roleId === roleId);
+
+/** 직책별 인원은 담당자 목록이 원본이다. 따로 세어 두면 둘이 어긋난다. */
+export const recalculateRoleMemberCounts = () => {
+  adminRoles.forEach((role) => {
+    role.memberCount = managers.filter(
+      (manager) => manager.roleId === role.roleId,
+    ).length;
+  });
+};
 
 /**
  * 내부 담당자 목업.
@@ -14,7 +97,9 @@ export const managers: Manager[] = [
     name: "김도윤",
     email: "dy.kim@agency.co.kr",
     phoneNumber: "01033910284",
-    role: "OWNER",
+    roleId: 1,
+    roleName: "최고관리자",
+    isSuperAdmin: true,
     isActive: true,
     eventCount: 14,
     lastLoginAt: daysAgo(0, 9),
@@ -25,7 +110,9 @@ export const managers: Manager[] = [
     name: "박서진",
     email: "sj.park@agency.co.kr",
     phoneNumber: "01048820137",
-    role: "MANAGER",
+    roleId: 2,
+    roleName: "운영 매니저",
+    isSuperAdmin: false,
     isActive: true,
     eventCount: 13,
     lastLoginAt: daysAgo(0, 8),
@@ -36,7 +123,9 @@ export const managers: Manager[] = [
     name: "이가온",
     email: "gaon.lee@agency.co.kr",
     phoneNumber: "01072640918",
-    role: "MANAGER",
+    roleId: 2,
+    roleName: "운영 매니저",
+    isSuperAdmin: false,
     isActive: true,
     eventCount: 11,
     lastLoginAt: daysAgo(1, 19),
@@ -47,7 +136,9 @@ export const managers: Manager[] = [
     name: "최유나",
     email: "yn.choi@agency.co.kr",
     phoneNumber: "01059930472",
-    role: "VIEWER",
+    roleId: 4,
+    roleName: "조회 전용",
+    isSuperAdmin: false,
     isActive: true,
     eventCount: 0,
     lastLoginAt: daysAgo(6, 14),
@@ -58,11 +149,26 @@ export const managers: Manager[] = [
     name: "정민석",
     email: "ms.jung@agency.co.kr",
     phoneNumber: "01021170865",
-    role: "MANAGER",
+    roleId: 3,
+    roleName: "정산 담당",
+    isSuperAdmin: false,
     isActive: false,
     eventCount: 6,
     lastLoginAt: daysAgo(140, 11),
     createdAt: daysAgo(560),
+  },
+  {
+    managerId: 6,
+    name: "한지호",
+    email: "jh.han@agency.co.kr",
+    phoneNumber: "01087340192",
+    roleId: 3,
+    roleName: "정산 담당",
+    isSuperAdmin: false,
+    isActive: true,
+    eventCount: 0,
+    lastLoginAt: daysAgo(0, 10),
+    createdAt: daysAgo(210),
   },
 ];
 
@@ -187,3 +293,5 @@ export const operationLogs: OperationLog[] = [
     createdAt: daysAgo(14, 16),
   },
 ];
+
+recalculateRoleMemberCounts();

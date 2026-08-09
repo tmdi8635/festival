@@ -12,7 +12,9 @@ import {
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { ChevronDown, ChevronLeft, Close } from "@/icons";
 import { cn } from "@/lib/utils";
+import { useAdminStore } from "@/store/useAdminStore";
 import { useOrgStore } from "@/store/useOrgStore";
+import { hasPermission, type PermissionKey } from "@/type/permission";
 import { useSidebarStore } from "@/store/useSidebarStore";
 import Badge from "@/components/ui/Badge";
 
@@ -35,6 +37,17 @@ const Sidebar = () => {
     기준 설정에서 언제든 다시 열 수 있으므로 코드에서 지우지는 않는다.
   */
   const featureModes = useOrgStore((state) => state.featureModes);
+
+  /*
+    권한이 없는 화면은 메뉴에서 감춘다.
+    열리지도 않는 화면을 목록에 두면 담당자는 매번 눌러 보고 거부당한다.
+    (기능 잠금과는 다른 축이다 — 잠금은 "아직 없는 기능",
+     권한은 "당신에게 닫힌 기능"이라 안내 문구도 달라야 한다)
+  */
+  const admin = useAdminStore((state) => state.admin);
+  const isAllowed = (permission?: PermissionKey) =>
+    !permission ||
+    hasPermission(admin?.permissions, permission, admin?.isSuperAdmin);
 
   /*
     접힌 사이드바(아이콘만 남는 레일)는 넓은 화면에서만 뜻이 있다.
@@ -66,11 +79,14 @@ const Sidebar = () => {
 
   const renderGroup = (group: AdminMenuGroup) => {
     if (isLocked(group.feature)) return null;
+    if (group.href && !isAllowed(group.permission)) return null;
 
     const isActiveGroup = group.key === activeGroupKey;
     const isOpen = openGroupKeys.includes(group.key);
     const visibleChildren =
-      group.children?.filter((item) => !isLocked(item.feature)) ?? [];
+      group.children?.filter(
+        (item) => !isLocked(item.feature) && isAllowed(item.permission),
+      ) ?? [];
 
     // 하위가 전부 잠기면 그룹 자체를 보여 줄 이유가 없다.
     if (!group.href && visibleChildren.length === 0) return null;

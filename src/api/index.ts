@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from "axios";
+import { useAdminStore } from "@/store/useAdminStore";
 import type {
   ApiErrorResponse,
   ApiSuccessResponse,
@@ -65,7 +66,20 @@ const onResponseError = (error: AxiosError<ApiErrorResponse>) => {
 const onRequest = (
   config: InternalAxiosRequestConfig,
 ): InternalAxiosRequestConfig => {
-  // TODO: 관리자 로그인이 붙으면 여기에서 Authorization 헤더를 주입한다.
+  /*
+    누가 보낸 요청인지 싣는다.
+
+    권한 판정은 **화면이 아니라 서버가** 해야 한다. 화면에서 버튼을 감추는 것은
+    실수를 줄이는 장치일 뿐이고, 주소창에 직접 치거나 화면이 오래 열려 있는 사이
+    권한이 바뀌면 그대로 통과한다.
+
+    로그인이 붙으면 이 줄이 Authorization 헤더로 바뀌고, 서버가 토큰에서
+    담당자를 꺼낸다. 판정 로직은 그대로 산다.
+  */
+  const { admin } = useAdminStore.getState();
+
+  if (admin) config.headers.set("X-Admin-Id", String(admin.managerId));
+
   return config;
 };
 

@@ -32,6 +32,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 /** 목록 응답에서는 계좌 · 신분증처럼 민감한 값을 내려주지 않는다. */
@@ -307,6 +308,10 @@ export const staffHandlers = [
   ),
 
   http.post(`${BASE_URI}/admin/staff`, async ({ request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
     const body = (await request.json()) as StaffFormValues;
 
     const isDuplicated = staffList.some(
@@ -347,6 +352,10 @@ export const staffHandlers = [
   }),
 
   http.put(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
     const staff = findStaff(Number(params.staffId));
     const body = (await request.json()) as StaffFormValues;
 

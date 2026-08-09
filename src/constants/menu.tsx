@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import type { PermissionKey } from "@/type/permission";
 import type { FeatureKey } from "@/type/ops";
 import {
   Ban,
@@ -21,11 +22,20 @@ import {
   UserPlus,
   Users,
   Wallet,
+  ShieldAlert,
 } from "@/icons";
 
 export interface AdminMenuItem {
   label: string;
   href: string;
+  /**
+   * 이 화면을 보려면 필요한 권한.
+   *
+   * 없으면 메뉴에서 감춘다. 열리지도 않는 화면을 목록에 두면
+   * 담당자는 매번 눌러 보고 거부당한다. (기능 잠금 `feature`와는 다른 축이다 —
+   * 잠금은 "아직 없는 기능", 권한은 "당신에게 닫힌 기능")
+   */
+  permission?: PermissionKey;
   icon?: ReactNode;
   /**
    * 이 메뉴가 속한 기능.
@@ -44,6 +54,7 @@ export interface AdminMenuGroup {
   /** 그룹 전체가 하나의 기능인 경우 (예: 모집) */
   feature?: FeatureKey;
   children?: AdminMenuItem[];
+  permission?: PermissionKey;
 }
 
 const ICON_SIZE = 19;
@@ -80,16 +91,19 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "캘린더",
         href: "/schedule",
+        permission: "event:read",
         icon: <Calendar size={SUB_ICON_SIZE} />,
       },
       {
         label: "행사 목록",
         href: "/schedule/events",
+        permission: "event:read",
         icon: <Briefcase size={SUB_ICON_SIZE} />,
       },
       {
         label: "배치 · 근태 현황",
         href: "/schedule/assignments",
+        permission: "assignment:read",
         icon: <UserCheck size={SUB_ICON_SIZE} />,
       },
     ],
@@ -102,16 +116,19 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "인력풀",
         href: "/staff",
+        permission: "staff:read",
         icon: <Users size={SUB_ICON_SIZE} />,
       },
       {
         label: "서류 관리",
         href: "/staff/documents",
+        permission: "staffDocument:read",
         icon: <FileText size={SUB_ICON_SIZE} />,
       },
       {
         label: "블랙리스트",
         href: "/staff/blacklist",
+        permission: "blacklist:read",
         icon: <Ban size={SUB_ICON_SIZE} />,
       },
     ],
@@ -124,11 +141,13 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "계약서 관리",
         href: "/contracts",
+        permission: "contract:read",
         icon: <FileText size={SUB_ICON_SIZE} />,
       },
       {
         label: "계약서 템플릿",
         href: "/contracts/templates",
+        permission: "contract:read",
         icon: <Layers size={SUB_ICON_SIZE} />,
       },
     ],
@@ -142,18 +161,21 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "문자 발송",
         href: "/messages",
+        permission: "message:read",
         icon: <Send size={SUB_ICON_SIZE} />,
         feature: "MESSAGE",
       },
       {
         label: "발송 이력",
         href: "/messages/history",
+        permission: "message:read",
         icon: <Receipt size={SUB_ICON_SIZE} />,
         feature: "MESSAGE",
       },
       {
         label: "메시지 템플릿",
         href: "/messages/templates",
+        permission: "message:read",
         icon: <Bell size={SUB_ICON_SIZE} />,
         feature: "MESSAGE",
       },
@@ -164,12 +186,14 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
     label: "정산",
     icon: <Wallet size={ICON_SIZE} />,
     href: "/payroll",
+        permission: "payroll:read",
   },
   {
     key: "clients",
     label: "거래처",
     icon: <Building size={ICON_SIZE} />,
     href: "/clients",
+        permission: "client:read",
     feature: "CLIENT",
   },
   {
@@ -181,12 +205,14 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "공고 관리",
         href: "/recruit/postings",
+        permission: "recruit:read",
         icon: <ClipboardList size={SUB_ICON_SIZE} />,
         feature: "RECRUIT",
       },
       {
         label: "지원자 관리",
         href: "/recruit/applications",
+        permission: "recruit:read",
         icon: <UserPlus size={SUB_ICON_SIZE} />,
         feature: "RECRUIT",
       },
@@ -200,16 +226,25 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
       {
         label: "담당자 관리",
         href: "/ops/managers",
+        permission: "admin:read",
         icon: <ShieldCheck size={SUB_ICON_SIZE} />,
+      },
+      {
+        label: "직책 · 권한",
+        href: "/ops/roles",
+        permission: "role:read",
+        icon: <ShieldAlert size={SUB_ICON_SIZE} />,
       },
       {
         label: "기준 설정",
         href: "/ops/settings",
+        permission: "settings:read",
         icon: <Sliders size={SUB_ICON_SIZE} />,
       },
       {
         label: "운영 로그",
         href: "/ops/logs",
+        permission: "log:read",
         icon: <ListLines size={SUB_ICON_SIZE} />,
       },
     ],

@@ -14,7 +14,7 @@ import { downloadCsv, type CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { showAppToast } from "@/lib/toast";
 import { formatCurrency } from "@/lib/utils";
-import { canViewPayrollDetail, useAdminStore } from "@/store/useAdminStore";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { jobRoleLabel, useJobRoleLabel } from "@/store/useOrgStore";
 import { WAGE_TYPE_LABEL, type EventDetail } from "@/type/event";
@@ -96,8 +96,8 @@ interface EventPayrollPanelProps {
  */
 const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const roleLabel = useJobRoleLabel();
-  const admin = useAdminStore((state) => state.admin);
-  const canViewAccount = canViewPayrollDetail(admin?.role);
+  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  const canViewAccount = useHasPermission("payroll:read");
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [workDate, setWorkDate] = useState("");

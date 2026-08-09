@@ -15,7 +15,7 @@ import {
 import { Ban, Edit, EyeOff, Trash, Warning } from "@/icons";
 import { formatDate, formatDateTime } from "@/lib/dayjs";
 import { formatCurrency } from "@/lib/utils";
-import { canViewPayrollDetail, useAdminStore } from "@/store/useAdminStore";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import { CONTRACT_STATUS_LABEL } from "@/type/contract";
@@ -156,9 +156,8 @@ const StaffDetailModal = ({
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(
     null,
   );
-
-  const admin = useAdminStore((state) => state.admin);
-  const canViewAccount = canViewPayrollDetail(admin?.role);
+  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  const canViewAccount = useHasPermission("payroll:read");
 
   const jobRoleLabel = useJobRoleLabel();
 

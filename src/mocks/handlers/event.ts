@@ -40,6 +40,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 /** 목록 응답에는 배치 · 일자별 계획을 내려주지 않는다. 표에서 쓰지 않는 데이터라 무겁다. */
@@ -229,6 +230,10 @@ export const eventHandlers = [
   }),
 
   http.post(`${BASE_URI}/admin/events`, async ({ request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
     const body = (await request.json()) as EventFormValues;
     const client = clients.find((item) => item.clientId === body.clientId);
 
@@ -283,6 +288,10 @@ export const eventHandlers = [
   }),
 
   http.put(`${BASE_URI}/admin/events/:eventId`, async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
     const event = findEvent(Number(params.eventId));
     const body = (await request.json()) as EventFormValues;
 
@@ -337,6 +346,10 @@ export const eventHandlers = [
   http.put(
     `${BASE_URI}/admin/events/:eventId/days/:date/roles`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
       const event = findEvent(Number(params.eventId));
       const { roles } = (await request.json()) as {
         roles: Omit<EventRoleSlot, "assignedCount">[];
@@ -395,6 +408,10 @@ export const eventHandlers = [
   http.patch(
     `${BASE_URI}/admin/events/:eventId/status`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
       const event = findEvent(Number(params.eventId));
       const { status } = (await request.json()) as { status: EventStatus };
 
@@ -416,7 +433,11 @@ export const eventHandlers = [
     },
   ),
 
-  http.delete(`${BASE_URI}/admin/events/:eventId`, async ({ params }) => {
+  http.delete(`${BASE_URI}/admin/events/:eventId`, async ({ params, request }) => {
+      const denied = requirePermission(request, "event:delete");
+
+      if (denied) return denied;
+
     const index = events.findIndex(
       (event) => event.eventId === Number(params.eventId),
     );
@@ -548,6 +569,10 @@ export const eventHandlers = [
   http.post(
     `${BASE_URI}/admin/events/:eventId/assignments`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "assignment:write");
+
+      if (denied) return denied;
+
       const event = findEvent(Number(params.eventId));
       const body = (await request.json()) as {
         staffIds: number[];
@@ -728,6 +753,10 @@ export const eventHandlers = [
   http.patch(
     `${BASE_URI}/admin/assignments/:assignmentId`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "assignment:write");
+
+      if (denied) return denied;
+
       const assignmentId = Number(params.assignmentId);
       const body = (await request.json()) as Partial<
         Pick<

@@ -5,9 +5,10 @@ import { useTheme } from "next-themes";
 import { ADMIN_MENU, isMenuItemActive } from "@/constants/menu";
 import { useIsClient } from "@/hooks/useIsClient";
 import { ChevronRight, Menu, Moon, Search, Sun } from "@/icons";
-import { ADMIN_ROLE_LABEL, useAdminStore } from "@/store/useAdminStore";
+import { useAdminStore } from "@/store/useAdminStore";
 import { useSidebarStore } from "@/store/useSidebarStore";
 import IconButton from "@/components/ui/IconButton";
+import AdminAccountSwitcher from "./AdminAccountSwitcher";
 import ViewportModeToggle from "./ViewportModeToggle";
 
 /** 현재 경로에 해당하는 [1뎁스, 2뎁스] 라벨을 찾는다. */
@@ -90,7 +91,8 @@ const Header = () => {
           </kbd>
         </button>
 
-        {/* 테스트용: 폰에서도 데스크톱 배치를 확인한다. 확인이 끝나면 이 줄만 지우면 된다. */}
+        {/* 테스트용. 로그인이 붙으면 이 두 줄만 지우면 된다. */}
+        <AdminAccountSwitcher />
         <ViewportModeToggle />
 
         {isClient && (
@@ -110,7 +112,7 @@ const Header = () => {
             <div className="hidden leading-tight sm:block">
               <p className="text-[13px] font-medium text-font-1">{admin.name}</p>
               <p className="text-[12px] text-font-2">
-                {ADMIN_ROLE_LABEL[admin.role]}
+                {admin.roleName}
               </p>
             </div>
           </div>

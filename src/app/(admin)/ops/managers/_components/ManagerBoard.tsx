@@ -3,14 +3,11 @@
 import { useState } from "react";
 import { useManagerListQuery } from "@/api/ops/getManagerList";
 import { useManagerMutation } from "@/api/ops/mutateManager";
-import { MANAGER_ROLE_TONE } from "@/constants/opsOptions";
 import { Edit, Plus, Trash } from "@/icons";
 import { formatDateTime } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
 import { openConfirm } from "@/store/useConfirmStore";
 import {
-  MANAGER_ROLE_DESCRIPTION,
-  MANAGER_ROLE_LABEL,
   type Manager,
 } from "@/type/ops";
 import { formatPhoneNumber } from "@/type/staff";
@@ -72,11 +69,11 @@ const ManagerBoard = () => {
       header: "권한",
       render: (manager) => (
         <div className="flex flex-col gap-1">
-          <Badge tone={MANAGER_ROLE_TONE[manager.role]} className="w-fit">
-            {MANAGER_ROLE_LABEL[manager.role]}
+          <Badge tone={manager.isSuperAdmin ? "brand" : "neutral"} className="w-fit">
+            {manager.roleName}
           </Badge>
           <span className="text-[12px] text-font-2">
-            {MANAGER_ROLE_DESCRIPTION[manager.role]}
+            {manager.isSuperAdmin ? "모든 권한" : "직책 설정에서 권한을 봅니다."}
           </span>
         </div>
       ),
@@ -134,7 +131,7 @@ const ManagerBoard = () => {
             size="sm"
             variant="dangerGhost"
             leftIcon={<Trash size={14} />}
-            disabled={manager.role === "OWNER"}
+            disabled={manager.isSuperAdmin}
             onClick={() => handleDelete(manager)}
           >
             삭제

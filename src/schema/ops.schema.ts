@@ -7,7 +7,7 @@ export const managerSchema = z.object({
   phoneNumber: z
     .string()
     .regex(/^01[016789]\d{7,8}$/, "010으로 시작하는 숫자만 입력해 주세요."),
-  role: z.enum(["OWNER", "MANAGER", "VIEWER"]),
+  roleId: z.number().int().positive("직책을 선택해 주세요."),
   isActive: z.boolean(),
 });
 
@@ -17,7 +17,7 @@ export const EMPTY_MANAGER_VALUES: ManagerSchema = {
   name: "",
   email: "",
   phoneNumber: "",
-  role: "MANAGER",
+  roleId: 0,
   isActive: true,
 };
 

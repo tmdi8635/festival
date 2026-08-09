@@ -11,6 +11,7 @@ import {
   matchesKeyword,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 /** 목록과 합계가 같은 조건을 쓰도록 필터를 한 곳에 둔다. */
@@ -54,6 +55,10 @@ const filterPayrolls = (url: URL): PayrollItem[] => {
 
 export const payrollHandlers = [
   http.get(`${BASE_URI}/admin/payrolls/summary`, async ({ request }) => {
+    const denied = requirePermission(request, "payroll:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const filtered = filterPayrolls(url);
 
@@ -81,6 +86,10 @@ export const payrollHandlers = [
   }),
 
   http.get(`${BASE_URI}/admin/payrolls`, async ({ request }) => {
+    const denied = requirePermission(request, "payroll:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const sorted = filterPayrolls(url).sort((a, b) =>
       b.workDate.localeCompare(a.workDate),
@@ -93,6 +102,10 @@ export const payrollHandlers = [
 
   /** 상태 일괄 변경. 정산은 건별이 아니라 행사 단위로 처리하는 일이 많다. */
   http.patch(`${BASE_URI}/admin/payrolls/status`, async ({ request }) => {
+      const denied = requirePermission(request, "payroll:approve");
+
+      if (denied) return denied;
+
     const body = (await request.json()) as {
       payrollIds: number[];
       status: PayrollStatus;
