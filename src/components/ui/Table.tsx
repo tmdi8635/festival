@@ -53,7 +53,14 @@ const Table = <T,>({
   const isEmpty = !isLoading && rows.length === 0;
 
   return (
-    <div className={cn("w-full overflow-x-auto scrollbar-thin", className)}>
+    /*
+        등장 애니메이션은 **표 전체에 한 번**만 건다.
+        행마다 걸면 transform이 행마다 쌓임 맥락을 만들어,
+        행 안에서 연 더보기 메뉴가 다음 행에 덮인다.
+      */
+      <div
+        className={cn("animate-rise w-full overflow-x-auto scrollbar-thin", className)}
+      >
       <table className="w-full min-w-max text-[14px]">
         <thead>
           <tr className="bg-subtle">
@@ -90,7 +97,7 @@ const Table = <T,>({
                 key={getRowKey(row, rowIndex)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 className={cn(
-                  "animate-rise border-t border-border-main transition-colors hover:bg-surface-hover",
+                  "border-t border-border-main transition-colors hover:bg-surface-hover",
                   onRowClick && "cursor-pointer",
                 )}
               >

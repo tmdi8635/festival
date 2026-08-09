@@ -289,7 +289,11 @@ select:focus-visible {
   목록은 하루에 수십 번 여는 화면이라 그 0.1초가 쌓인다.
 */
 .animate-rise {
-  animation: admin-slide-up 0.18s ease-out both;
+  /*
+    `both`(fill-mode)를 쓰지 않는다. 끝난 뒤에도 `transform`이 남아 있으면
+    그 요소가 쌓임 맥락이 되어, 안에서 연 팝오버가 형제 요소에 덮인다.
+  */
+  animation: admin-slide-up 0.18s ease-out;
 }
 
 /*

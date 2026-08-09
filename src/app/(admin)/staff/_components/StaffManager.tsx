@@ -13,6 +13,7 @@ import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Eye, Plus, Trash } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import {
   jobRoleLabel,
@@ -93,6 +94,9 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
  * 배치할 사람을 고를 때는 정렬 기준(평판 · 근무 횟수)이 곧 판단 기준이 된다.
  */
 const StaffManager = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("staff:write");
+
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
 
@@ -318,17 +322,19 @@ const StaffManager = () => {
               selectBoxClassName="w-36"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormStaff(null);
-                setIsFormOpen(true);
-              }}
-            >
-              인력 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormStaff(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                인력 등록
+              </Button>
+            )}
           </div>
         </div>
 

@@ -19,6 +19,7 @@ import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
 import Table, { TableCellStack, type TableColumn } from "@/components/ui/Table";
 import StatTile from "@/components/domain/StatTile";
+import { useHasPermission } from "@/store/useAdminStore";
 import ClientFormModal from "./ClientFormModal";
 
 const ACTIVE_FILTER_OPTIONS = [
@@ -54,6 +55,9 @@ const CLIENT_CSV_COLUMNS: CsvColumn<Client>[] = [
  * 조건을 다시 협의할 근거가 되는 화면이다.
  */
 const ClientManager = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("client:write");
+
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
 
@@ -235,17 +239,19 @@ const ClientManager = () => {
               selectBoxClassName="w-32"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormClient(null);
-                setIsFormOpen(true);
-              }}
-            >
-              거래처 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormClient(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                거래처 등록
+              </Button>
+            )}
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from "axios";
+import { showAppToast } from "@/lib/toast";
 import { useAdminStore } from "@/store/useAdminStore";
 import type {
   ApiErrorResponse,
@@ -58,6 +59,21 @@ const onResponseError = (error: AxiosError<ApiErrorResponse>) => {
     fields: error.response?.data?.fields ?? {},
     message: error.response?.data?.message ?? "요청 처리에 실패했습니다.",
   };
+
+  /*
+    권한 거부(403)만은 **여기서 반드시 띄운다.**
+
+    다른 에러는 화면이 필요할 때만 `showErrorToast`로 처리하는데,
+    그 규칙을 권한에까지 적용하면 토스트를 안 붙인 화면에서
+    버튼을 눌러도 **아무 일도 일어나지 않는다.** 담당자는 고장으로 여긴다.
+    (실제로 조회 전용 계정이 행사 등록을 눌렀을 때 그렇게 됐다)
+
+    권한은 어느 화면에서든 같은 이유로 막히므로, 화면마다 기억하게 두지 않고
+    한 곳에서 처리한다.
+  */
+  if (error.response?.status === 403) {
+    showAppToast("error", appError.message);
+  }
 
   return Promise.reject(Object.assign(new Error(appError.message), appError));
 };

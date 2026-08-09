@@ -6,6 +6,7 @@ import { useManagerMutation } from "@/api/ops/mutateManager";
 import { Edit, Plus, Trash } from "@/icons";
 import { formatDateTime } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import {
   type Manager,
@@ -26,6 +27,10 @@ import ManagerFormModal from "./ManagerFormModal";
  * 매니저 계정을 만들고 권한을 나누는 것이 그 첫 단계다.
  */
 const ManagerBoard = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("admin:write");
+  const canDelete = useHasPermission("admin:delete");
+
   const [keyword, setKeyword] = useState("");
   const [formManager, setFormManager] = useState<Manager | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -116,26 +121,30 @@ const ManagerBoard = () => {
           className="flex justify-end gap-1"
           onClick={(event) => event.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon={<Edit size={14} />}
-            onClick={() => {
-              setFormManager(manager);
-              setIsFormOpen(true);
-            }}
-          >
-            수정
-          </Button>
-          <Button
-            size="sm"
-            variant="dangerGhost"
-            leftIcon={<Trash size={14} />}
-            disabled={manager.isSuperAdmin}
-            onClick={() => handleDelete(manager)}
-          >
-            삭제
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="ghost"
+              leftIcon={<Edit size={14} />}
+              onClick={() => {
+                setFormManager(manager);
+                setIsFormOpen(true);
+              }}
+            >
+              수정
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              size="sm"
+              variant="dangerGhost"
+              leftIcon={<Trash size={14} />}
+              disabled={manager.isSuperAdmin}
+              onClick={() => handleDelete(manager)}
+            >
+              삭제
+            </Button>
+          )}
         </div>
       ),
     },
@@ -156,17 +165,19 @@ const ManagerBoard = () => {
             placeholder="이름 · 이메일 · 연락처 검색"
           />
 
-          <Button
-            variant="primary"
-            size="sm"
-            leftIcon={<Plus size={15} />}
-            onClick={() => {
-              setFormManager(null);
-              setIsFormOpen(true);
-            }}
-          >
-            담당자 추가
-          </Button>
+          {canWrite && (
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus size={15} />}
+              onClick={() => {
+                setFormManager(null);
+                setIsFormOpen(true);
+              }}
+            >
+              담당자 추가
+            </Button>
+          )}
         </div>
 
         <Table

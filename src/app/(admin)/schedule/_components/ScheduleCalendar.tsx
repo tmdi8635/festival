@@ -19,6 +19,7 @@ import Select from "@/components/ui/Select";
 import Skeleton from "@/components/ui/Skeleton";
 import EventFormModal from "@/components/domain/EventFormModal";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
+import { useHasPermission } from "@/store/useAdminStore";
 import CalendarEventChip from "./CalendarEventChip";
 import MultiDayEventBar from "./MultiDayEventBar";
 
@@ -135,6 +136,9 @@ const buildBarSegments = (
  * 실제로 나가는 구간에만 막대를 그린다.
  */
 const ScheduleCalendar = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("event:write");
+
   const router = useRouter();
   const [view, setView] = useState<CalendarView>("MONTH");
   const [density, setDensity] = useState<CalendarDensity>("BRIEF");
@@ -362,14 +366,16 @@ const ScheduleCalendar = () => {
               selectBoxClassName="w-32"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => handleOpenForm()}
-            >
-              행사 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => handleOpenForm()}
+              >
+                행사 등록
+              </Button>
+            )}
           </div>
         </div>
 

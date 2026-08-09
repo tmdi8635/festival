@@ -14,6 +14,7 @@ import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Eye, Plus, Trash } from "@/icons";
 import { formatDateRange, formatDday } from "@/lib/dayjs";
 import type { CsvColumn } from "@/lib/csv";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { jobRoleLabel } from "@/store/useOrgStore";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
@@ -72,6 +73,9 @@ const EVENT_CSV_COLUMNS: CsvColumn<EventSummary>[] = [
  * 그래서 미충원 필터를 필터 바 안에 상시 노출한다.
  */
 const EventManager = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("event:write");
+
   const router = useRouter();
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
@@ -297,14 +301,16 @@ const EventManager = () => {
               selectBoxClassName="w-32"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => setIsFormOpen(true)}
-            >
-              행사 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => setIsFormOpen(true)}
+              >
+                행사 등록
+              </Button>
+            )}
           </div>
         </div>
 

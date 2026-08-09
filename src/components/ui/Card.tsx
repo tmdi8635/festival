@@ -25,7 +25,12 @@ const Card = ({
   return (
     <section
       className={cn(
-        "rounded-card border border-border-main bg-surface shadow-card",
+        /*
+          `overflow-hidden`으로 둥근 모서리 안쪽만 그린다.
+          noPadding 카드에 목록·표를 넣으면 자식의 각진 배경이
+          카드의 둥근 모서리를 뚫고 나온다.
+        */
+        "overflow-hidden rounded-card border border-border-main bg-surface shadow-card",
         className,
       )}
       {...props}

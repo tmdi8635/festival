@@ -17,7 +17,6 @@ import {
   normalizePermissions,
   permissionKey,
   type PermissionAction,
-  type PermissionKey,
   type PermissionResource,
 } from "@/type/permission";
 import Alert from "@/components/ui/Alert";
@@ -185,7 +184,7 @@ const RoleManager = () => {
           )
         }
       >
-        <ul className="flex flex-col">
+        <ul className="flex flex-col pb-1.5">
           {roles.map((role) => {
             const isActive = role.roleId === editing?.roleId;
 

@@ -11,6 +11,7 @@ import {
 import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Edit, Eye, Plus } from "@/icons";
 import { formatDate, formatDday } from "@/lib/dayjs";
+import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleFilterOptions, useJobRoleLabel } from "@/store/useOrgStore";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
@@ -41,6 +42,9 @@ import FeatureNotice from "@/components/domain/FeatureNotice";
  * 그 글을 시스템이 만들어 주고, 어느 공고가 몇 명 찼는지를 기록으로 남긴다.
  */
 const PostingManager = () => {
+  /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
+  const canWrite = useHasPermission("recruit:write");
+
   const jobRoleLabel = useJobRoleLabel();
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   const { page, setPage, keyword, handleSearch, withPageReset } =
@@ -247,17 +251,19 @@ const PostingManager = () => {
               selectBoxClassName="w-32"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormPosting(null);
-                setIsFormOpen(true);
-              }}
-            >
-              공고 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormPosting(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                공고 등록
+              </Button>
+            )}
           </div>
         </div>
 
