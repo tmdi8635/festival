@@ -1,0 +1,359 @@
+@import "tailwindcss";
+@import "pretendard/dist/web/variable/pretendardvariable.css";
+@variant dark (&:where(.dark, .dark *));
+
+/* =========================================================================
+ * 색상 토큰
+ * plat-fe와 동일한 토큰 네이밍(--font-N / --bg-* / --brand-*)을 유지한다.
+ * 관리자는 라이트 테마가 기본이며, .dark 는 보조 테마다.
+ * ========================================================================= */
+:root {
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-pressed: #3730a3;
+  --brand-opacity: rgba(79, 70, 229, 0.1); /* 10% 투명도 적용 */
+  --brand-opacity-2: rgba(79, 70, 229, 0.2); /* 20% 투명도 적용 */
+  --brand-opacity-3: rgba(79, 70, 229, 0.04); /* 4% 투명도 적용 */
+
+  --font-0: #0b0d17; /* 페이지 타이틀 */
+  --font-1: #1a1d29; /* 본문 기본 */
+  --font-2: #5a6072; /* 보조 설명 */
+  --font-3-disabled: #a1a7b8;
+  --font-4: #ffffff; /* 반전(브랜드 배경 위) */
+  --font-error: #e5484d;
+  --font-accents: #4f46e5;
+
+  --border: #e5e7ec;
+  --border-strong: #d3d7e0;
+
+  --bg-base: #f6f7f9; /* 워크스페이스 배경 */
+  --bg-surface: #ffffff; /* 카드 · 사이드바 */
+  --bg-surface-hover: #f2f3f7;
+  --bg-surface-selected: #eceefb;
+  --bg-subtle: #f9fafb; /* 테이블 헤더 · 비활성 영역 */
+  --bg-overlay: rgba(11, 13, 23, 0.45);
+
+  --success: #16a34a;
+  --success-bg: #e9f7ef;
+  --warning: #d97706;
+  --warning-bg: #fdf3e3;
+  --danger: #e5484d;
+  --danger-bg: #fdecec;
+  --info: #2563eb;
+  --info-bg: #eaf1fe;
+  --neutral: #5a6072;
+  --neutral-bg: #f0f1f4;
+}
+
+.dark {
+  --brand: #7c74f2;
+  --brand-hover: #8d86f5;
+  --brand-pressed: #6a61e8;
+  --brand-opacity: rgba(124, 116, 242, 0.14);
+  --brand-opacity-2: rgba(124, 116, 242, 0.26);
+  --brand-opacity-3: rgba(124, 116, 242, 0.06);
+
+  --font-0: #f5f6fa;
+  --font-1: #ecedf5;
+  --font-2: #989db8;
+  --font-3-disabled: #5c6180;
+  --font-4: #0d0e11;
+  --font-error: #ff5b60;
+  --font-accents: #9d97f7;
+
+  --border: #262a3d;
+  --border-strong: #343a52;
+
+  --bg-base: #0e1018;
+  --bg-surface: #151827;
+  --bg-surface-hover: #1c2032;
+  --bg-surface-selected: #232746;
+  --bg-subtle: #191d2d;
+  --bg-overlay: rgba(5, 6, 12, 0.6);
+
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.12);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --danger: #ff5b60;
+  --danger-bg: rgba(255, 91, 96, 0.12);
+  --info: #60a5fa;
+  --info-bg: rgba(96, 165, 250, 0.12);
+  --neutral: #989db8;
+  --neutral-bg: rgba(152, 157, 184, 0.12);
+}
+
+@theme inline {
+  /* hover 전환 기본 시간 */
+  --default-transition-duration: 0.2s;
+
+  /* 그림자 스케일 — card < popover < modal 순으로만 깊어진다 */
+  --shadow-card: 0 1px 2px 0 rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 4px 12px 0 rgba(16, 24, 40, 0.08);
+  --shadow-popover: 0 8px 24px 0 rgba(16, 24, 40, 0.12);
+  --shadow-modal: 0 24px 48px -12px rgba(16, 24, 40, 0.2);
+
+  /* 모서리 스케일 — field < card < modal */
+  --radius-field: 10px;
+  --radius-card: 14px;
+  --radius-modal: 18px;
+
+  --color-font-0: var(--font-0);
+  --color-font-1: var(--font-1);
+  --color-font-2: var(--font-2);
+  --color-font-disabled: var(--font-3-disabled);
+  --color-font-4: var(--font-4);
+  --color-font-error: var(--font-error);
+  --color-font-accents: var(--font-accents);
+
+  --color-border-main: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-bg-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-surface-hover: var(--bg-surface-hover);
+  --color-surface-selected: var(--bg-surface-selected);
+  --color-subtle: var(--bg-subtle);
+  --color-overlay: var(--bg-overlay);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-pressed: var(--brand-pressed);
+  --color-brand-opacity: var(--brand-opacity);
+  --color-brand-opacity-2: var(--brand-opacity-2);
+  --color-brand-opacity-3: var(--brand-opacity-3);
+
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-neutral: var(--neutral);
+  --color-neutral-bg: var(--neutral-bg);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--font-1);
+
+  letter-spacing: -0.025em;
+  line-height: 1.4;
+  font-family: "Pretendard Variable", "Pretendard", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+textarea {
+  resize: none;
+}
+
+button {
+  cursor: pointer;
+  transition-duration: 0.2s;
+  animation-duration: 0.2s;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* 포커스 링은 키보드 탐색에서만 노출한다 */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/*
+ * 입력 요소는 컴포넌트가 자체 포커스 표현(테두리 + ring)을 갖고 있다.
+ * 전역 outline까지 그리면 링이 두 겹으로 겹쳐 보이므로 여기서 끈다.
+ */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
+}
+
+/* =========================================================================
+ * 스크롤바 — 관리자는 표/목록이 많아 얇은 스크롤바를 기본으로 둔다
+ * ========================================================================= */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* =========================================================================
+ * Sonner — 토스트는 카드와 같은 표면 토큰을 쓴다
+ * ========================================================================= */
+[data-sonner-toast].sonner-toast {
+  width: min(420px, calc(100vw - 32px));
+  min-height: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  font-family: "Pretendard Variable", "Pretendard", sans-serif;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--bg-surface);
+  color: var(--font-1);
+  box-shadow: var(--shadow-popover);
+}
+
+/* =========================================================================
+ * 공용 애니메이션
+ * ========================================================================= */
+@keyframes admin-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes admin-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes admin-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.animate-fade-in {
+  animation: admin-fade-in 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: admin-slide-up 0.2s ease-out;
+}
+
+/* 스켈레톤 기본 표현 */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-subtle) 25%,
+    var(--bg-surface-hover) 37%,
+    var(--bg-subtle) 63%
+  );
+  background-size: 400% 100%;
+  animation: admin-shimmer 1.4s ease infinite;
+}
+
+/*
+  근로계약서 인쇄 · PDF 저장.
+
+  계약서는 화면에서 읽는 문서가 아니라 보관하는 문서다.
+  브라우저 인쇄(→ PDF로 저장)로 A4 한 장이 그대로 나와야 하므로,
+  인쇄 시 계약서 본문만 남기고 나머지 화면 요소를 모두 숨긴다.
+*/
+/* 장마다 찍히는 식별 문구는 인쇄에서만 쓴다. 화면에서는 자리를 차지하지 않는다. */
+.contract-print-footer {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .contract-print-area,
+  .contract-print-area * {
+    visibility: visible;
+  }
+
+  .contract-print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    /* 화면용 배경색은 인쇄에서 잉크만 먹는다. 흰 종이에 검은 글씨로 낸다. */
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .contract-print-hidden {
+    display: none !important;
+  }
+
+  /*
+    조항이 페이지 경계에서 잘리면 읽기 어렵다.
+    조항 하나는 통째로 다음 장으로 넘긴다.
+    (한 장보다 긴 조항은 브라우저가 결국 자르므로, 그런 조항은
+     미리보기에서 "나눠 주세요"라고 경고한다)
+  */
+  .contract-clause {
+    break-inside: avoid;
+  }
+
+  /* 조항 제목만 앞 장 맨 아래에 홀로 남는 것을 막는다. */
+  .contract-clause h2 {
+    break-after: avoid;
+  }
+
+  /*
+    장마다 반복해 찍히는 식별 문구.
+
+    조항이 많으면 계약서는 두세 장이 된다. 장마다 표시가 없으면
+    한 장이 빠지거나 다른 계약서와 섞여도 알아챌 방법이 없다.
+    고정 위치 요소는 브라우저가 인쇄 시 모든 장에 다시 그린다.
+  */
+  .contract-print-footer {
+    display: block;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding-top: 4px;
+    border-top: 1px solid #999999;
+    font-size: 9px;
+    color: #555555;
+    text-align: center;
+  }
+
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+}

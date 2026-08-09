@@ -1,0 +1,19 @@
+import { Suspense } from "react";
+import PageHeader from "@/components/layout/PageHeader";
+import Skeleton from "@/components/ui/Skeleton";
+import ClientManager from "./_components/ClientManager";
+
+export default function ClientPage() {
+  return (
+    <>
+      <PageHeader
+        title="거래처 관리"
+        description="발주처별 청구 단가와 누적 마진을 관리합니다."
+      />
+
+      <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
+        <ClientManager />
+      </Suspense>
+    </>
+  );
+}
