@@ -291,14 +291,14 @@ const StaffPickerModal = ({
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <SearchInput
             value={keyword}
             onSearch={setKeyword}
             placeholder="이름 · 연락처 · 지역 검색"
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="배치할 직무"
               options={jobRoleOptions}

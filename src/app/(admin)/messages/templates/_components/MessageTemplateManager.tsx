@@ -142,7 +142,7 @@ const MessageTemplateManager = () => {
                     {!template.isActive && <Badge tone="neutral">미사용</Badge>}
                   </div>
 
-                  <pre className="max-h-24 overflow-hidden rounded-field border border-border-main bg-subtle px-3 py-2 text-[12px] whitespace-pre-wrap text-font-2">
+                  <pre className="max-h-32 overflow-y-auto rounded-field border border-border-main bg-subtle px-3 py-2 text-[12px] whitespace-pre-wrap text-font-2 scrollbar-thin">
                     {template.content}
                   </pre>
 

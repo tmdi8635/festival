@@ -57,7 +57,7 @@ const MultiDayEventBar = ({
       {!isContinuedFromPrevWeek && (
         <Badge
           tone={EVENT_STATUS_TONE[event.status]}
-          className="px-1.5 py-0 text-[10px]"
+          className="px-1.5 py-0 text-[11px]"
         >
           {/* 반복 행사는 이 구간이 아니라 전체가 며칠인지가 중요하다. */}
           {isRecurring ? `총 ${event.dayCount}일` : `${segmentDayCount}일`}
@@ -78,7 +78,7 @@ const MultiDayEventBar = ({
       </span>
 
       {!isContinuedToNextWeek && event.status === "CANCELED" && (
-        <span className="shrink-0 text-[10px] text-font-2">
+        <span className="shrink-0 text-[11px] text-font-2">
           {EVENT_STATUS_LABEL.CANCELED}
         </span>
       )}

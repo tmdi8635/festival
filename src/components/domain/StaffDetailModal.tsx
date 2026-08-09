@@ -545,7 +545,7 @@ const StaffDetailModal = ({
               </Alert>
             )}
 
-            <div className="flex items-center gap-4 rounded-card border border-border-main bg-subtle p-4">
+            <div className="flex flex-wrap items-center gap-4 rounded-card border border-border-main bg-subtle p-4">
               <div className="relative size-16 shrink-0 overflow-hidden rounded-full bg-surface">
                 {staff.profileImageUrl && (
                   <Image
@@ -565,7 +565,7 @@ const StaffDetailModal = ({
                 </Badge>
               </div>
 
-              <div className="grid shrink-0 grid-cols-2 gap-4 text-center sm:grid-cols-4">
+              <div className="grid w-full shrink-0 grid-cols-2 gap-4 text-center sm:w-auto sm:grid-cols-4">
                 <div>
                   <p className="text-[12px] text-font-2">누적 근무</p>
                   <p className="text-[16px] font-bold text-font-0 tabular-nums">

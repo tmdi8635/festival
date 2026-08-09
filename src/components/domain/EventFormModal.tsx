@@ -487,7 +487,16 @@ const EventFormModal = ({
 
           <div className="flex flex-col gap-2 rounded-field border border-border-main p-3">
             {fields.map((field, index) => (
-              <div key={field.id} className="flex items-center gap-2">
+              /*
+                좁은 화면에서는 [직무][인원] / [기준][금액][삭제] 두 줄로 접힌다.
+                고정 폭만 390px가 넘어 한 줄로는 모달(308px) 안에 들어가지 못한다.
+                발주 건끼리 구분되도록 아래 선을 둔다. 두 줄짜리가 여럿 쌓이면
+                어디까지가 한 건인지 알 수 없다.
+              */
+              <div
+                key={field.id}
+                className="flex flex-wrap items-center gap-2 border-b border-border-main pb-2 last:border-b-0 last:pb-0 sm:flex-nowrap sm:border-b-0 sm:pb-0"
+              >
                 <Controller
                   control={control}
                   name={`roles.${index}.role`}
@@ -510,7 +519,7 @@ const EventFormModal = ({
                         setValue(`roles.${index}.wageType`, preset.wageType);
                         setValue(`roles.${index}.wage`, preset.wage);
                       }}
-                      selectBoxClassName="w-32"
+                      selectBoxClassName="min-w-32 flex-1 sm:w-32 sm:flex-none"
                     />
                   )}
                 />
@@ -541,7 +550,7 @@ const EventFormModal = ({
                           changeEvent.target.value as WageType,
                         )
                       }
-                      selectBoxClassName="w-24"
+                      selectBoxClassName="w-24 shrink-0"
                     />
                   )}
                 />
@@ -555,7 +564,7 @@ const EventFormModal = ({
                       {WAGE_TYPE_UNIT[wageTypes[index] ?? "HOURLY"]}
                     </span>
                   }
-                  inputBoxClassName="flex-1"
+                  inputBoxClassName="min-w-28 flex-1"
                 />
 
                 <IconButton

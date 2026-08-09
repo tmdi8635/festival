@@ -178,14 +178,24 @@ const DashboardOverview = () => {
                           <p className="truncate text-[14px] font-medium text-font-1">
                             {event.title}
                           </p>
-                          <p className="mt-0.5 flex items-center gap-1 truncate text-[12px] text-font-2">
-                            <MapPin size={12} />
-                            {event.venue} ·{" "}
-                            {formatTimeRange(
-                              event.startTime,
-                              event.endTime,
-                              event.endDayOffset,
-                            )}
+                          {/*
+                            장소만 줄이고 시각은 통째로 남긴다.
+                            줄 전체를 truncate하면 끝에 붙는 날짜 넘김 표시(+1)가
+                            먼저 잘려 나가, 새벽에 끝나는 근무가 당일에 끝나는 것처럼 보인다.
+                          */}
+                          <p className="mt-0.5 flex items-center gap-1 text-[12px] text-font-2">
+                            <MapPin size={12} className="shrink-0" />
+                            <span className="min-w-0 truncate">
+                              {event.venue}
+                            </span>
+                            <span className="shrink-0">
+                              ·{" "}
+                              {formatTimeRange(
+                                event.startTime,
+                                event.endTime,
+                                event.endDayOffset,
+                              )}
+                            </span>
                           </p>
                         </div>
 

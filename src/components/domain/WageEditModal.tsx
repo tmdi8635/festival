@@ -163,7 +163,7 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
     >
       {assignment && (
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-[140px_1fr] gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[140px_1fr]">
             <FormField label="지급 기준">
               <Select
                 aria-label="지급 기준"
