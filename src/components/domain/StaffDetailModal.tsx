@@ -12,7 +12,7 @@ import {
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
-import { Ban, Edit, EyeOff, Star, Trash, Warning } from "@/icons";
+import { Ban, Edit, EyeOff, Trash, Warning } from "@/icons";
 import { formatDate, formatDateTime } from "@/lib/dayjs";
 import { formatCurrency } from "@/lib/utils";
 import { canViewPayrollDetail, useAdminStore } from "@/store/useAdminStore";
@@ -43,6 +43,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import Table, { type TableColumn } from "@/components/ui/Table";
 import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import Textarea from "@/components/ui/Textarea";
+import FavoriteToggle from "./FavoriteToggle";
 import ContractDetailModal from "./ContractDetailModal";
 import RatingStat from "./RatingStat";
 import VerdictBadge from "./VerdictBadge";
@@ -169,7 +170,7 @@ const StaffDetailModal = ({
   const { data: historyData } = useStaffHistoryQuery(staffId);
   const { data: reputationData } = useStaffReputationQuery(staffId);
 
-  const { favoriteMutation, memoMutation, memoDeleteMutation, statusMutation } =
+  const { memoMutation, memoDeleteMutation, statusMutation } =
     useStaffMutation();
 
   const histories = historyData?.items ?? [];
@@ -472,23 +473,23 @@ const StaffDetailModal = ({
             : undefined
         }
         size="xl"
+        headerAction={
+          /*
+            즐겨찾기는 이 창을 끝내는 동작이 아니라 제목 옆에 붙는 표시다.
+            푸터의 저장 · 블랙리스트와 나란히 두면 무게가 같아 보여
+            "눌러도 되는 것"인지 매번 판단하게 된다. 별 하나로 충분하다.
+          */
+          staff && (
+            <FavoriteToggle
+              staffId={staff.staffId}
+              isFavorite={staff.isFavorite}
+              size={20}
+            />
+          )
+        }
         footer={
           staff && (
             <>
-              <Button
-                variant="ghost"
-                leftIcon={<Star size={15} />}
-                onClick={() =>
-                  favoriteMutation.mutate({
-                    staffId: staff.staffId,
-                    isFavorite: !staff.isFavorite,
-                  })
-                }
-                className={staff.isFavorite ? "mr-auto text-warning" : "mr-auto"}
-              >
-                {staff.isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
-              </Button>
-
               {staff.status === "BLACKLIST" ? (
                 <Button variant="secondary" onClick={handleUnblacklist}>
                   블랙리스트 해제

@@ -603,18 +603,54 @@ export const findEvent = (eventId: number) =>
  * 전체 현황은 일자별 계획을 합산해서 만든다. (숫자가 두 군데서 따로 놀지 않게)
  */
 export const recalculateEventCounts = (event: EventDetail) => {
-  event.days = event.days.map((day) => ({
-    ...day,
-    roles: day.roles.map((slot) => ({
-      ...slot,
-      assignedCount: event.assignments.filter(
-        (assignment) =>
-          assignment.workDate === day.date &&
-          assignment.role === slot.role &&
-          assignment.status === "CONFIRMED",
-      ).length,
-    })),
-  }));
+  event.days = event.days.map((day) => {
+    const confirmed = event.assignments.filter(
+      (assignment) =>
+        assignment.workDate === day.date && assignment.status === "CONFIRMED",
+    );
+
+    /*
+      발주에 없던 직무로 배치한 경우에도 자리를 만들어 준다.
+
+      "이 날만 팀장 한 명 더"처럼 발주 없이 사람을 넣는 일이 실제로 흔한데,
+      발주 슬롯이 있는 직무만 그리면 그 사람이 화면 어디에도 나타나지 않는다.
+      배치는 됐는데 칩도 없고 합계에도 안 잡혀서, 담당자는 넣은 게 맞는지
+      명단을 열어 확인해야 한다.
+
+      발주 0명 · 배치 1명(`1/0`)으로 세워 두면 "발주에 없던 인원"이라는 사실이
+      그 자리에서 드러난다. 발주가 0이라 필요 인원 합계는 달라지지 않는다.
+    */
+    const extraRoles = [
+      ...new Set(confirmed.map((assignment) => assignment.role)),
+    ].filter((role) => !day.roles.some((slot) => slot.role === role));
+
+    const slots = [
+      ...day.roles,
+      ...extraRoles.map((role) => {
+        const [sample] = confirmed.filter(
+          (assignment) => assignment.role === role,
+        );
+
+        return {
+          role,
+          requiredCount: 0,
+          assignedCount: 0,
+          wageType: sample.wageType,
+          wage: sample.wage,
+        };
+      }),
+    ];
+
+    return {
+      ...day,
+      roles: slots.map((slot) => ({
+        ...slot,
+        assignedCount: confirmed.filter(
+          (assignment) => assignment.role === slot.role,
+        ).length,
+      })),
+    };
+  });
 
   event.roles = aggregateDayPlans(event.days);
   // 실제 근무일은 일자별 계획이 단일 원본이다. 요약 필드를 여기서 다시 맞춰 둔다.

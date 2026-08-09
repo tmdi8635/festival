@@ -35,6 +35,56 @@ export type ContractStatus =
   | "EXPIRED"
   | "SUPERSEDED";
 
+/**
+ * 계약서를 다시 내는 이유.
+ *
+ * 처음에는 중도 종료만 다뤘는데, 실제로 재작성이 필요한 상황은 더 넓다.
+ * 시급이 오르거나, 중식 제공 같은 조건이 붙거나, 쓰던 템플릿이 바뀐다.
+ * 사유를 남기지 않으면 나중에 차수만 여럿인 문서를 놓고
+ * "이건 왜 다시 썼지"를 아무도 답하지 못한다.
+ */
+export type AmendReasonType =
+  | "EARLY_END"
+  | "WAGE_CHANGE"
+  | "CONDITION_CHANGE"
+  | "OTHER";
+
+export const AMEND_REASON_LABEL: Record<AmendReasonType, string> = {
+  EARLY_END: "중도 종료",
+  WAGE_CHANGE: "지급 조건 변경",
+  CONDITION_CHANGE: "근무 조건 변경",
+  OTHER: "기타",
+};
+
+/**
+ * 사유별 자주 쓰는 문장.
+ * 매번 문장을 짓게 하면 결국 "개인사정" 한 줄만 남는다.
+ */
+export const AMEND_REASON_PRESETS: Record<AmendReasonType, string[]> = {
+  EARLY_END: [
+    "본인 사정으로 잔여 근무일 중도 하차",
+    "무단 이탈로 잔여 근무일 근로 미제공",
+    "건강 문제로 근로 지속 불가",
+    "현장 사정으로 잔여 근무일 조기 종료",
+  ],
+  WAGE_CHANGE: [
+    "협의에 따른 시급 인상",
+    "직무 변경에 따른 지급 기준 조정",
+    "야간 · 연장 근로 발생으로 지급 조건 변경",
+    "거래처 발주 조건 변경에 따른 단가 조정",
+  ],
+  CONDITION_CHANGE: [
+    "중식 제공 조건 추가",
+    "근무 시간 변경",
+    "근무 장소 변경",
+    "담당 업무 범위 변경",
+  ],
+  OTHER: [
+    "계약서 기재 사항 정정",
+    "표준 계약서 양식 변경에 따른 재발급",
+  ],
+};
+
 export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
   DRAFT: "작성됨",
   SENT: "발송됨",
@@ -241,6 +291,13 @@ export interface Contract {
   supersededContractId?: number;
   /** 재작성 사유. "왜 금액이 달라졌는가"의 근거라 필수로 받는다. */
   amendReason?: string;
+  /** 재작성 구분. 나중에 사유별로 모아 보려면 문장이 아니라 코드가 필요하다. */
+  amendReasonType?: AmendReasonType;
+  /**
+   * 계약서에 남길 변경 내용.
+   * 중식 제공처럼 금액에도 근무일에도 잡히지 않는 조건이 여기 남는다.
+   */
+  amendNote?: string;
   /** 재작성으로 계약에서 빠진 근무일 (중도 종료로 나오지 않은 날) */
   removedWorkDates?: string[];
   amendedAt?: string;
@@ -570,7 +627,16 @@ const buildAutoFields = (
                     ? formatWorkDates(contract.removedWorkDates)
                     : "-",
               },
+              {
+                label: "재작성 구분",
+                value: contract.amendReasonType
+                  ? AMEND_REASON_LABEL[contract.amendReasonType]
+                  : "-",
+              },
               { label: "재작성 사유", value: contract.amendReason || "-" },
+              ...(contract.amendNote
+                ? [{ label: "변경 내용", value: contract.amendNote }]
+                : []),
             ]
           : []),
       ];

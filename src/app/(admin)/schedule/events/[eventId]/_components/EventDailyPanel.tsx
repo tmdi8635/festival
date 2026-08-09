@@ -8,7 +8,7 @@ import {
   FILL_STATE_CHIP_CLASS,
   FILL_STATE_TEXT_CLASS,
 } from "@/constants/eventOptions";
-import { Plus, Sliders, Trash } from "@/icons";
+import { ChevronDown, Plus, Sliders, Trash } from "@/icons";
 import {
   ASSIGNMENT_CONTRACT_COLUMNS,
   ASSIGNMENT_WAGE_COLUMNS,
@@ -111,6 +111,15 @@ const EventDailyPanel = ({
   const [wageTarget, setWageTarget] = useState<Assignment | null>(null);
   /** 발주 인원을 고칠 근무일. 날마다 필요한 사람이 달라 하루 단위로 고친다. */
   const [roleEditDay, setRoleEditDay] = useState<EventDayPlan | null>(null);
+  /**
+   * 접어 둔 근무일.
+   *
+   * 30명이 8일 나오는 행사는 명단이 240줄이다. 다 펴 두면 "어느 날이 덜 찼나"를
+   * 보려고 화면을 한참 굴려야 한다. 머리줄(날짜 · 충원 상태)만 남기고 접을 수 있게 한다.
+   * 접은 날을 기억하는 쪽이 아니라 **편 날을 기억하는 쪽**이면 기본값이 '전부 펴기'가 되어
+   * 근무일이 늘어날수록 다시 길어진다. 그래서 접힌 날짜를 들고 있는다.
+   */
+  const [foldedDates, setFoldedDates] = useState<string[]>([]);
 
   const activeAssignments = event.assignments.filter(
     (assignment) => assignment.status !== "CANCELED",
@@ -158,6 +167,17 @@ const EventDailyPanel = ({
     (assignment) =>
       assignment.status === "CONFIRMED" && !assignment.isContractSigned,
   ).length;
+
+  const isAllFolded =
+    visibleDays.length > 0 &&
+    visibleDays.every(({ day }) => foldedDates.includes(day.date));
+
+  const toggleFold = (date: string) =>
+    setFoldedDates((prev) =>
+      prev.includes(date)
+        ? prev.filter((item) => item !== date)
+        : [...prev, date],
+    );
 
   const handleRemove = (assignment: Assignment) => {
     openConfirm({
@@ -218,6 +238,30 @@ const EventDailyPanel = ({
             >
               전체 근무일 배치
             </Button>
+
+            {/* 근무일이 여럿일 때만 뜻이 있다. 하루짜리 행사에서는 누를 이유가 없다. */}
+            {visibleDays.length > 1 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                leftIcon={
+                  <ChevronDown
+                    size={14}
+                    className={cn(
+                      "transition-transform",
+                      isAllFolded && "-rotate-90",
+                    )}
+                  />
+                }
+                onClick={() =>
+                  setFoldedDates(
+                    isAllFolded ? [] : visibleDays.map(({ day }) => day.date),
+                  )
+                }
+              >
+                {isAllFolded ? "전체 펴기" : "전체 접기"}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -236,7 +280,10 @@ const EventDailyPanel = ({
                 confirmedCount,
                 requiredCount,
                 fillState,
-              }) => (
+              }) => {
+                const isFolded = foldedDates.includes(day.date);
+
+                return (
                 <li key={day.date} className="flex gap-0">
                   {/*
                     충원 상태를 왼쪽 띠로 세운다.
@@ -258,7 +305,22 @@ const EventDailyPanel = ({
                       직무 칩이 화면 밖으로 밀려난다.
                     */}
                     <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
-                      <div className="sm:w-32 sm:shrink-0">
+                      {/* 날짜를 눌러 접는다. 접기 전용 버튼을 따로 두면 누를 자리가 좁다. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleFold(day.date)}
+                        aria-expanded={!isFolded}
+                        className="flex items-center gap-1.5 text-left transition hover:opacity-70 sm:w-32 sm:shrink-0"
+                        title={isFolded ? "이 날 명단 펴기" : "이 날 명단 접기"}
+                      >
+                        <ChevronDown
+                          size={15}
+                          className={cn(
+                            "shrink-0 text-font-2 transition-transform",
+                            isFolded && "-rotate-90",
+                          )}
+                        />
+                        <span className="min-w-0">
                         <p className="text-[14px] font-medium text-font-1 tabular-nums">
                           {formatDate(day.date)}
                         </p>
@@ -275,7 +337,8 @@ const EventDailyPanel = ({
                             event.endDayOffset,
                           )}
                         </p>
-                      </div>
+                        </span>
+                      </button>
 
                       {/*
                         직무 칩 자체가 배치 버튼이다.
@@ -350,7 +413,7 @@ const EventDailyPanel = ({
                       </Button>
                     </div>
 
-                    {assignments.length === 0 ? (
+                    {isFolded ? null : assignments.length === 0 ? (
                       <p className="text-[13px] text-font-disabled sm:pl-36">
                         배치된 인력이 없습니다.
                       </p>
@@ -433,7 +496,8 @@ const EventDailyPanel = ({
                     )}
                   </div>
                 </li>
-              ),
+                );
+              },
             )}
           </ul>
         )}

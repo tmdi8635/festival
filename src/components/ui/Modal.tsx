@@ -17,6 +17,14 @@ interface ModalProps {
   size?: ModalSize;
   /** 푸터 영역. 취소 → 확인 순으로 우측 정렬한다. */
   footer?: ReactNode;
+  /**
+   * 제목 줄 우측(닫기 버튼 왼쪽) 슬롯.
+   *
+   * 즐겨찾기처럼 **문서를 닫지 않는 토글**은 푸터에 두면 안 된다.
+   * 푸터는 "이 창을 끝내는 동작"(저장 · 취소 · 삭제) 자리라, 거기에 섞으면
+   * 별을 누르는 것이 저장인지 아닌지 매번 헷갈린다.
+   */
+  headerAction?: ReactNode;
   /** 파괴적 작업 모달은 오버레이 클릭으로 닫지 않는다. */
   closeOnOverlayClick?: boolean;
   children: ReactNode;
@@ -45,6 +53,7 @@ const Modal = ({
   description,
   size = "md",
   footer,
+  headerAction,
   closeOnOverlayClick = true,
   children,
   className,
@@ -89,12 +98,15 @@ const Modal = ({
             )}
           </div>
 
-          <IconButton
-            label="닫기"
-            icon={<Close size={18} />}
-            onClick={onClose}
-            className="-mt-1 -mr-2"
-          />
+          <div className="-mt-1 -mr-2 flex shrink-0 items-center gap-1">
+            {headerAction}
+
+            <IconButton
+              label="닫기"
+              icon={<Close size={18} />}
+              onClick={onClose}
+            />
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin sm:px-6 sm:py-5">

@@ -2,7 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
-import type { Contract, ContractStatus } from "@/type/contract";
+import type {
+  AmendReasonType,
+  Contract,
+  ContractStatus,
+} from "@/type/contract";
 import type { JobRole } from "@/type/staff";
 
 export interface GenerateContractRequest {
@@ -65,6 +69,15 @@ export interface AmendContractRequest {
   cancelsRemovedAssignments: boolean;
   /** 다른 템플릿으로 다시 쓸 때만 보낸다. 비우면 원래 템플릿을 그대로 쓴다. */
   templateId?: number;
+  /** 재작성 사유 구분. 나중에 "왜 다시 썼는지"를 분류해 볼 수 있어야 한다. */
+  reasonType?: AmendReasonType;
+  /**
+   * 계약서에 남길 변경 내용.
+   *
+   * 중식 제공처럼 **금액에도 근무일에도 잡히지 않는 조건**이 있다.
+   * 이걸 적을 자리가 없으면 재작성은 됐는데 무엇이 달라졌는지가 문서에 없다.
+   */
+  note?: string;
 }
 
 export interface AmendContractResponse {

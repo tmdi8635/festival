@@ -301,10 +301,20 @@ export const eventHandlers = [
     /*
       기간이 늘어나면 새 날에 기준 인원을 깔고, 줄어들면 밖으로 밀려난 배치를 정리한다.
       이미 있던 날의 인원은 현장에서 조정해 둔 값일 수 있으므로 덮어쓰지 않는다.
+
+      새 날에 깔 기준은 **이미 있는 첫 근무일**에서 가져온다.
+      수정 폼은 발주를 더 이상 받지 않으므로(일별 근무자 탭이 담당한다)
+      요청 본문의 값은 화면에서 손댄 적 없는 옛 값이고, 그걸 깔면
+      담당자가 일별로 조정해 둔 구성과 다른 날이 조용히 섞인다.
     */
+    const [firstDay] = event.days;
+
     syncEventDays(
       event,
-      body.roles.map((slot) => ({ ...slot, assignedCount: 0 })),
+      (firstDay?.roles ?? body.roles).map((slot) => ({
+        ...slot,
+        assignedCount: 0,
+      })),
     );
 
     await delay(MOCK_DELAY_MS);

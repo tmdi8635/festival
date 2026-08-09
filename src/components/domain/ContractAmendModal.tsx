@@ -14,7 +14,10 @@ import {
   toTimeInput,
 } from "@/type/event";
 import {
+  AMEND_REASON_LABEL,
+  AMEND_REASON_PRESETS,
   summarizeContractWork,
+  type AmendReasonType,
   type Contract,
   type ContractWorkDay,
 } from "@/type/contract";
@@ -25,15 +28,12 @@ import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
 import FormField from "@/components/ui/FormField";
 import Modal from "@/components/ui/Modal";
+import Select from "@/components/ui/Select";
 import Textarea from "@/components/ui/Textarea";
 
-/** 자주 쓰는 사유. 매번 문장을 짓게 하면 결국 "개인사정"만 남는다. */
-const REASON_PRESETS = [
-  "본인 사정으로 잔여 근무일 중도 하차",
-  "무단 이탈로 잔여 근무일 근로 미제공",
-  "건강 문제로 근로 지속 불가",
-  "현장 사정으로 잔여 근무일 조기 종료",
-];
+const REASON_TYPE_OPTIONS = (
+  Object.keys(AMEND_REASON_LABEL) as AmendReasonType[]
+).map((value) => ({ label: AMEND_REASON_LABEL[value], value }));
 
 interface ContractAmendModalProps {
   /** 재작성할 계약서. 가장 최근 차수여야 한다. */
@@ -74,6 +74,16 @@ const ContractAmendModal = ({
   // 열기 전에는 계약서의 근무일 전체가 기준이고, 손대기 시작하면 draft가 화면을 담당한다.
   const [draftDates, setDraftDates] = useState<string[] | null>(null);
   const [reason, setReason] = useState("");
+  /**
+   * 재작성 사유 구분.
+   *
+   * 기본을 중도 종료로 두지 않는다. 재작성이 필요한 상황은 시급 인상 ·
+   * 중식 제공 추가처럼 근무일이 그대로인 경우가 오히려 더 흔한데,
+   * 기본값이 중도 종료면 담당자는 "여긴 하차용 화면"이라 읽고 되돌아 나간다.
+   */
+  const [reasonType, setReasonType] = useState<AmendReasonType>("WAGE_CHANGE");
+  /** 금액에도 근무일에도 잡히지 않는 변경 내용. (중식 제공 등) */
+  const [note, setNote] = useState("");
   const [cancelsRemovedAssignments, setCancelsRemovedAssignments] =
     useState(true);
 
@@ -151,6 +161,8 @@ const ContractAmendModal = ({
   const handleClose = () => {
     setDraftDates(null);
     setReason("");
+    setReasonType("WAGE_CHANGE");
+    setNote("");
     setCancelsRemovedAssignments(true);
     onClose();
   };
@@ -168,10 +180,25 @@ const ContractAmendModal = ({
       (contract?.workDates ?? []).filter((target) => target <= date),
     );
 
+  /*
+    재작성할 거리가 있는가.
+
+    예전에는 "근무일이 줄었는가"만 물었다. 그래서 시급이 올라 문서를 다시 내야 할 때
+    버튼이 끝까지 꺼져 있었고, 담당자는 멀쩡한 근무일 하나를 빼서 저장한 뒤
+    다시 넣는 식으로 우회해야 했다. 그 과정에서 배치가 취소되고 정산이 틀어졌다.
+
+    이제는 **무엇이든 달라졌으면** 낼 수 있다.
+    (근무일 축소 · 금액 변경 · 남길 변경 내용)
+  */
+  const hasChange =
+    removedDates.length > 0 ||
+    changedWageDates.length > 0 ||
+    note.trim().length > 0;
+
   const canSubmit =
     contract !== null &&
     keptDates.length > 0 &&
-    removedDates.length > 0 &&
+    hasChange &&
     reason.trim().length > 0;
 
   const handleSubmit = () => {
@@ -183,6 +210,8 @@ const ContractAmendModal = ({
         workDates: keptDates,
         reason: reason.trim(),
         cancelsRemovedAssignments,
+        reasonType,
+        note: note.trim() || undefined,
       },
       { onSuccess: handleClose },
     );
@@ -192,7 +221,7 @@ const ContractAmendModal = ({
     <Modal
       isOpen={Boolean(contract)}
       onClose={handleClose}
-      title="중도 종료 · 계약서 재작성"
+      title="계약서 재작성"
       description={
         contract
           ? `${contract.contractNumber} · ${contract.staffName} · ${roleLabel(contract.role)}`
@@ -218,11 +247,23 @@ const ContractAmendModal = ({
     >
       {contract && (
         <div className="flex flex-col gap-4">
-          <Alert tone="warning" title="이 처리는 세 가지를 한 번에 바꿉니다.">
-            남은 근무일의 배치가 취소되고, 지금 계약서는 <b>재작성됨</b>으로
-            내려갑니다. 실제 근무일만 담은 {contract.revision + 1}차 계약서가
-            새로 만들어지며 <b>서명은 처음부터 다시</b> 받아야 합니다. 정산
-            금액도 남은 근무일 기준으로 곧바로 다시 계산됩니다.
+          {/*
+            경고 문구를 상황에 맞춘다.
+            근무일을 그대로 두는 재작성(시급 인상 등)에서 "배치가 취소된다"고 적으면
+            겁이 나서 저장을 못 누른다. 실제로 일어나는 일만 적는다.
+          */}
+          <Alert tone="warning" title="이 처리가 바꾸는 것">
+            지금 계약서는 <b>재작성됨</b>으로 내려가고,{" "}
+            {contract.revision + 1}차 계약서가 새로 만들어집니다.{" "}
+            <b>서명은 처음부터 다시</b> 받아야 하며, 금액은 배치의 현재 지급
+            조건으로 다시 계산됩니다.
+            {removedDates.length > 0 && (
+              <>
+                {" "}
+                계약에서 뺀 {removedDates.length}일은 지급 대상에서도
+                제외됩니다.
+              </>
+            )}
           </Alert>
 
           {/*
@@ -231,8 +272,8 @@ const ContractAmendModal = ({
             표현할 수 없는데, 그런 일이 실제로 있다.
           */}
           <FormField
-            label="실제로 근로를 제공한 근무일"
-            hint="체크를 푼 날은 계약에서 빠지고 지급 대상에서도 제외됩니다."
+            label="계약에 담을 근무일"
+            hint="그대로 두면 근무일은 바뀌지 않습니다. 체크를 푼 날만 계약과 지급에서 빠집니다."
             required
           >
             <ul className="flex flex-col gap-1">
@@ -356,6 +397,39 @@ const ContractAmendModal = ({
             )}
           </div>
 
+          {/*
+            무엇 때문에 다시 쓰는지를 먼저 고르게 한다.
+            사유 문장만 받으면 나중에 차수가 여럿인 문서를 놓고
+            "이건 하차인가 시급 조정인가"를 문장에서 읽어 내야 한다.
+          */}
+          <FormField
+            label="재작성 구분"
+            hint="이력에 남아 나중에 사유별로 모아 볼 수 있습니다."
+          >
+            <Select
+              aria-label="재작성 구분"
+              options={REASON_TYPE_OPTIONS}
+              value={reasonType}
+              onChange={(changeEvent) => {
+                setReasonType(changeEvent.target.value as AmendReasonType);
+                // 구분을 바꾸면 이전 구분의 예시 문장이 남아 있으면 안 된다.
+                setReason("");
+              }}
+            />
+          </FormField>
+
+          <FormField
+            label="계약서에 남길 변경 내용"
+            hint="중식 제공처럼 금액에도 근무일에도 잡히지 않는 조건을 적습니다."
+          >
+            <Textarea
+              rows={2}
+              value={note}
+              onChange={(changeEvent) => setNote(changeEvent.target.value)}
+              placeholder="예) 2일차부터 중식 제공 / 집합 장소 정문 → 후문 변경"
+            />
+          </FormField>
+
           <FormField
             label="재작성 사유"
             hint="계약서 본문과 이력에 그대로 남습니다. 나중에 금액을 설명할 근거입니다."
@@ -363,7 +437,7 @@ const ContractAmendModal = ({
           >
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap gap-1.5">
-                {REASON_PRESETS.map((preset) => (
+                {AMEND_REASON_PRESETS[reasonType].map((preset) => (
                   <button
                     key={preset}
                     type="button"

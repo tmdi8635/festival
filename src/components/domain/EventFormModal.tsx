@@ -457,152 +457,166 @@ const EventFormModal = ({
           />
         </FormField>
 
-        {/* 직무별 발주 인원 */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-medium text-font-1">
-              직무별 발주 인원
-              <span className="ml-0.5 text-font-error">*</span>
-            </p>
+        {/*
+          발주 인원은 **등록할 때만** 받는다.
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Plus size={14} />}
-              disabled={!availableRole}
-              onClick={() =>
-                availableRole &&
-                append({
-                  role: availableRole.code,
-                  requiredCount: 1,
-                  assignedCount: 0,
-                  wageType: availableRole.defaultWageType,
-                  wage: availableRole.defaultWage,
-                })
-              }
-            >
-              직무 추가
-            </Button>
-          </div>
+          수정에서 이 값을 다시 받으면 담당자는 "여기서 고치면 반영되겠지"라고 읽는데,
+          실제 발주는 근무일마다 따로 들고 있어서(`days[].roles`) 이미 만들어진 날에는
+          아무 일도 일어나지 않는다. 고쳤다고 생각한 값과 화면에 보이는 값이 갈린다.
 
-          <div className="flex flex-col gap-2 rounded-field border border-border-main p-3">
-            {fields.map((field, index) => (
-              /*
-                좁은 화면에서는 [직무][인원] / [기준][금액][삭제] 두 줄로 접힌다.
-                고정 폭만 390px가 넘어 한 줄로는 모달(308px) 안에 들어가지 못한다.
-                발주 건끼리 구분되도록 아래 선을 둔다. 두 줄짜리가 여럿 쌓이면
-                어디까지가 한 건인지 알 수 없다.
-              */
-              <div
-                key={field.id}
-                className="flex flex-wrap items-center gap-2 border-b border-border-main pb-2 last:border-b-0 last:pb-0 sm:flex-nowrap sm:border-b-0 sm:pb-0"
+          그래서 수정에서는 아예 감춘다. 발주를 바꾸는 자리는
+          일별 근무자 탭의 "발주 수정" 하나뿐이다. (가이드 13-2)
+        */}
+        {!event && (
+          <>
+          {/* 직무별 발주 인원 */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] font-medium text-font-1">
+                직무별 발주 인원
+                <span className="ml-0.5 text-font-error">*</span>
+              </p>
+
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Plus size={14} />}
+                disabled={!availableRole}
+                onClick={() =>
+                  availableRole &&
+                  append({
+                    role: availableRole.code,
+                    requiredCount: 1,
+                    assignedCount: 0,
+                    wageType: availableRole.defaultWageType,
+                    wage: availableRole.defaultWage,
+                  })
+                }
               >
-                <Controller
-                  control={control}
-                  name={`roles.${index}.role`}
-                  render={({ field: roleField }) => (
-                    <Select
-                      aria-label="직무"
-                      options={jobRoleOptions}
-                      value={roleField.value}
-                      onChange={(changeEvent) => {
-                        const nextRole = changeEvent.target.value as JobRole;
+                직무 추가
+              </Button>
+            </div>
 
-                        roleField.onChange(nextRole);
-                        /*
-                          직무를 바꾸면 그 직무의 기본 지급 기준을 따라간다.
-                          설치는 일급, 스태프는 시급처럼 관행이 달라서
-                          앞 직무의 금액이 남아 있으면 거의 항상 틀린 값이 된다.
-                        */
-                        const preset = jobRoleDefaultWage(nextRole);
+            <div className="flex flex-col gap-2 rounded-field border border-border-main p-3">
+              {fields.map((field, index) => (
+                /*
+                  좁은 화면에서는 [직무][인원] / [기준][금액][삭제] 두 줄로 접힌다.
+                  고정 폭만 390px가 넘어 한 줄로는 모달(308px) 안에 들어가지 못한다.
+                  발주 건끼리 구분되도록 아래 선을 둔다. 두 줄짜리가 여럿 쌓이면
+                  어디까지가 한 건인지 알 수 없다.
+                */
+                <div
+                  key={field.id}
+                  className="flex flex-wrap items-center gap-2 border-b border-border-main pb-2 last:border-b-0 last:pb-0 sm:flex-nowrap sm:border-b-0 sm:pb-0"
+                >
+                  <Controller
+                    control={control}
+                    name={`roles.${index}.role`}
+                    render={({ field: roleField }) => (
+                      <Select
+                        aria-label="직무"
+                        options={jobRoleOptions}
+                        value={roleField.value}
+                        onChange={(changeEvent) => {
+                          const nextRole = changeEvent.target.value as JobRole;
 
-                        setValue(`roles.${index}.wageType`, preset.wageType);
-                        setValue(`roles.${index}.wage`, preset.wage);
-                      }}
-                      selectBoxClassName="min-w-32 flex-1 sm:w-32 sm:flex-none"
-                    />
-                  )}
-                />
+                          roleField.onChange(nextRole);
+                          /*
+                            직무를 바꾸면 그 직무의 기본 지급 기준을 따라간다.
+                            설치는 일급, 스태프는 시급처럼 관행이 달라서
+                            앞 직무의 금액이 남아 있으면 거의 항상 틀린 값이 된다.
+                          */
+                          const preset = jobRoleDefaultWage(nextRole);
 
-                <Input
-                  type="number"
-                  aria-label="발주 인원"
-                  {...register(`roles.${index}.requiredCount`)}
-                  rightSlot={<span className="text-[13px] text-font-2">명</span>}
-                  inputBoxClassName="w-24"
-                />
+                          setValue(`roles.${index}.wageType`, preset.wageType);
+                          setValue(`roles.${index}.wage`, preset.wage);
+                        }}
+                        selectBoxClassName="min-w-32 flex-1 sm:w-32 sm:flex-none"
+                      />
+                    )}
+                  />
 
-                {/*
-                  지급 기준.
-                  현장 일은 시급으로만 굴러가지 않는다. 설치 · 철거처럼 시간이
-                  들쭉날쭉한 일은 "하루 얼마"로 통으로 정하는 쪽이 오히려 흔하다.
-                */}
-                <Controller
-                  control={control}
-                  name={`roles.${index}.wageType`}
-                  render={({ field: wageTypeField }) => (
-                    <Select
-                      aria-label="지급 기준"
-                      options={WAGE_TYPE_OPTIONS}
-                      value={wageTypeField.value}
-                      onChange={(changeEvent) =>
-                        wageTypeField.onChange(
-                          changeEvent.target.value as WageType,
-                        )
-                      }
-                      selectBoxClassName="w-24 shrink-0"
-                    />
-                  )}
-                />
+                  <Input
+                    type="number"
+                    aria-label="발주 인원"
+                    {...register(`roles.${index}.requiredCount`)}
+                    rightSlot={<span className="text-[13px] text-font-2">명</span>}
+                    inputBoxClassName="w-24"
+                  />
 
-                <Input
-                  type="number"
-                  aria-label="지급 금액"
-                  {...register(`roles.${index}.wage`)}
-                  rightSlot={
-                    <span className="text-[13px] whitespace-nowrap text-font-2">
-                      {WAGE_TYPE_UNIT[wageTypes[index] ?? "HOURLY"]}
-                    </span>
-                  }
-                  inputBoxClassName="min-w-28 flex-1"
-                />
+                  {/*
+                    지급 기준.
+                    현장 일은 시급으로만 굴러가지 않는다. 설치 · 철거처럼 시간이
+                    들쭉날쭉한 일은 "하루 얼마"로 통으로 정하는 쪽이 오히려 흔하다.
+                  */}
+                  <Controller
+                    control={control}
+                    name={`roles.${index}.wageType`}
+                    render={({ field: wageTypeField }) => (
+                      <Select
+                        aria-label="지급 기준"
+                        options={WAGE_TYPE_OPTIONS}
+                        value={wageTypeField.value}
+                        onChange={(changeEvent) =>
+                          wageTypeField.onChange(
+                            changeEvent.target.value as WageType,
+                          )
+                        }
+                        selectBoxClassName="w-24 shrink-0"
+                      />
+                    )}
+                  />
 
-                <IconButton
-                  label="직무 삭제"
-                  icon={<Trash size={16} />}
-                  tone="danger"
-                  disabled={fields.length <= 1}
-                  onClick={() => remove(index)}
-                />
-              </div>
-            ))}
+                  <Input
+                    type="number"
+                    aria-label="지급 금액"
+                    {...register(`roles.${index}.wage`)}
+                    rightSlot={
+                      <span className="text-[13px] whitespace-nowrap text-font-2">
+                        {WAGE_TYPE_UNIT[wageTypes[index] ?? "HOURLY"]}
+                      </span>
+                    }
+                    inputBoxClassName="min-w-28 flex-1"
+                  />
 
-            <p className="min-h-4 text-[12px] text-font-error">
-              {errors.roles?.message ??
-                errors.roles?.root?.message ??
-                errors.roles?.[0]?.wage?.message ??
-                errors.roles?.[0]?.requiredCount?.message}
-            </p>
+                  <IconButton
+                    label="직무 삭제"
+                    icon={<Trash size={16} />}
+                    tone="danger"
+                    disabled={fields.length <= 1}
+                    onClick={() => remove(index)}
+                  />
+                </div>
+              ))}
 
-            {/*
-              여러 날 진행하는 행사에서 가장 자주 나는 사고가
-              "하루치 인원인 줄 알았는데 전체 인원이었다"는 오해다.
-              입력한 값이 며칠에 몇 명이 되는지 여기서 못박아 둔다.
-            */}
-            <p className="text-[12px] text-font-2">
-              위 인원은 <b>하루 기준</b>입니다.
-              {workDates.length > 1 && (
-                <>
-                  {" "}
-                  근무일 {workDates.length}일에 같은 인원이 깔리며, 날짜별
-                  편차는 행사 상세의 일자별 계획에서 조정합니다.
-                </>
-              )}{" "}
-              등급 가산액은 배치 시점에 자동으로 더해지니 여기에는 직무 기본
-              시급만 넣으세요.
-            </p>
+              <p className="min-h-4 text-[12px] text-font-error">
+                {errors.roles?.message ??
+                  errors.roles?.root?.message ??
+                  errors.roles?.[0]?.wage?.message ??
+                  errors.roles?.[0]?.requiredCount?.message}
+              </p>
+
+              {/*
+                여러 날 진행하는 행사에서 가장 자주 나는 사고가
+                "하루치 인원인 줄 알았는데 전체 인원이었다"는 오해다.
+                입력한 값이 며칠에 몇 명이 되는지 여기서 못박아 둔다.
+              */}
+              <p className="text-[12px] text-font-2">
+                위 인원은 <b>하루 기준</b>입니다.
+                {workDates.length > 1 && (
+                  <>
+                    {" "}
+                    근무일 {workDates.length}일에 같은 인원이 깔리며, 날짜별
+                    편차는 행사 상세의 일자별 계획에서 조정합니다.
+                  </>
+                )}{" "}
+                등급 가산액은 배치 시점에 자동으로 더해지니 여기에는 직무 기본
+                시급만 넣으세요.
+              </p>
+            </div>
           </div>
-        </div>
+          </>
+        )}
 
         <FormField label="행사 설명" error={errors.description?.message}>
           <Textarea

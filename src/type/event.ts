@@ -578,7 +578,12 @@ export const resolveFillState = (
   assignedCount: number,
   requiredCount: number,
 ): FillState => {
-  if (requiredCount === 0) return "FULL";
+  /*
+    발주가 0인데 사람이 있으면 "발주에 없던 인원"이다. 초과로 본다.
+    이걸 FULL로 두면 `1/0`이 초록으로 칠해져, 발주 없이 넣은 사람이
+    정상적으로 채워진 자리처럼 보인다.
+  */
+  if (requiredCount === 0) return assignedCount > 0 ? "OVER" : "FULL";
   if (assignedCount === 0) return "EMPTY";
   if (assignedCount < requiredCount) return "PARTIAL";
   if (assignedCount > requiredCount) return "OVER";

@@ -5,7 +5,11 @@ import type {
   ContractTemplate,
   ContractTemplateFormValues,
 } from "@/type/contract";
-import { buildDocumentHash, summarizeContractWork } from "@/type/contract";
+import {
+  buildDocumentHash,
+  summarizeContractWork,
+  type AmendReasonType,
+} from "@/type/contract";
 import {
   calculateScheduledWorkHours,
   groupAssignmentsByStaff,
@@ -221,6 +225,10 @@ export const contractHandlers = [
         reason: string;
         cancelsRemovedAssignments: boolean;
         templateId?: number;
+        /** 재작성 사유 구분. 중도 종료 · 지급 조건 변경 · 근무 조건 변경 · 기타 */
+        reasonType?: AmendReasonType;
+        /** 계약서에 남길 변경 내용. (중식 제공처럼 금액에 안 잡히는 조건) */
+        note?: string;
       };
 
       if (!previous) return notFound("존재하지 않는 계약서입니다.");
@@ -246,10 +254,6 @@ export const contractHandlers = [
         return badRequest(
           "근무일을 하나도 남기지 않으면 계약이 성립하지 않습니다. 하루도 나오지 않았다면 배치를 해제하고 계약서를 삭제해 주세요.",
         );
-      }
-
-      if (removedDates.length === 0) {
-        return badRequest("당초 계약과 근무일이 같아 재작성할 내용이 없습니다.");
       }
 
       if (!body.reason.trim()) {
@@ -316,6 +320,40 @@ export const contractHandlers = [
         workHours,
       );
 
+      /*
+        재작성 사유는 중도 종료만이 아니다.
+        시급이 오르거나, 중식 제공 같은 조건이 붙거나, 템플릿이 바뀌어서
+        문서를 다시 내는 일이 오히려 더 흔하다. 그래서 "근무일이 줄었는가"가 아니라
+        **무엇이든 달라졌는가**로 본다.
+
+        아무것도 달라지지 않았을 때만 막는다. 똑같은 문서를 차수만 올려 다시 내면
+        근로자는 뭐가 바뀐 건지 알 수 없고, 서명만 한 번 더 받는 꼴이 된다.
+      */
+      const isWageChanged =
+        work.workDays.length !== previous.workDays.length ||
+        work.workDays.some((day) => {
+          const before = previous.workDays.find(
+            (target) => target.workDate === day.workDate,
+          );
+
+          return (
+            !before || before.wage !== day.wage || before.wageType !== day.wageType
+          );
+        });
+      const isTemplateChanged = template.templateId !== previous.templateId;
+
+      if (
+        removedDates.length === 0 &&
+        !isWageChanged &&
+        !isTemplateChanged &&
+        !body.note?.trim()
+      ) {
+        return badRequest(
+          "당초 계약과 달라진 내용이 없습니다. 지급 조건을 먼저 바꾸거나, 계약서에 남길 변경 내용을 적어 주세요.",
+          "NOTHING_TO_AMEND",
+        );
+      }
+
       const staff = findStaff(previous.staffId);
       const amendedAt = new Date().toISOString();
       const revision = previous.revision + 1;
@@ -350,6 +388,8 @@ export const contractHandlers = [
         supersededContractId: previous.contractId,
         supersededByContractId: undefined,
         amendReason: body.reason.trim(),
+        amendReasonType: body.reasonType,
+        amendNote: body.note?.trim() || undefined,
         removedWorkDates: removedDates,
         amendedAt,
         createdAt: amendedAt,
