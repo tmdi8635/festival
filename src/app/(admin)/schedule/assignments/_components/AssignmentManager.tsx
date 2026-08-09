@@ -367,7 +367,7 @@ const AssignmentManager = () => {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName="배치현황"
               rows={data?.content ?? []}

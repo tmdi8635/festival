@@ -23,13 +23,13 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <div
         className={cn(
-          "relative flex h-10 items-center rounded-field border bg-surface transition",
+          "relative flex h-10 items-center overflow-hidden rounded-field border bg-surface transition",
           /*
-            좁은 화면에서는 한 줄에 놓인 필터들이 자리를 고르게 나눠 갖는다.
-            고정 폭(w-28 등)을 그대로 두면 세 개만 놓여도 화면 밖으로 나간다.
-            넓은 화면에서는 lg:flex-none으로 원래 폭이 다시 산다.
+            좁은 화면에서 고정 폭(w-28 등)을 그대로 쓰면 세 개만 놓여도 화면을 넘는다.
+            그렇다고 flex-1로 늘리면 이번엔 셀렉트가 자리를 다 먹고 옆 버튼을 밀어낸다.
+            **자라지 않되 줄어들 수 있게** 두고 바닥만 지킨다. 자리가 모자라면 줄로 넘어간다.
           */
-          "min-w-0 flex-1 lg:flex-none",
+          "min-w-32 shrink lg:min-w-0",
           "focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-opacity",
           hasError ? "border-danger" : "border-border-main",
           props.disabled && "cursor-not-allowed bg-subtle opacity-60",
@@ -39,7 +39,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
         <select
           ref={ref}
           className={cn(
-            "h-full w-full cursor-pointer appearance-none bg-transparent pr-9 pl-3 text-[14px] text-font-1 outline-none",
+            "h-full w-full min-w-0 cursor-pointer appearance-none bg-transparent pr-9 pl-3 text-[14px] text-ellipsis text-font-1 outline-none",
             "disabled:cursor-not-allowed",
             className,
           )}

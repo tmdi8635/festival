@@ -296,7 +296,7 @@ const ScheduleCalendar = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* 간략히 / 자세히 보기 */}
             <div className="flex shrink-0 items-center rounded-field border border-border-main p-0.5">
               {(
@@ -379,7 +379,8 @@ const ScheduleCalendar = () => {
           (막대는 주 컨테이너 기준 퍼센트로 놓이므로 최소 폭 위에서 그대로 맞는다)
         */}
         <div className="overflow-x-auto scrollbar-thin">
-          <div className="min-w-[720px]">
+          {/* 720px면 한 칸이 68px이라 직무 배지 두 개가 안 들어가 잘렸다. 한 칸에 배지가 들어갈 만큼은 줘야 한다. */}
+          <div className="min-w-[880px]">
             <div className="grid grid-cols-7 border-b border-border-main bg-subtle">
               {WEEKDAY_LABELS.map((label, index) => (
                 <div

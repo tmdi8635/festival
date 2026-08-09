@@ -237,7 +237,7 @@ const ApplicationManager = () => {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="상태 필터"
               options={APPLICATION_STATUS_FILTER_OPTIONS}

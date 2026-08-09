@@ -239,121 +239,130 @@ const SettingsForm = () => {
           한 행이 그리는 칸과 머리글의 칸 수가 어긋나면 표 전체가 밀린다.
           두 곳이 같은 정의를 쓰도록 컬럼 폭을 상수 하나로 묶어 둔다.
         */}
-        <div className="flex flex-col divide-y divide-border-main">
-          <div className={cn(JOB_ROLE_GRID, "bg-subtle px-5 py-2.5 text-[12px] font-medium text-font-2")}>
-            <span className="text-center">순서</span>
-            <span>이름</span>
-            <span>짧은 이름</span>
-            <span>지급 기준</span>
-            <span>기본 금액</span>
-            <span className="text-center">사용</span>
-            <span />
-          </div>
-
-          {jobRoles.map((role, index) => {
-            const isDuplicated =
-              Boolean(role.name.trim()) &&
-              jobRoleNames.indexOf(role.name.trim()) !== index;
-
-            return (
-              <div
-                key={role.code}
-                className={cn(JOB_ROLE_GRID, "items-center px-5 py-3")}
-              >
-                {/* 자주 쓰는 직무를 위로 올려 두면 행사 등록이 빨라진다. */}
-                <div className="flex items-center justify-center">
-                  <IconButton
-                    label="위로 이동"
-                    icon={<ArrowUp size={15} />}
-                    disabled={index === 0}
-                    onClick={() => handleMoveJobRole(index, -1)}
-                  />
-                  <IconButton
-                    label="아래로 이동"
-                    icon={<ArrowDown size={15} />}
-                    disabled={index === jobRoles.length - 1}
-                    onClick={() => handleMoveJobRole(index, 1)}
-                  />
-                </div>
-
-                <Input
-                  aria-label="직무 이름"
-                  value={role.name}
-                  placeholder="스태프"
-                  hasError={!role.name.trim() || isDuplicated}
-                  onChange={(event) =>
-                    updateJobRole(index, { name: event.target.value })
-                  }
-                />
-
-                <Input
-                  aria-label="짧은 이름"
-                  value={role.shortName}
-                  placeholder="캘린더용"
-                  onChange={(event) =>
-                    updateJobRole(index, { shortName: event.target.value })
-                  }
-                />
-
-                {/*
-                  직무마다 계산 관행이 다르다.
-                  설치 · 철거처럼 시간이 들쭉날쭉한 일은 하루 얼마로 통으로 정한다.
-                  여기서 정한 값이 행사 등록 폼의 초기값이 된다.
-                */}
-                <Select
-                  aria-label="기본 지급 기준"
-                  options={WAGE_TYPE_OPTIONS}
-                  value={role.defaultWageType}
-                  onChange={(changeEvent) =>
-                    updateJobRole(index, {
-                      defaultWageType: changeEvent.target.value as WageType,
-                    })
-                  }
-                />
-
-                <Input
-                  type="number"
-                  aria-label="기본 금액"
-                  min={0}
-                  step={500}
-                  value={role.defaultWage}
-                  rightSlot={
-                    <span className="text-[13px] whitespace-nowrap text-font-2">
-                      {WAGE_TYPE_UNIT[role.defaultWageType]}
-                    </span>
-                  }
-                  onChange={(event) =>
-                    updateJobRole(index, {
-                      defaultWage: Number(event.target.value),
-                    })
-                  }
-                />
-
-                <div className="flex justify-center">
-                  <Switch
-                    label={`${role.name || "새 직무"} 사용`}
-                    checked={role.isActive}
-                    onChange={(checked) =>
-                      updateJobRole(index, { isActive: checked })
-                    }
-                  />
-                </div>
-
-                <IconButton
-                  label="직무 삭제"
-                  icon={<Trash size={16} />}
-                  tone="danger"
-                  disabled={!canRemoveJobRole(jobRoles)}
-                  title={
-                    canRemoveJobRole(jobRoles)
-                      ? "직무를 삭제합니다."
-                      : "직무는 최소 한 개가 있어야 합니다."
-                  }
-                  onClick={() => handleRemoveJobRole(index)}
-                />
+        {/*
+          직무 표는 고정 컬럼만 700px가 넘는다. 좁은 화면에서 억지로 욱여넣으면
+          이름 · 금액 칸이 잘려 무슨 값인지 읽을 수 없다.
+          표는 폭을 지키고 자기 안에서 가로로 스크롤한다. (가이드 13-1)
+        */}
+        <div className="overflow-x-auto scrollbar-thin">
+          <div className="min-w-[880px]">
+            <div className="flex flex-col divide-y divide-border-main">
+              <div className={cn(JOB_ROLE_GRID, "bg-subtle px-5 py-2.5 text-[12px] font-medium text-font-2")}>
+                <span className="text-center">순서</span>
+                <span>이름</span>
+                <span>짧은 이름</span>
+                <span>지급 기준</span>
+                <span>기본 금액</span>
+                <span className="text-center">사용</span>
+                <span />
               </div>
-            );
-          })}
+
+              {jobRoles.map((role, index) => {
+                const isDuplicated =
+                  Boolean(role.name.trim()) &&
+                  jobRoleNames.indexOf(role.name.trim()) !== index;
+
+                return (
+                  <div
+                    key={role.code}
+                    className={cn(JOB_ROLE_GRID, "items-center px-5 py-3")}
+                  >
+                    {/* 자주 쓰는 직무를 위로 올려 두면 행사 등록이 빨라진다. */}
+                    <div className="flex items-center justify-center">
+                      <IconButton
+                        label="위로 이동"
+                        icon={<ArrowUp size={15} />}
+                        disabled={index === 0}
+                        onClick={() => handleMoveJobRole(index, -1)}
+                      />
+                      <IconButton
+                        label="아래로 이동"
+                        icon={<ArrowDown size={15} />}
+                        disabled={index === jobRoles.length - 1}
+                        onClick={() => handleMoveJobRole(index, 1)}
+                      />
+                    </div>
+
+                    <Input
+                      aria-label="직무 이름"
+                      value={role.name}
+                      placeholder="스태프"
+                      hasError={!role.name.trim() || isDuplicated}
+                      onChange={(event) =>
+                        updateJobRole(index, { name: event.target.value })
+                      }
+                    />
+
+                    <Input
+                      aria-label="짧은 이름"
+                      value={role.shortName}
+                      placeholder="캘린더용"
+                      onChange={(event) =>
+                        updateJobRole(index, { shortName: event.target.value })
+                      }
+                    />
+
+                    {/*
+                      직무마다 계산 관행이 다르다.
+                      설치 · 철거처럼 시간이 들쭉날쭉한 일은 하루 얼마로 통으로 정한다.
+                      여기서 정한 값이 행사 등록 폼의 초기값이 된다.
+                    */}
+                    <Select
+                      aria-label="기본 지급 기준"
+                      options={WAGE_TYPE_OPTIONS}
+                      value={role.defaultWageType}
+                      onChange={(changeEvent) =>
+                        updateJobRole(index, {
+                          defaultWageType: changeEvent.target.value as WageType,
+                        })
+                      }
+                    />
+
+                    <Input
+                      type="number"
+                      aria-label="기본 금액"
+                      min={0}
+                      step={500}
+                      value={role.defaultWage}
+                      rightSlot={
+                        <span className="text-[13px] whitespace-nowrap text-font-2">
+                          {WAGE_TYPE_UNIT[role.defaultWageType]}
+                        </span>
+                      }
+                      onChange={(event) =>
+                        updateJobRole(index, {
+                          defaultWage: Number(event.target.value),
+                        })
+                      }
+                    />
+
+                    <div className="flex justify-center">
+                      <Switch
+                        label={`${role.name || "새 직무"} 사용`}
+                        checked={role.isActive}
+                        onChange={(checked) =>
+                          updateJobRole(index, { isActive: checked })
+                        }
+                      />
+                    </div>
+
+                    <IconButton
+                      label="직무 삭제"
+                      icon={<Trash size={16} />}
+                      tone="danger"
+                      disabled={!canRemoveJobRole(jobRoles)}
+                      title={
+                        canRemoveJobRole(jobRoles)
+                          ? "직무를 삭제합니다."
+                          : "직무는 최소 한 개가 있어야 합니다."
+                      }
+                      onClick={() => handleRemoveJobRole(index)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5 border-t border-border-main px-5 py-3">
@@ -588,10 +597,10 @@ const SettingsForm = () => {
           {FEATURE_KEYS.map((key) => (
             <div
               key={key}
-              className="flex items-center justify-between gap-4 rounded-field border border-border-main px-4 py-3"
+              className="flex flex-col gap-3 rounded-field border border-border-main px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="text-[14px] text-font-1">
                     {FEATURE_LABEL[key]}
                   </p>

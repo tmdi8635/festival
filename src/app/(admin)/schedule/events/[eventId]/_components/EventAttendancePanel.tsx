@@ -254,7 +254,7 @@ const EventAttendancePanel = ({
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName={`${event.title}_출퇴근명부`}
               rows={rows}

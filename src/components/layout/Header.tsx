@@ -8,6 +8,7 @@ import { ChevronRight, Menu, Moon, Search, Sun } from "@/icons";
 import { ADMIN_ROLE_LABEL, useAdminStore } from "@/store/useAdminStore";
 import { useSidebarStore } from "@/store/useSidebarStore";
 import IconButton from "@/components/ui/IconButton";
+import ViewportModeToggle from "./ViewportModeToggle";
 
 /** 현재 경로에 해당하는 [1뎁스, 2뎁스] 라벨을 찾는다. */
 const findBreadcrumb = (pathname: string): string[] => {
@@ -88,6 +89,9 @@ const Header = () => {
             ⌘K
           </kbd>
         </button>
+
+        {/* 테스트용: 폰에서도 데스크톱 배치를 확인한다. 확인이 끝나면 이 줄만 지우면 된다. */}
+        <ViewportModeToggle />
 
         {isClient && (
           <IconButton

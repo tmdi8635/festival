@@ -84,7 +84,7 @@ const CalendarEventChip = ({
         </div>
 
         {isDetailed && (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 overflow-hidden">
             <Badge tone={EVENT_STATUS_TONE[event.status]}>
               {EVENT_STATUS_LABEL[event.status]}
             </Badge>

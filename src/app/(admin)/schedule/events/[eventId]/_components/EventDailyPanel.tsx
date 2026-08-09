@@ -198,7 +198,7 @@ const EventDailyPanel = ({
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName={`${event.title}_일별근무자`}
               rows={activeAssignments}

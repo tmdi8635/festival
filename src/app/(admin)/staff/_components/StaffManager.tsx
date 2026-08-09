@@ -302,7 +302,7 @@ const StaffManager = () => {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName="인력목록"
               rows={data?.content ?? []}
