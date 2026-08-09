@@ -24,9 +24,14 @@ const DetailRow = ({
   label: string;
   value: React.ReactNode;
 }) => (
-  <div className="flex gap-3 border-b border-border-main py-2.5 last:border-b-0">
-    <p className="w-24 shrink-0 text-[13px] text-font-2">{label}</p>
-    <div className="min-w-0 flex-1 text-[14px] text-font-1">{value}</div>
+  /*
+    좁은 화면에서는 라벨을 값 위에 올린다.
+    96px짜리 라벨 칸을 그대로 두면 값에 남는 자리가 240px뿐이라
+    장소 · 거래처처럼 긴 값이 서너 줄로 접혀 오히려 읽기 어렵다.
+  */
+  <div className="flex flex-col gap-0.5 border-b border-border-main py-2.5 last:border-b-0 sm:flex-row sm:gap-3">
+    <p className="text-[13px] text-font-2 sm:w-24 sm:shrink-0">{label}</p>
+    <div className="min-w-0 text-[14px] text-font-1 sm:flex-1">{value}</div>
   </div>
 );
 
@@ -54,7 +59,11 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <Card title="발주 조건" className="col-span-2" bodyClassName="px-5 py-1">
+      <Card
+        title="발주 조건"
+        className="sm:col-span-2"
+        bodyClassName="px-4 py-1 sm:px-5"
+      >
         <DetailRow
           label="반복"
           value={

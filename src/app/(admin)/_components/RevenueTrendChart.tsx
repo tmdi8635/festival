@@ -52,7 +52,8 @@ const RevenueTrendChart = ({ data }: RevenueTrendChartProps) => {
           tick={{ fill: "var(--font-2)", fontSize: 12 }}
           tickLine={false}
           axisLine={false}
-          width={48}
+          /* "12,000만"처럼 자릿수가 늘어난 값이 잘리지 않을 만큼은 준다. */
+          width={58}
           tickFormatter={(value: number) => `${formatWithCommas(value)}만`}
         />
         <Tooltip

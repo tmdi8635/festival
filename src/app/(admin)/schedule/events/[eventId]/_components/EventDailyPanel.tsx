@@ -247,9 +247,14 @@ const EventDailyPanel = ({
                     aria-hidden
                   />
 
-                  <div className="flex flex-1 flex-col gap-3 px-5 py-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-32 shrink-0">
+                  <div className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 sm:px-5">
+                    {/*
+                      좁은 화면에서는 날짜 · 직무 칩 · 충원 상태를 위아래로 쌓는다.
+                      128px 날짜 칸을 옆에 붙여 두면 칩에 남는 자리가 200px도 안 돼
+                      직무 칩이 화면 밖으로 밀려난다.
+                    */}
+                    <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="sm:w-32 sm:shrink-0">
                         <p className="text-[14px] font-medium text-font-1 tabular-nums">
                           {formatDate(day.date)}
                         </p>
@@ -326,21 +331,21 @@ const EventDailyPanel = ({
                     </div>
 
                     {assignments.length === 0 ? (
-                      <p className="pl-36 text-[13px] text-font-disabled">
+                      <p className="text-[13px] text-font-disabled sm:pl-36">
                         배치된 인력이 없습니다.
                       </p>
                     ) : (
-                      <ul className="flex flex-col gap-1 pl-36">
+                      <ul className="flex flex-col gap-1 sm:pl-36">
                         {assignments.map((assignment) => (
                           <li
                             key={assignment.assignmentId}
-                            className="flex items-center gap-3 rounded-field border border-border-main px-4 py-2.5"
+                            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-field border border-border-main px-3 py-2.5 sm:px-4"
                           >
                             {/* 직무는 이름에 붙여 둔다. 따로 떨어져 있으면 누가 무슨 일을 하는지 눈으로 다시 이어야 한다. */}
                             <button
                               type="button"
                               onClick={() => onOpenStaff(assignment.staffId)}
-                              className="flex min-w-0 flex-1 text-left transition hover:opacity-70"
+                              className="flex min-w-0 text-left transition hover:opacity-70 sm:flex-1"
                               title="인력 상세를 엽니다."
                             >
                               <StaffCell
@@ -386,7 +391,7 @@ const EventDailyPanel = ({
                               type="button"
                               onClick={() => setWageTarget(assignment)}
                               title="적용 금액을 변경합니다."
-                              className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98]"
+                              className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
                             >
                               <WageText
                                 wageType={assignment.wageType}
