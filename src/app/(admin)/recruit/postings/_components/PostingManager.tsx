@@ -223,14 +223,14 @@ const PostingManager = () => {
         fallback="행사에 사람이 필요하면 인력풀에서 직접 골라 배치하고, 모집 문구는 여기서 만들어 복사해 오픈카톡방에 올려 주세요."
       />
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={handleSearch}
             placeholder="공고명 · 행사명 · 거래처 검색"
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="직무 필터"
               options={jobRoleFilterOptions}

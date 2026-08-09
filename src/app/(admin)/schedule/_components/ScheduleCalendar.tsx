@@ -254,9 +254,9 @@ const ScheduleCalendar = () => {
   return (
     <>
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center rounded-field border border-border-main p-0.5">
+            <div className="flex shrink-0 items-center rounded-field border border-border-main p-0.5">
               <button
                 type="button"
                 aria-label="이전 기간"
@@ -298,7 +298,7 @@ const ScheduleCalendar = () => {
 
           <div className="flex items-center gap-2">
             {/* 간략히 / 자세히 보기 */}
-            <div className="flex items-center rounded-field border border-border-main p-0.5">
+            <div className="flex shrink-0 items-center rounded-field border border-border-main p-0.5">
               {(
                 [
                   { value: "BRIEF", label: "간략히" },
@@ -315,7 +315,7 @@ const ScheduleCalendar = () => {
                   }
                   onClick={() => setDensity(item.value)}
                   className={cn(
-                    "rounded-[7px] px-2.5 py-1 text-[13px] transition",
+                    "shrink-0 rounded-[7px] px-2.5 py-1 text-[13px] whitespace-nowrap transition",
                     density === item.value
                       ? "bg-surface-selected font-medium text-brand"
                       : "text-font-2 hover:bg-surface-hover hover:text-font-1",
@@ -326,14 +326,14 @@ const ScheduleCalendar = () => {
               ))}
             </div>
 
-            <div className="flex items-center rounded-field border border-border-main p-0.5">
+            <div className="flex shrink-0 items-center rounded-field border border-border-main p-0.5">
               {(["MONTH", "WEEK"] as const).map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setView(item)}
                   className={cn(
-                    "rounded-[7px] px-2.5 py-1 text-[13px] transition",
+                    "shrink-0 rounded-[7px] px-2.5 py-1 text-[13px] whitespace-nowrap transition",
                     view === item
                       ? "bg-surface-selected font-medium text-brand"
                       : "text-font-2 hover:bg-surface-hover hover:text-font-1",

@@ -1,8 +1,21 @@
 import { HttpResponse } from "msw";
 import { DEFAULT_PAGE_SIZE, PageResponse } from "@/type/api";
 
-/** 서버 베이스 URI. 모든 핸들러가 같은 값을 쓴다. */
-export const BASE_URI = process.env.NEXT_PUBLIC_BASE_URI;
+/**
+ * 목업 핸들러가 가로챌 주소. 모든 핸들러가 같은 값을 쓴다.
+ *
+ * 목업이 켜져 있을 때는 **빈 문자열**, 즉 지금 열려 있는 페이지와 같은 출처다.
+ * `http://localhost:8080`을 그대로 두면 내 컴퓨터에서만 맞고,
+ * 폰이나 터널로 열었을 때 두 가지 이유로 데이터가 통째로 비어 버린다.
+ *
+ * 1. 폰에서 `localhost`는 **그 폰 자신**이다. 8080에는 아무것도 없다.
+ * 2. HTTPS로 열린 페이지에서 평문 HTTP를 부르면 브라우저가 혼합 콘텐츠로 막는다.
+ *    이건 서비스 워커보다 앞단이라 MSW가 가로챌 기회조차 없다.
+ *
+ * 실제 서버에 붙일 때는 목업을 끄고(`NEXT_PUBLIC_API_MOCKING`),
+ * 그때 `NEXT_PUBLIC_BASE_URI`가 쓰인다. (`api/index.ts`)
+ */
+export const BASE_URI = "";
 
 /** 대상이 없을 때 돌려주는 공통 응답 */
 export const notFound = (message: string) =>

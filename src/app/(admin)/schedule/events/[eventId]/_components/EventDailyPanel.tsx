@@ -169,7 +169,7 @@ const EventDailyPanel = ({
   return (
     <>
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-[13px] text-font-2">
               근무일 {event.dayCount}일 ·{" "}

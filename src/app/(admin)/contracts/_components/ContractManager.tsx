@@ -308,14 +308,14 @@ const ContractManager = () => {
       </div>
 
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={handleSearch}
             placeholder="이름 · 행사명 · 계약번호 검색"
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName="근로계약서"
               rows={rows}
@@ -342,14 +342,14 @@ const ContractManager = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5">
           <DateRangeFilter
             value={range}
             onChange={withPageReset((next) => setRange(next))}
           />
 
           {selectedIds.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-font-2 tabular-nums">
                 {selectedIds.length}건 선택
               </span>

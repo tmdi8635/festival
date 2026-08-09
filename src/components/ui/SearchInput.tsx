@@ -39,7 +39,11 @@ const SearchInput = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className={cn("w-70", boxClassName)}>
+    <form onSubmit={handleSubmit} className={cn(
+        /* 좁은 화면에서는 제 줄을 통째로 쓴다. 고정 폭이면 나머지 필터를 밖으로 밀어낸다. */
+        "w-full lg:w-70",
+        boxClassName,
+      )}>
       <Input
         value={keyword}
         onChange={(event) => setKeyword(event.target.value)}

@@ -343,7 +343,7 @@ const AssignmentManager = () => {
   return (
     <>
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <div className="flex flex-wrap items-center gap-3">
             <SearchInput
               value={keyword}
@@ -401,7 +401,7 @@ const AssignmentManager = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5">
           <DateRangeFilter
             value={range}
             onChange={withPageReset((next: DateRange) => {
@@ -412,7 +412,7 @@ const AssignmentManager = () => {
 
           {/* 일괄 근태 처리. 대부분이 '정상 출근'이라 한 번에 찍고 예외만 고친다. */}
           {selectedIds.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-font-2 tabular-nums">
                 {selectedIds.length}건 선택
               </span>

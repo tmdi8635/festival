@@ -24,6 +24,12 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
       <div
         className={cn(
           "relative flex h-10 items-center rounded-field border bg-surface transition",
+          /*
+            좁은 화면에서는 한 줄에 놓인 필터들이 자리를 고르게 나눠 갖는다.
+            고정 폭(w-28 등)을 그대로 두면 세 개만 놓여도 화면 밖으로 나간다.
+            넓은 화면에서는 lg:flex-none으로 원래 폭이 다시 산다.
+          */
+          "min-w-0 flex-1 lg:flex-none",
           "focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-opacity",
           hasError ? "border-danger" : "border-border-main",
           props.disabled && "cursor-not-allowed bg-subtle opacity-60",

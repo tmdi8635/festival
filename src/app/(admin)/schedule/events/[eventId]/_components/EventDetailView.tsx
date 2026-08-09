@@ -211,7 +211,7 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <Skeleton className="h-16 w-96" />
+        <Skeleton className="h-16 w-full max-w-96" />
         <Skeleton className="h-24 w-full rounded-card" />
         <Skeleton className="h-96 w-full rounded-card" />
       </div>

@@ -225,7 +225,7 @@ const EventAttendancePanel = ({
       )}
 
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <div className="flex flex-wrap items-center gap-3">
             {/* 같은 명부를 사람으로 묶어 볼지 날짜로 묶어 볼지만 다르다. */}
             <Tabs

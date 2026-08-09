@@ -56,13 +56,20 @@ const DateRangeFilter = ({
   const isEmpty = !value.startDate && !value.endDate;
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <div className="flex items-center rounded-field border border-border-main p-0.5">
+    <div
+      className={cn(
+        /* 프리셋 줄과 날짜 줄을 나눈다. 한 줄로 두면 폭 500px가 필요해 화면을 넘는다. */
+        "flex flex-col gap-2 sm:flex-row sm:items-center",
+        className,
+      )}
+    >
+      {/* 프리셋은 줄바꿈하지 않고 가로로 민다. 접히면 테두리가 두 줄로 끊겨 한 덩어리로 안 보인다. */}
+      <div className="flex shrink-0 items-center overflow-x-auto rounded-field border border-border-main p-0.5 scrollbar-thin">
         <button
           type="button"
           onClick={() => onChange({ startDate: "", endDate: "" })}
           className={cn(
-            "rounded-[7px] px-2.5 py-1 text-[13px] transition",
+            "shrink-0 rounded-[7px] px-2.5 py-1 text-[13px] whitespace-nowrap transition",
             isEmpty
               ? "bg-surface-selected font-medium text-brand"
               : "text-font-2 hover:bg-surface-hover hover:text-font-1",
@@ -77,7 +84,7 @@ const DateRangeFilter = ({
             type="button"
             onClick={() => onChange(toRange(preset))}
             className={cn(
-              "rounded-[7px] px-2.5 py-1 text-[13px] transition",
+              "shrink-0 rounded-[7px] px-2.5 py-1 text-[13px] whitespace-nowrap transition",
               activePreset?.label === preset.label
                 ? "bg-surface-selected font-medium text-brand"
                 : "text-font-2 hover:bg-surface-hover hover:text-font-1",
@@ -88,27 +95,31 @@ const DateRangeFilter = ({
         ))}
       </div>
 
-      <Input
-        type="date"
-        aria-label="조회 시작일"
-        value={value.startDate}
-        max={value.endDate || undefined}
-        onChange={(event) =>
-          onChange({ ...value, startDate: event.target.value })
-        }
-        inputBoxClassName="w-38"
-      />
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+        <Input
+          type="date"
+          aria-label="조회 시작일"
+          value={value.startDate}
+          max={value.endDate || undefined}
+          onChange={(event) =>
+            onChange({ ...value, startDate: event.target.value })
+          }
+          inputBoxClassName="w-full min-w-0 sm:w-38"
+        />
 
-      <span className="text-font-disabled">~</span>
+        <span className="shrink-0 text-font-disabled">~</span>
 
-      <Input
-        type="date"
-        aria-label="조회 종료일"
-        value={value.endDate}
-        min={value.startDate || undefined}
-        onChange={(event) => onChange({ ...value, endDate: event.target.value })}
-        inputBoxClassName="w-38"
-      />
+        <Input
+          type="date"
+          aria-label="조회 종료일"
+          value={value.endDate}
+          min={value.startDate || undefined}
+          onChange={(event) =>
+            onChange({ ...value, endDate: event.target.value })
+          }
+          inputBoxClassName="w-full min-w-0 sm:w-38"
+        />
+      </div>
     </div>
   );
 };

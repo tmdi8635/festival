@@ -624,7 +624,7 @@ const SettingsForm = () => {
                     className={
                       settings.featureModes[key] === mode
                         ? "rounded-[7px] bg-surface-selected px-2.5 py-1 text-[13px] font-medium text-brand transition"
-                        : "rounded-[7px] px-2.5 py-1 text-[13px] text-font-2 transition hover:bg-surface-hover hover:text-font-1"
+                        : "shrink-0 rounded-[7px] px-2.5 py-1 text-[13px] whitespace-nowrap text-font-2 transition hover:bg-surface-hover hover:text-font-1"
                     }
                   >
                     {FEATURE_MODE_LABEL[mode]}

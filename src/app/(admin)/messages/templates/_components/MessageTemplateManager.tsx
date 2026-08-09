@@ -65,14 +65,14 @@ const MessageTemplateManager = () => {
       </Alert>
 
       <Card noPadding>
-        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+        <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={setKeyword}
             placeholder="템플릿 이름 · 내용 검색"
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="용도 필터"
               options={MESSAGE_PURPOSE_FILTER_OPTIONS}

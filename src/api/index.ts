@@ -10,8 +10,17 @@ import type {
   AppError,
 } from "@/type/api";
 
+/**
+ * 목업이 켜져 있으면 요청을 **같은 출처**로 보낸다.
+ *
+ * 어차피 MSW가 가로채므로 주소가 어디를 가리키는지는 뜻이 없는데,
+ * `http://localhost:8080`으로 두면 폰·터널에서 열었을 때 요청이 아예 나가지 못한다.
+ * (자세한 이유는 `mocks/utils.ts`의 `BASE_URI` 주석)
+ */
+const isMockingEnabled = process.env.NEXT_PUBLIC_API_MOCKING === "enabled";
+
 const BASE_CONFIG = {
-  baseURL: process.env.NEXT_PUBLIC_BASE_URI,
+  baseURL: isMockingEnabled ? "" : process.env.NEXT_PUBLIC_BASE_URI,
   headers: { "Content-Type": "application/json" },
 };
 
