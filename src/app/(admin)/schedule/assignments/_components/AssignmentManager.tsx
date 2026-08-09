@@ -10,7 +10,8 @@ import {
   BULK_ATTENDANCE_OPTIONS,
 } from "@/constants/staffOptions";
 import { useBooleanParam } from "@/hooks/useBooleanParam";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
+import { useSelection } from "@/hooks/useSelection";
 import { Star, UserCheck } from "@/icons";
 import { openConfirm } from "@/store/useConfirmStore";
 import {
@@ -73,10 +74,8 @@ const ASSIGNMENT_CSV_COLUMNS: CsvColumn<Assignment>[] = [
  */
 const AssignmentManager = () => {
   const router = useRouter();
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [role, setRole] = useState<JobRole | "">("");
   const [status, setStatus] = useState<AssignmentStatus | "">("");
@@ -104,8 +103,6 @@ const AssignmentManager = () => {
   /** 이 화면은 인력 기준으로 훑는 자리다. 행사 단위 처리는 상세 페이지로 넘긴다. */
   const openEventDetail = (eventId: number) =>
     router.push(`/schedule/events/${eventId}`);
-  /** 일괄 근태 처리를 위해 고른 배치들 */
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   const roleLabel = useJobRoleLabel();
@@ -125,28 +122,16 @@ const AssignmentManager = () => {
   });
 
   const rows = data?.content ?? [];
-  const isAllSelected =
-    rows.length > 0 &&
-    rows.every((row) => selectedIds.includes(row.assignmentId));
-  const selectedRows = rows.filter((row) =>
-    selectedIds.includes(row.assignmentId),
-  );
+  /** 일괄 근태 처리를 위해 고른 배치들 */
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(rows.map((row) => row.assignmentId));
+  const selectedRows = rows.filter((row) => isSelected(row.assignmentId));
 
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-    setSelectedIds([]);
+  /** 검색 결과가 달라지면 선택도 버린다. 화면에서 사라진 건이 일괄 처리에 남으면 안 된다. */
+  const handleSearchAndClear = (nextKeyword: string) => {
+    handleSearch(nextKeyword);
+    clear();
   };
-
-  const handleToggleAll = () =>
-    setSelectedIds(isAllSelected ? [] : rows.map((row) => row.assignmentId));
-
-  const handleToggle = (assignmentId: number) =>
-    setSelectedIds((prev) =>
-      prev.includes(assignmentId)
-        ? prev.filter((id) => id !== assignmentId)
-        : [...prev, assignmentId],
-    );
 
   /**
    * 일괄 근태 처리.
@@ -184,7 +169,7 @@ const AssignmentManager = () => {
           })),
           attendance,
         });
-        setSelectedIds([]);
+        clear();
       },
     });
   };
@@ -196,7 +181,7 @@ const AssignmentManager = () => {
         <Checkbox
           aria-label="전체 선택"
           checked={isAllSelected}
-          onChange={handleToggleAll}
+          onChange={toggleAll}
         />
       ),
       width: "44px",
@@ -205,8 +190,8 @@ const AssignmentManager = () => {
         <div onClick={(clickEvent) => clickEvent.stopPropagation()}>
           <Checkbox
             aria-label={`${assignment.staffName} 선택`}
-            checked={selectedIds.includes(assignment.assignmentId)}
-            onChange={() => handleToggle(assignment.assignmentId)}
+            checked={isSelected(assignment.assignmentId)}
+            onChange={() => toggle(assignment.assignmentId)}
           />
         </div>
       ),
@@ -362,7 +347,7 @@ const AssignmentManager = () => {
           <div className="flex items-center gap-3">
             <SearchInput
               value={keyword}
-              onSearch={handleSearch}
+              onSearch={handleSearchAndClear}
               placeholder="이름 · 행사명 · 연락처 검색"
             />
 
@@ -370,10 +355,7 @@ const AssignmentManager = () => {
               label="계약서 미완료만"
               boxClassName="whitespace-nowrap"
               checked={onlyUnsignedContract}
-              onChange={(event) => {
-                setOnlyUnsignedContract(event.target.checked);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setOnlyUnsignedContract(event.target.checked))}
             />
 
             {/* 정산 전에 반드시 채워야 하는 건을 바로 찾을 수 있게 한다. */}
@@ -381,10 +363,7 @@ const AssignmentManager = () => {
               label="출퇴근 미기록만"
               boxClassName="whitespace-nowrap"
               checked={onlyMissingCheckTime}
-              onChange={(event) => {
-                setOnlyMissingCheckTime(event.target.checked);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setOnlyMissingCheckTime(event.target.checked))}
             />
           </div>
 
@@ -400,10 +379,7 @@ const AssignmentManager = () => {
               aria-label="직무 필터"
               options={jobRoleFilterOptions}
               value={role}
-              onChange={(event) => {
-                setRole(event.target.value as JobRole | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setRole(event.target.value as JobRole | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -411,10 +387,7 @@ const AssignmentManager = () => {
               aria-label="배치 상태 필터"
               options={ASSIGNMENT_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as AssignmentStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as AssignmentStatus | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -422,10 +395,7 @@ const AssignmentManager = () => {
               aria-label="근태 필터"
               options={ATTENDANCE_FILTER_OPTIONS}
               value={attendance}
-              onChange={(event) => {
-                setAttendance(event.target.value as AttendanceStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setAttendance(event.target.value as AttendanceStatus | ""))}
               selectBoxClassName="w-32"
             />
           </div>
@@ -434,11 +404,10 @@ const AssignmentManager = () => {
         <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3">
           <DateRangeFilter
             value={range}
-            onChange={(next) => {
+            onChange={withPageReset((next: DateRange) => {
               setRange(next);
-              setPage(1);
-              setSelectedIds([]);
-            }}
+              clear();
+            })}
           />
 
           {/* 일괄 근태 처리. 대부분이 '정상 출근'이라 한 번에 찍고 예외만 고친다. */}

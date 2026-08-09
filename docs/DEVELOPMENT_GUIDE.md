@@ -23,6 +23,7 @@
 | 컴포넌트 파일 | PascalCase.tsx | `EventManager.tsx` |
 | API 파일 | camelCase.ts, `동사+리소스` | `getEventList.ts` |
 | 훅 파일 | `useXxx.ts` | `useIsClient.ts` |
+| 화면 전용 하위 컴포넌트 | 같은 `_components/`에 두고 `./`로 가져온다 | `AttendanceRosterRow.tsx` |
 | 스토어 | `useXxxStore.ts` | `useSidebarStore.ts` |
 | 타입 | camelCase.ts | `event.ts` |
 | zod 스키마 | `xxx.schema.ts` | `event.schema.ts` |
@@ -156,15 +157,14 @@ export const useEventMutation = () => {
 
 ## 5. 목록 화면 표준 구조
 
+검색어 · 페이지 상태는 **직접 만들지 않는다.** `useListSearch()`가 갖고 있다.
+
 ```tsx
 "use client";
 
 const XxxManager = () => {
-  const [page, setPage] = useState(1);
   // 전역 검색(⌘K)에서 넘어온 검색어를 초기값으로 쓰고, 화면에서 검색하면 그 값이 우선한다.
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } = useListSearch();
   const [status, setStatus] = useState<XxxStatus | "">("");
 
   const { data, isLoading } = useXxxListQuery({ page, size: DEFAULT_PAGE_SIZE, keyword, status });
@@ -175,8 +175,12 @@ const XxxManager = () => {
     <Card noPadding>
       {/* 1. 필터 바 */}
       <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
-        <SearchInput value={keyword} onSearch={(next) => { setKeyword(next); setPage(1); }} />
-        <Select options={STATUS_OPTIONS} value={status} onChange={...} />
+        <SearchInput value={keyword} onSearch={handleSearch} />
+        <Select
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={withPageReset((event) => setStatus(event.target.value as XxxStatus | ""))}
+        />
       </div>
 
       {/* 2. 표 */}
@@ -189,9 +193,27 @@ const XxxManager = () => {
 };
 ```
 
-- 검색어 변경 시 **항상 `page`를 1로 되돌린다.**
+- 검색어 · 필터가 바뀌면 **항상 `page`를 1로 되돌린다.** 그래서 필터 핸들러는
+  `withPageReset(...)`으로 감싼다. 손으로 `setPage(1)`을 적으면 필터를 하나 늘릴 때
+  빠뜨리고, 빠뜨린 그 필터만 "결과 없음"을 낸다. (데이터가 없는 게 아니라 3페이지에 있던 것이다)
 - 상태 뱃지는 `Badge`, 행 액션은 `IconButton` 또는 `Dropdown`.
 - 파괴적 액션은 반드시 `openConfirm({ ... })`.
+
+### 여러 건을 골라 일괄 처리하는 목록
+
+체크박스 선택은 `useSelection(보이는 ID 배열)`이 갖는다. 토글 · 전체선택을 다시 만들지 않는다.
+
+```tsx
+const rows = data?.content ?? [];
+const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+  useSelection(rows.map((row) => row.xxxId));
+```
+
+- `isAllSelected`는 **지금 보이는 행 기준**이다. 필터로 3건만 남았는데 전체 선택이
+  꺼져 보이면 담당자는 다시 누르고, 그 순간 화면 밖의 건까지 처리된다.
+- **필터 · 검색을 바꿀 때 `clear()`를 함께 부른다.** 걸러져 사라진 행이 선택에 남으면
+  "3건 선택"이라 적힌 채 화면에 없는 건이 처리된다.
+- 묶어 보는 화면(출퇴근 명부)은 `toggleMany(ids)` · `areAllSelected(ids)`를 쓴다.
 
 ---
 

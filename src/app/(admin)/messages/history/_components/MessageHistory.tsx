@@ -7,7 +7,7 @@ import {
   MESSAGE_PURPOSE_FILTER_OPTIONS,
   MESSAGE_STATUS_TONE,
 } from "@/constants/messageOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDateTime } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
@@ -49,10 +49,8 @@ const MESSAGE_CSV_COLUMNS: CsvColumn<MessageLog>[] = [
  * 담당자가 여러 명이 되면 이 기록이 있어야 중복 발송과 누락을 막을 수 있다.
  */
 const MessageHistory = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [purpose, setPurpose] = useState<MessagePurpose | "">("");
   const [detailLog, setDetailLog] = useState<MessageLog | null>(null);
@@ -147,10 +145,7 @@ const MessageHistory = () => {
         <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
           <SearchInput
             value={keyword}
-            onSearch={(next) => {
-              setDraftKeyword(next);
-              setPage(1);
-            }}
+            onSearch={handleSearch}
             placeholder="내용 · 행사명 · 발송자 검색"
           />
 
@@ -166,10 +161,7 @@ const MessageHistory = () => {
               aria-label="용도 필터"
               options={MESSAGE_PURPOSE_FILTER_OPTIONS}
               value={purpose}
-              onChange={(event) => {
-                setPurpose(event.target.value as MessagePurpose | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setPurpose(event.target.value as MessagePurpose | ""))}
               selectBoxClassName="w-36"
             />
           </div>

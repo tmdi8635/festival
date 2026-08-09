@@ -8,7 +8,7 @@ import {
   POSTING_STATUS_FILTER_OPTIONS,
   POSTING_STATUS_TONE,
 } from "@/constants/recruitOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Edit, Eye, Plus } from "@/icons";
 import { formatDate, formatDday } from "@/lib/dayjs";
 import { openConfirm } from "@/store/useConfirmStore";
@@ -43,10 +43,8 @@ import FeatureNotice from "@/components/domain/FeatureNotice";
 const PostingManager = () => {
   const jobRoleLabel = useJobRoleLabel();
   const jobRoleFilterOptions = useJobRoleFilterOptions();
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<PostingStatus | "">("");
   const [role, setRole] = useState<JobRole | "">("");
@@ -64,11 +62,6 @@ const PostingManager = () => {
   });
 
   const { statusMutation } = usePostingMutation();
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
 
   const handleClose = (posting: JobPosting) => {
     openConfirm({
@@ -242,10 +235,7 @@ const PostingManager = () => {
               aria-label="직무 필터"
               options={jobRoleFilterOptions}
               value={role}
-              onChange={(event) => {
-                setRole(event.target.value as JobRole | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setRole(event.target.value as JobRole | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -253,10 +243,7 @@ const PostingManager = () => {
               aria-label="상태 필터"
               options={POSTING_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as PostingStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as PostingStatus | ""))}
               selectBoxClassName="w-32"
             />
 

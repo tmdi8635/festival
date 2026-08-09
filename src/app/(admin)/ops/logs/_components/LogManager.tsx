@@ -7,7 +7,7 @@ import {
   LOG_LEVEL_FILTER_OPTIONS,
   LOG_LEVEL_TONE,
 } from "@/constants/opsOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDateTimeSecond } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
@@ -41,10 +41,8 @@ const LOG_CSV_COLUMNS: CsvColumn<OperationLog>[] = [
  * 모든 변경 요청은 자동으로 여기에 쌓인다.
  */
 const LogManager = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [level, setLevel] = useState<LogLevel | "">("");
   const [domain, setDomain] = useState<LogDomain | "">("");
@@ -111,10 +109,7 @@ const LogManager = () => {
       <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
         <SearchInput
           value={keyword}
-          onSearch={(next) => {
-            setDraftKeyword(next);
-            setPage(1);
-          }}
+          onSearch={handleSearch}
           placeholder="내용 · 수행자 검색"
         />
 
@@ -130,10 +125,7 @@ const LogManager = () => {
             aria-label="영역 필터"
             options={LOG_DOMAIN_FILTER_OPTIONS}
             value={domain}
-            onChange={(event) => {
-              setDomain(event.target.value as LogDomain | "");
-              setPage(1);
-            }}
+            onChange={withPageReset((event) => setDomain(event.target.value as LogDomain | ""))}
             selectBoxClassName="w-32"
           />
 
@@ -141,10 +133,7 @@ const LogManager = () => {
             aria-label="레벨 필터"
             options={LOG_LEVEL_FILTER_OPTIONS}
             value={level}
-            onChange={(event) => {
-              setLevel(event.target.value as LogLevel | "");
-              setPage(1);
-            }}
+            onChange={withPageReset((event) => setLevel(event.target.value as LogLevel | ""))}
             selectBoxClassName="w-32"
           />
         </div>

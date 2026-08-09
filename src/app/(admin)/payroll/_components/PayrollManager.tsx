@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSelection } from "@/hooks/useSelection";
 import { usePayrollListQuery } from "@/api/payroll/getPayrollList";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import { usePayrollMutation } from "@/api/payroll/mutatePayroll";
@@ -8,7 +9,7 @@ import {
   PAYROLL_STATUS_FILTER_OPTIONS,
   PAYROLL_STATUS_TONE,
 } from "@/constants/payrollOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Check, Coin, Download, Wallet } from "@/icons";
 import { downloadCsv, type CsvColumn } from "@/lib/csv";
 import { showAppToast } from "@/lib/toast";
@@ -101,15 +102,12 @@ const PAYROLL_CSV_COLUMNS: CsvColumn<PayrollItem>[] = [
  * 계좌 정보를 함께 들고 있으므로 은행 이체 파일을 여기서 바로 만든다.
  */
 const PayrollManager = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [role, setRole] = useState<JobRole | "">("");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [adjustTarget, setAdjustTarget] = useState<PayrollItem | null>(null);
 
   const admin = useAdminStore((state) => state.admin);
@@ -135,27 +133,10 @@ const PayrollManager = () => {
   const { statusMutation, allowanceMutation } = usePayrollMutation();
 
   const rows = data?.content ?? [];
-  const isAllSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.includes(row.payrollId));
-  const selectedRows = rows.filter((row) => selectedIds.includes(row.payrollId));
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(rows.map((row) => row.payrollId));
+  const selectedRows = rows.filter((row) => isSelected(row.payrollId));
   const selectedAmount = selectedRows.reduce((sum, row) => sum + row.netPay, 0);
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
-
-  const handleToggleAll = () => {
-    setSelectedIds(isAllSelected ? [] : rows.map((row) => row.payrollId));
-  };
-
-  const handleToggle = (payrollId: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(payrollId)
-        ? prev.filter((id) => id !== payrollId)
-        : [...prev, payrollId],
-    );
-  };
 
   const handleBulkStatus = (nextStatus: PayrollStatus) => {
     /*
@@ -195,7 +176,7 @@ const PayrollManager = () => {
       onConfirm: () =>
         statusMutation
           .mutateAsync({ payrollIds: selectedIds, status: nextStatus })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -218,7 +199,7 @@ const PayrollManager = () => {
       onConfirm: () =>
         allowanceMutation
           .mutateAsync({ payrollIds: selectedIds, [key]: isApplied })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -251,7 +232,7 @@ const PayrollManager = () => {
         <Checkbox
           aria-label="전체 선택"
           checked={isAllSelected}
-          onChange={handleToggleAll}
+          onChange={toggleAll}
         />
       ),
       width: "44px",
@@ -260,8 +241,8 @@ const PayrollManager = () => {
         <div onClick={(event) => event.stopPropagation()}>
           <Checkbox
             aria-label={`${item.staffName} 선택`}
-            checked={selectedIds.includes(item.payrollId)}
-            onChange={() => handleToggle(item.payrollId)}
+            checked={isSelected(item.payrollId)}
+            onChange={() => toggle(item.payrollId)}
           />
         </div>
       ),
@@ -506,10 +487,7 @@ const PayrollManager = () => {
               aria-label="직무 필터"
               options={jobRoleFilterOptions}
               value={role}
-              onChange={(event) => {
-                setRole(event.target.value as JobRole | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setRole(event.target.value as JobRole | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -517,10 +495,7 @@ const PayrollManager = () => {
               aria-label="상태 필터"
               options={PAYROLL_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as PayrollStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as PayrollStatus | ""))}
               selectBoxClassName="w-32"
             />
           </div>
@@ -529,10 +504,7 @@ const PayrollManager = () => {
         <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3">
           <DateRangeFilter
             value={range}
-            onChange={(next) => {
-              setRange(next);
-              setPage(1);
-            }}
+            onChange={withPageReset((next) => setRange(next))}
           />
 
           {selectedIds.length > 0 && (

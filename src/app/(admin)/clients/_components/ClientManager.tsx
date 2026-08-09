@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useClientListQuery } from "@/api/client/getClientList";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Building, Edit, Plus, TrendUp } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
@@ -54,10 +54,8 @@ const CLIENT_CSV_COLUMNS: CsvColumn<Client>[] = [
  * 조건을 다시 협의할 근거가 되는 화면이다.
  */
 const ClientManager = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [isActive, setIsActive] = useState("");
   const [formClient, setFormClient] = useState<Client | null>(null);
@@ -76,11 +74,6 @@ const ClientManager = () => {
     (sum, client) => sum + client.totalLaborCost,
     0,
   );
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
 
   const columns: TableColumn<Client>[] = [
     {
@@ -238,10 +231,7 @@ const ClientManager = () => {
               aria-label="거래 상태 필터"
               options={ACTIVE_FILTER_OPTIONS}
               value={isActive}
-              onChange={(event) => {
-                setIsActive(event.target.value);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setIsActive(event.target.value))}
               selectBoxClassName="w-32"
             />
 

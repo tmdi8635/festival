@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 const isMockingEnabled = process.env.NEXT_PUBLIC_API_MOCKING === "enabled";
+
+/**
+ * 워커는 한 번만 띄운다.
+ * 모듈 스코프에 약속을 붙잡아 두어야 StrictMode의 이중 마운트에서도 두 번 시작하지 않는다.
+ */
 let workerReadyPromise: Promise<void> | null = null;
 
 const startWorker = async () => {
@@ -20,11 +25,12 @@ const startWorker = async () => {
   return workerReadyPromise;
 };
 
-export default function MSWProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+interface MSWProviderProps {
+  children: ReactNode;
+}
+
+/** 워커가 뜨기 전에 화면을 그리면 첫 요청이 목업을 타지 않고 그대로 나간다. */
+const MSWProvider = ({ children }: MSWProviderProps) => {
   const [isReady, setIsReady] = useState(!isMockingEnabled);
 
   useEffect(() => {
@@ -42,4 +48,6 @@ export default function MSWProvider({
   if (!isReady) return null;
 
   return <>{children}</>;
-}
+};
+
+export default MSWProvider;

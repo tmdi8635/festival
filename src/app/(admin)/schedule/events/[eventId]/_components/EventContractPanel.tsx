@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSelection } from "@/hooks/useSelection";
 import { useContractListQuery } from "@/api/contract/getContractList";
 import { useContractTemplateListQuery } from "@/api/contract/getContractTemplateList";
 import { useContractMutation } from "@/api/contract/mutateContract";
@@ -67,7 +68,6 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   const roleLabel = useJobRoleLabel();
 
   const [status, setStatus] = useState<ContractStatus | "">("");
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [detailContractId, setDetailContractId] = useState<number | null>(null);
   const [amendTarget, setAmendTarget] = useState<Contract | null>(null);
   // 고르기 전에는 기본 템플릿을 그대로 쓰고, 고르면 draft가 화면을 담당한다.
@@ -83,8 +83,8 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   const { generateMutation, statusMutation } = useContractMutation();
 
   const rows = data?.content ?? [];
-  const isAllSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.includes(row.contractId));
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(rows.map((row) => row.contractId));
 
   const templates = (templateData?.items ?? []).filter(
     (template) => template.isActive,
@@ -137,16 +137,6 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
     (contract) => contract.revision > 1 && contract.status !== "SIGNED",
   );
 
-  const handleToggleAll = () =>
-    setSelectedIds(isAllSelected ? [] : rows.map((row) => row.contractId));
-
-  const handleToggle = (contractId: number) =>
-    setSelectedIds((prev) =>
-      prev.includes(contractId)
-        ? prev.filter((id) => id !== contractId)
-        : [...prev, contractId],
-    );
-
   const handleGenerate = () => {
     generateMutation.mutate({
       eventId: event.eventId,
@@ -167,7 +157,7 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
       onConfirm: () =>
         statusMutation
           .mutateAsync({ contractIds: selectedIds, status: nextStatus })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -178,7 +168,7 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
         <Checkbox
           aria-label="전체 선택"
           checked={isAllSelected}
-          onChange={handleToggleAll}
+          onChange={toggleAll}
         />
       ),
       width: "44px",
@@ -187,8 +177,8 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
         <div onClick={(clickEvent) => clickEvent.stopPropagation()}>
           <Checkbox
             aria-label={`${contract.staffName} 선택`}
-            checked={selectedIds.includes(contract.contractId)}
-            onChange={() => handleToggle(contract.contractId)}
+            checked={isSelected(contract.contractId)}
+            onChange={() => toggle(contract.contractId)}
           />
         </div>
       ),
@@ -416,7 +406,7 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
               value={status}
               onChange={(changeEvent) => {
                 setStatus(changeEvent.target.value as ContractStatus | "");
-                setSelectedIds([]);
+                clear();
               }}
               selectBoxClassName="w-32"
             />

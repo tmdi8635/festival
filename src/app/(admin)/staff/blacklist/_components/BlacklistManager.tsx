@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useListSearch } from "@/hooks/useListSearch";
 import { useStaffListQuery } from "@/api/staff/getStaffList";
 import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { Ban, ShieldAlert, Warning } from "@/icons";
@@ -36,8 +37,7 @@ const BlacklistManager = () => {
   const jobRoleLabel = useJobRoleLabel();
   // 직무는 기준 설정에서 정한 순서로 나열한다.
   const compareRoles = useJobRoleComparator();
-  const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState("");
+  const { page, setPage, keyword, handleSearch } = useListSearch();
 
   const [detailStaffId, setDetailStaffId] = useState<number | null>(null);
   const [blacklistTarget, setBlacklistTarget] = useState<StaffDetail | null>(
@@ -285,10 +285,7 @@ const BlacklistManager = () => {
         <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
           <SearchInput
             value={keyword}
-            onSearch={(next) => {
-              setKeyword(next);
-              setPage(1);
-            }}
+            onSearch={handleSearch}
             placeholder="이름 · 연락처 검색"
           />
         </div>

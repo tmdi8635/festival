@@ -9,7 +9,7 @@ import {
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Eye, Plus, Trash } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
@@ -93,10 +93,8 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
  * 배치할 사람을 고를 때는 정렬 기준(평판 · 근무 횟수)이 곧 판단 기준이 된다.
  */
 const StaffManager = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<StaffStatus | "">("");
   const [role, setRole] = useState<JobRole | "">("");
@@ -125,11 +123,6 @@ const StaffManager = () => {
     onlyFavorite: onlyFavorite || undefined,
     sort,
   });
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
 
   /**
    * 인력 삭제.
@@ -305,10 +298,7 @@ const StaffManager = () => {
               label="즐겨찾기만"
               boxClassName="whitespace-nowrap"
               checked={onlyFavorite}
-              onChange={(event) => {
-                setOnlyFavorite(event.target.checked);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setOnlyFavorite(event.target.checked))}
             />
           </div>
 
@@ -324,10 +314,7 @@ const StaffManager = () => {
               aria-label="정렬 기준"
               options={STAFF_SORT_OPTIONS}
               value={sort}
-              onChange={(event) => {
-                setSort(event.target.value as StaffSort);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setSort(event.target.value as StaffSort))}
               selectBoxClassName="w-36"
             />
 
@@ -350,10 +337,7 @@ const StaffManager = () => {
             aria-label="상태 필터"
             options={STAFF_STATUS_FILTER_OPTIONS}
             value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as StaffStatus | "");
-              setPage(1);
-            }}
+            onChange={withPageReset((event) => setStatus(event.target.value as StaffStatus | ""))}
             selectBoxClassName="w-36"
           />
 
@@ -361,10 +345,7 @@ const StaffManager = () => {
             aria-label="직무 필터"
             options={jobRoleFilterOptions}
             value={role}
-            onChange={(event) => {
-              setRole(event.target.value as JobRole | "");
-              setPage(1);
-            }}
+            onChange={withPageReset((event) => setRole(event.target.value as JobRole | ""))}
             selectBoxClassName="w-32"
           />
 
@@ -372,10 +353,7 @@ const StaffManager = () => {
             aria-label="지역 필터"
             options={REGION_FILTER_OPTIONS}
             value={region}
-            onChange={(event) => {
-              setRegion(event.target.value);
-              setPage(1);
-            }}
+            onChange={withPageReset((event) => setRegion(event.target.value))}
             selectBoxClassName="w-32"
           />
         </div>

@@ -7,7 +7,7 @@ import {
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { FileText, Upload, Wallet } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
@@ -43,10 +43,8 @@ const DOCUMENT_CSV_COLUMNS: CsvColumn<Staff>[] = [
  * 미제출 인력은 정산이 보류되므로 근무 전에 여기서 걸러야 한다.
  */
 const DocumentManager = () => {
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   // 기본값을 '미제출'로 두어 화면을 열자마자 할 일이 보이게 한다.
   const [documentState, setDocumentState] = useState("INCOMPLETE");
@@ -82,11 +80,6 @@ const DocumentManager = () => {
     totalCount > 0
       ? Math.round(((totalCount - incompleteCount) / totalCount) * 100)
       : 0;
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
 
   const columns: TableColumn<Staff>[] = [
     {
@@ -213,10 +206,7 @@ const DocumentManager = () => {
               aria-label="서류 필터"
               options={DOCUMENT_STATE_FILTER_OPTIONS}
               value={documentState}
-              onChange={(event) => {
-                setDocumentState(event.target.value);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setDocumentState(event.target.value))}
               selectBoxClassName="w-32"
             />
           </div>

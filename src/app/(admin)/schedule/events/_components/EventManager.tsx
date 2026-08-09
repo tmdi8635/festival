@@ -10,7 +10,7 @@ import {
   EVENT_STATUS_TONE,
 } from "@/constants/eventOptions";
 import { useBooleanParam } from "@/hooks/useBooleanParam";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Eye, Plus, Trash } from "@/icons";
 import { formatDateRange, formatDday } from "@/lib/dayjs";
 import type { CsvColumn } from "@/lib/csv";
@@ -73,10 +73,8 @@ const EVENT_CSV_COLUMNS: CsvColumn<EventSummary>[] = [
  */
 const EventManager = () => {
   const router = useRouter();
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<EventStatus | "">("");
   const [clientId, setClientId] = useState("");
@@ -118,11 +116,6 @@ const EventManager = () => {
   ];
 
   /** 검색·필터가 바뀌면 항상 첫 페이지로 돌아간다. */
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
-
   const handleCancel = (event: EventSummary) => {
     openConfirm({
       title: "행사를 취소할까요?",
@@ -276,10 +269,7 @@ const EventManager = () => {
               label="미충원 행사만"
               boxClassName="whitespace-nowrap"
               checked={onlyUnderstaffed}
-              onChange={(event) => {
-                setOnlyUnderstaffed(event.target.checked);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setOnlyUnderstaffed(event.target.checked))}
             />
           </div>
 
@@ -295,10 +285,7 @@ const EventManager = () => {
               aria-label="거래처 필터"
               options={clientOptions}
               value={clientId}
-              onChange={(event) => {
-                setClientId(event.target.value);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setClientId(event.target.value))}
               selectBoxClassName="w-44"
             />
 
@@ -306,10 +293,7 @@ const EventManager = () => {
               aria-label="상태 필터"
               options={EVENT_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as EventStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as EventStatus | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -327,10 +311,7 @@ const EventManager = () => {
         <div className="border-b border-border-main px-5 py-3">
           <DateRangeFilter
             value={range}
-            onChange={(next) => {
-              setRange(next);
-              setPage(1);
-            }}
+            onChange={withPageReset((next) => setRange(next))}
           />
         </div>
 

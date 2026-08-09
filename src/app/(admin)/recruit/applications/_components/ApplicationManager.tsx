@@ -7,7 +7,7 @@ import {
   APPLICATION_STATUS_FILTER_OPTIONS,
   APPLICATION_STATUS_TONE,
 } from "@/constants/recruitOptions";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Check, Plus, UserPlus, Warning } from "@/icons";
 import { formatDate, formatDateTime } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
@@ -41,10 +41,8 @@ import FeatureNotice from "@/components/domain/FeatureNotice";
  */
 const ApplicationManager = () => {
   const jobRoleLabel = useJobRoleLabel();
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<ApplicationStatus | "">("PENDING");
   const [onlyNewApplicant, setOnlyNewApplicant] = useState(false);
@@ -60,11 +58,6 @@ const ApplicationManager = () => {
   });
 
   const { statusMutation } = useApplicationMutation();
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
 
   const handleAccept = (application: Application) => {
     openConfirm({
@@ -240,10 +233,7 @@ const ApplicationManager = () => {
               label="신규 지원자만"
               boxClassName="whitespace-nowrap"
               checked={onlyNewApplicant}
-              onChange={(event) => {
-                setOnlyNewApplicant(event.target.checked);
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setOnlyNewApplicant(event.target.checked))}
             />
           </div>
 
@@ -252,10 +242,7 @@ const ApplicationManager = () => {
               aria-label="상태 필터"
               options={APPLICATION_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as ApplicationStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as ApplicationStatus | ""))}
               selectBoxClassName="w-32"
             />
 

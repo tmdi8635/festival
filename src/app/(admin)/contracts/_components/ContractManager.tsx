@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSelection } from "@/hooks/useSelection";
 import { formatTimeRange } from "@/type/event";
 import { useContractListQuery } from "@/api/contract/getContractList";
 import { useContractMutation } from "@/api/contract/mutateContract";
@@ -15,7 +16,7 @@ import {
   CONTRACT_WHO_COLUMNS,
   CONTRACT_WORK_COLUMNS,
 } from "@/constants/csvColumns";
-import { useKeywordParam } from "@/hooks/useKeywordParam";
+import { useListSearch } from "@/hooks/useListSearch";
 import { Check, Eye, FileText, Plus, Refresh, Send } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
@@ -64,14 +65,11 @@ const CONTRACT_CSV_COLUMNS: CsvColumn<Contract>[] = [
  */
 const ContractManager = () => {
   const jobRoleLabel = useJobRoleLabel();
-  const [page, setPage] = useState(1);
-  const keywordParam = useKeywordParam();
-  const [draftKeyword, setDraftKeyword] = useState<string | null>(null);
-  const keyword = draftKeyword ?? keywordParam;
+  const { page, setPage, keyword, handleSearch, withPageReset } =
+    useListSearch();
 
   const [status, setStatus] = useState<ContractStatus | "">("");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [detailContractId, setDetailContractId] = useState<number | null>(null);
@@ -106,25 +104,8 @@ const ContractManager = () => {
   const { statusMutation } = useContractMutation();
 
   const rows = data?.content ?? [];
-  const isAllSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.includes(row.contractId));
-
-  const handleSearch = (nextKeyword: string) => {
-    setDraftKeyword(nextKeyword);
-    setPage(1);
-  };
-
-  const handleToggleAll = () => {
-    setSelectedIds(isAllSelected ? [] : rows.map((row) => row.contractId));
-  };
-
-  const handleToggle = (contractId: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(contractId)
-        ? prev.filter((id) => id !== contractId)
-        : [...prev, contractId],
-    );
-  };
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(rows.map((row) => row.contractId));
 
   const handleBulkStatus = (nextStatus: ContractStatus) => {
     const label = nextStatus === "SENT" ? "발송" : "서명 완료 처리";
@@ -139,7 +120,7 @@ const ContractManager = () => {
       onConfirm: () =>
         statusMutation
           .mutateAsync({ contractIds: selectedIds, status: nextStatus })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -150,7 +131,7 @@ const ContractManager = () => {
         <Checkbox
           aria-label="전체 선택"
           checked={isAllSelected}
-          onChange={handleToggleAll}
+          onChange={toggleAll}
         />
       ),
       width: "44px",
@@ -159,8 +140,8 @@ const ContractManager = () => {
         <div onClick={(event) => event.stopPropagation()}>
           <Checkbox
             aria-label={`${contract.staffName} 선택`}
-            checked={selectedIds.includes(contract.contractId)}
-            onChange={() => handleToggle(contract.contractId)}
+            checked={isSelected(contract.contractId)}
+            onChange={() => toggle(contract.contractId)}
           />
         </div>
       ),
@@ -346,10 +327,7 @@ const ContractManager = () => {
               aria-label="상태 필터"
               options={CONTRACT_STATUS_FILTER_OPTIONS}
               value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as ContractStatus | "");
-                setPage(1);
-              }}
+              onChange={withPageReset((event) => setStatus(event.target.value as ContractStatus | ""))}
               selectBoxClassName="w-32"
             />
 
@@ -367,10 +345,7 @@ const ContractManager = () => {
         <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3">
           <DateRangeFilter
             value={range}
-            onChange={(next) => {
-              setRange(next);
-              setPage(1);
-            }}
+            onChange={withPageReset((next) => setRange(next))}
           />
 
           {selectedIds.length > 0 && (

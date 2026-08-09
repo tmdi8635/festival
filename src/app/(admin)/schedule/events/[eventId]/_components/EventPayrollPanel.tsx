@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSelection } from "@/hooks/useSelection";
 import { usePayrollListQuery } from "@/api/payroll/getPayrollList";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import { usePayrollMutation } from "@/api/payroll/mutatePayroll";
@@ -100,7 +101,6 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [workDate, setWorkDate] = useState("");
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [adjustTarget, setAdjustTarget] = useState<PayrollItem | null>(null);
 
   /** 목록과 합계가 어긋나지 않도록 같은 조건을 넘긴다. */
@@ -120,9 +120,9 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const { statusMutation, allowanceMutation } = usePayrollMutation();
 
   const rows = data?.content ?? [];
-  const isAllSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.includes(row.payrollId));
-  const selectedRows = rows.filter((row) => selectedIds.includes(row.payrollId));
+  const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
+    useSelection(rows.map((row) => row.payrollId));
+  const selectedRows = rows.filter((row) => isSelected(row.payrollId));
   const selectedAmount = selectedRows.reduce((sum, row) => sum + row.netPay, 0);
 
   /*
@@ -137,16 +137,6 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       value: date,
     })),
   ];
-
-  const handleToggleAll = () =>
-    setSelectedIds(isAllSelected ? [] : rows.map((row) => row.payrollId));
-
-  const handleToggle = (payrollId: number) =>
-    setSelectedIds((prev) =>
-      prev.includes(payrollId)
-        ? prev.filter((id) => id !== payrollId)
-        : [...prev, payrollId],
-    );
 
   const handleBulkStatus = (nextStatus: PayrollStatus) => {
     /*
@@ -185,7 +175,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       onConfirm: () =>
         statusMutation
           .mutateAsync({ payrollIds: selectedIds, status: nextStatus })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -209,7 +199,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       onConfirm: () =>
         allowanceMutation
           .mutateAsync({ payrollIds: selectedIds, [key]: isApplied })
-          .then(() => setSelectedIds([])),
+          .then(() => clear()),
     });
   };
 
@@ -242,7 +232,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         <Checkbox
           aria-label="전체 선택"
           checked={isAllSelected}
-          onChange={handleToggleAll}
+          onChange={toggleAll}
         />
       ),
       width: "44px",
@@ -251,8 +241,8 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         <div onClick={(clickEvent) => clickEvent.stopPropagation()}>
           <Checkbox
             aria-label={`${item.staffName} 선택`}
-            checked={selectedIds.includes(item.payrollId)}
-            onChange={() => handleToggle(item.payrollId)}
+            checked={isSelected(item.payrollId)}
+            onChange={() => toggle(item.payrollId)}
           />
         </div>
       ),
@@ -476,7 +466,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
             value={workDate}
             onChange={(changeEvent) => {
               setWorkDate(changeEvent.target.value);
-              setSelectedIds([]);
+              clear();
             }}
             selectBoxClassName="w-40"
           />
@@ -515,7 +505,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
               value={status}
               onChange={(changeEvent) => {
                 setStatus(changeEvent.target.value as PayrollStatus | "");
-                setSelectedIds([]);
+                clear();
               }}
               selectBoxClassName="w-32"
             />
