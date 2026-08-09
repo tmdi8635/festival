@@ -1,4 +1,5 @@
 import { auditLogHandlers } from "./auditLog";
+import { backupHandlers } from "./backup";
 import { clientHandlers } from "./client";
 import { contractHandlers } from "./contract";
 import { dashboardHandlers } from "./dashboard";
@@ -30,4 +31,5 @@ export const handlers = [
   ...messageHandlers,
   ...clientHandlers,
   ...opsHandlers,
+  ...backupHandlers,
 ];
