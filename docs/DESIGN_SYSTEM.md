@@ -304,3 +304,24 @@ Tailwind v4 `@theme inline`으로 CSS 변수를 유틸리티 클래스에 매핑
 - 에러는 필드 하단 `text-[12px] text-font-error`, 레이아웃이 밀리지 않게 높이를 예약한다.
 - 저장 버튼은 `isSubmitting` 동안 로딩 + `disabled`.
 - 값이 바뀌지 않았으면 저장 버튼을 `disabled` 처리한다.
+
+---
+
+## 움직임 (transition · animation)
+
+움직임은 **무슨 일이 일어났는지 알려 줄 때만** 쓴다. 장식으로 넣으면
+하루에 수십 번 여는 화면에서 그 0.2초가 매번 기다림이 된다.
+
+| 자리 | 표현 | 이유 |
+|---|---|---|
+| 목록 · 경고가 처음 그려질 때 | `.animate-rise` (0.18s) | 스켈레톤에서 자료로 툭 끊기면 "화면이 튀었다"로 읽힌다 |
+| 접기 · 펴기 | `.collapsible` + `data-folded` | 바로 사라지면 무슨 일인지 다시 확인하게 된다 |
+| 모달 | `.animate-fade-in` · `.animate-slide-up` | 어디서 열렸는지 |
+| 상태 배지 | `transition-colors` | 같은 자리에서 색만 바뀌면 눈이 놓친다 |
+| 누를 수 있는 카드 | `hover:-translate-y-px` + `hover:shadow-card` | **누를 수 있다는 신호**. 누를 수 없는 카드는 움직이지 않는다 |
+| 버튼 | `active:scale-[0.98]` | 눌렸다는 확인 |
+
+- 접힘 높이는 `max-height`로 흉내 내지 않는다. 내용이 그보다 길면 잘리고,
+  짧으면 펴지는 속도가 내용 길이마다 달라진다. grid의 `1fr ↔ 0fr`을 쓴다.
+- **`prefers-reduced-motion`에서는 전부 끈다.** 장식은 접근성보다 뒤에 온다.
+  (`globals.css`에 전역으로 걸려 있다)

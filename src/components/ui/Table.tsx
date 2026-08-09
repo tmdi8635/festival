@@ -90,7 +90,7 @@ const Table = <T,>({
                 key={getRowKey(row, rowIndex)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 className={cn(
-                  "border-t border-border-main transition-colors hover:bg-surface-hover",
+                  "animate-rise border-t border-border-main transition-colors hover:bg-surface-hover",
                   onRowClick && "cursor-pointer",
                 )}
               >

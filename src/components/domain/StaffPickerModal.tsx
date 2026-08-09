@@ -4,7 +4,11 @@ import Image from "next/image";
 import { useState } from "react";
 import { useAssignmentCandidateQuery } from "@/api/event/getAssignmentCandidates";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
-import { useJobRoleLabel, useJobRoleOptions } from "@/store/useOrgStore";
+import {
+  useJobRoleComparator,
+  useJobRoleLabel,
+  useJobRoleOptions,
+} from "@/store/useOrgStore";
 import { Sparkle, Star, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
@@ -61,6 +65,8 @@ const StaffPickerModal = ({
   onClose,
 }: StaffPickerModalProps) => {
   const jobRoleLabel = useJobRoleLabel();
+  // 직무 나열 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
+  const compareRoles = useJobRoleComparator();
   const jobRoleOptions = useJobRoleOptions();
 
   /*
@@ -407,6 +413,27 @@ const StaffPickerModal = ({
                             추천
                           </Badge>
                         )}
+                      </div>
+
+                      {/*
+                        이 사람이 어떤 일을 할 수 있는가.
+
+                        지금 고르는 직무 말고도 무엇이 되는지가 보여야
+                        "스태프가 모자란데 이 사람은 MC도 되네" 같은 판단이 그 자리에서 된다.
+                        그게 안 보이면 담당자는 인력풀을 따로 열어 한 명씩 확인하거나,
+                        머릿속에 있는 몇 사람만 계속 돌려 쓰게 된다.
+                      */}
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {[...candidate.roles].sort(compareRoles).map((item) => (
+                          <Badge
+                            key={item}
+                            /* 지금 배치하려는 직무를 도드라지게 한다. */
+                            tone={item === role ? "brand" : "neutral"}
+                            className="px-1.5 py-0 text-[11px]"
+                          >
+                            {jobRoleLabel(item)}
+                          </Badge>
+                        ))}
                       </div>
 
                       <p className="mt-0.5 truncate text-[12px] text-font-2 tabular-nums">

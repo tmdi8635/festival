@@ -413,7 +413,14 @@ const EventDailyPanel = ({
                       </Button>
                     </div>
 
-                    {isFolded ? null : assignments.length === 0 ? (
+                    {/*
+                      접힘은 `collapsible`이 grid 행 높이로 처리한다.
+                      바로 없애 버리면 화면이 툭 끊겨 "무슨 일이 일어난 건지"를
+                      다시 확인하게 된다. 접었다는 사실이 보여야 안심하고 접는다.
+                    */}
+                    <div className="collapsible" data-folded={isFolded}>
+                      <div>
+                    {assignments.length === 0 ? (
                       <p className="text-[13px] text-font-disabled sm:pl-36">
                         배치된 인력이 없습니다.
                       </p>
@@ -494,6 +501,8 @@ const EventDailyPanel = ({
                         ))}
                       </ul>
                     )}
+                      </div>
+                    </div>
                   </div>
                 </li>
                 );

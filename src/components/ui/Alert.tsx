@@ -40,7 +40,7 @@ const Alert = ({
   return (
     <div
       className={cn(
-        "flex items-start gap-2.5 rounded-field border px-4 py-3",
+        "animate-rise flex items-start gap-2.5 rounded-field border px-4 py-3",
         TONE_CLASS[tone],
         className,
       )}

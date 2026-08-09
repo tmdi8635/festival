@@ -61,7 +61,7 @@ const CalendarEventChip = ({
   return (
     <div
       className={cn(
-        "flex w-full flex-col gap-1 rounded-field border px-2 py-1.5 text-left transition",
+        "flex w-full flex-col gap-1 rounded-field border px-2 py-1.5 text-left transition hover:-translate-y-px hover:shadow-card",
         "hover:border-brand hover:bg-brand-opacity-3",
         dayAssigned < dayRequired
           ? "border-danger/30 bg-danger-bg/40"
@@ -72,7 +72,7 @@ const CalendarEventChip = ({
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full flex-col gap-1 text-left active:scale-[0.99]"
+        className="flex w-full flex-col gap-1 text-left transition active:scale-[0.99]"
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-[11px] font-medium text-font-2 tabular-nums">

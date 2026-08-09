@@ -105,7 +105,7 @@ const SummaryCell = ({
   <button
     type="button"
     onClick={onClick}
-    className="flex flex-col items-start gap-0.5 rounded-field border border-border-main bg-subtle px-4 py-3 text-left transition hover:border-brand hover:bg-surface-hover active:scale-[0.99]"
+    className="flex flex-col items-start gap-0.5 rounded-field border border-border-main bg-subtle px-4 py-3 text-left transition hover:-translate-y-px hover:border-brand hover:bg-surface-hover hover:shadow-card active:translate-y-0 active:scale-[0.99]"
   >
     <span className="text-[12px] text-font-2">{label}</span>
     <span
