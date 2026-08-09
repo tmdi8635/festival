@@ -86,7 +86,7 @@ const AttendanceRosterGroup = ({
   return (
     <li className="flex flex-col gap-2.5 px-5 py-4">
       {/* 묶음 머리. 사람별이면 사람, 날짜별이면 그날의 요약이다. */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Checkbox
           aria-label={`${groupMode === "STAFF" ? first.staffName : formatDate(groupKey)} 전체 선택`}
           checked={isGroupSelected}
@@ -122,7 +122,7 @@ const AttendanceRosterGroup = ({
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <span className="text-[13px] text-font-2 tabular-nums">
             {groupMode === "STAFF"
               ? `${assignments.length}일 · 실근무 ${totalWorkHours}시간`

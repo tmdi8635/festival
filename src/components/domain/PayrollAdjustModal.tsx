@@ -332,7 +332,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               label="기타 수당"
               hint="식대 · 교통비 등 (전체 근무일 합계)"

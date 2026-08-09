@@ -406,7 +406,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
 
       <Card noPadding>
         {/* 행사 하나의 정산 합계. 정산 메뉴로 나가 같은 행사를 다시 찾을 이유가 없다. */}
-        <div className="grid grid-cols-4 gap-3 border-b border-border-main p-4">
+        <div className="grid grid-cols-2 gap-3 border-b border-border-main p-4 lg:grid-cols-4">
           <div className="rounded-field border border-border-main bg-subtle px-4 py-3">
             <p className="text-[12px] text-font-2">정산 건수</p>
             <p className="mt-1 text-[18px] font-bold text-font-0 tabular-nums">
@@ -459,7 +459,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <Select
             aria-label="근무일 필터"
             options={dateOptions}

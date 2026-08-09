@@ -364,7 +364,7 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
           예전에는 계약서가 몇 장 남았는지 보려면 계약서 메뉴에서 행사를 다시 검색해야 했다.
           각 칸을 누르면 그 일을 끝낼 수 있는 탭으로 바로 넘어간다.
         */}
-        <div className="grid grid-cols-5 gap-3 p-4">
+        <div className="grid grid-cols-2 gap-3 p-4 lg:grid-cols-5">
           <SummaryCell
             label="확정 인원"
             value={`${event.totalAssigned} / ${event.totalRequired}명`}

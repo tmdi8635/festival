@@ -239,7 +239,7 @@ const BlacklistManager = () => {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatTile
           label="블랙리스트"
           value={`${data?.totalCount ?? 0}명`}
@@ -282,7 +282,7 @@ const BlacklistManager = () => {
       )}
 
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={handleSearch}

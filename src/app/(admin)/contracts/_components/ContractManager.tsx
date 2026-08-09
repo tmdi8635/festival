@@ -285,7 +285,7 @@ const ContractManager = () => {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatTile
           label="미발송 (작성됨)"
           value={`${draftData?.totalCount ?? 0}건`}
@@ -308,7 +308,7 @@ const ContractManager = () => {
       </div>
 
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={handleSearch}
@@ -342,7 +342,7 @@ const ContractManager = () => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5">
           <DateRangeFilter
             value={range}
             onChange={withPageReset((next) => setRange(next))}

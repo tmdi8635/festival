@@ -25,7 +25,7 @@ const Tabs = <T extends string>({
     <div
       role="tablist"
       className={cn(
-        "flex items-center gap-1 border-b border-border-main",
+        "flex items-center gap-1 overflow-x-auto border-b border-border-main scrollbar-thin",
         className,
       )}
     >
@@ -40,7 +40,7 @@ const Tabs = <T extends string>({
             aria-selected={isActive}
             onClick={() => onChange(item.value)}
             className={cn(
-              "-mb-px border-b-2 px-4 py-2.5 text-[14px] transition",
+              "-mb-px shrink-0 border-b-2 px-3 py-2.5 text-[14px] whitespace-nowrap transition sm:px-4",
               isActive
                 ? "border-brand font-semibold text-brand"
                 : "border-transparent text-font-2 hover:text-font-1",

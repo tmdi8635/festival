@@ -158,7 +158,7 @@ const ContractTemplateFormModal = ({
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-5">
         {/* 기본 정보 */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField
             label="템플릿 이름"
             required
@@ -219,7 +219,7 @@ const ContractTemplateFormModal = ({
             계약서마다 같은 값이 들어갑니다. 여기서 한 번만 적어 두세요.
           </p>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="상호" required error={errors.companyName?.message}>
               <Input
                 {...register("companyName")}
@@ -240,7 +240,7 @@ const ContractTemplateFormModal = ({
             </FormField>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               label="사업자등록번호"
               hint="000-00-00000"

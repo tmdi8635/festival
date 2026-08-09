@@ -565,7 +565,7 @@ const StaffDetailModal = ({
                 </Badge>
               </div>
 
-              <div className="grid shrink-0 grid-cols-4 gap-4 text-center">
+              <div className="grid shrink-0 grid-cols-2 gap-4 text-center sm:grid-cols-4">
                 <div>
                   <p className="text-[12px] text-font-2">누적 근무</p>
                   <p className="text-[16px] font-bold text-font-0 tabular-nums">
@@ -669,7 +669,7 @@ const StaffDetailModal = ({
                   <DetailRow label="등록일" value={formatDate(staff.createdAt)} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
                   <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
                 </div>

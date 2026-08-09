@@ -36,7 +36,7 @@ const EventNoticePanel = ({ event }: EventNoticePanelProps) => {
   const roster = confirmedRoster(event.assignments);
 
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <Card
         title="출근 안내 문구"
         description="집합 · 복장 · 준비물이 행사 정보에서 그대로 채워집니다."

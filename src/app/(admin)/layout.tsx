@@ -25,11 +25,15 @@ export default function AdminLayout({
         <Header />
 
         {/*
-          관리자 콘솔은 데스크톱 전용이다.
-          좁은 창에서 레이아웃이 무너지는 대신 가로 스크롤이 생기도록 최소 폭을 둔다.
+          넓은 화면에서는 표가 찌그러지지 않도록 최소 폭을 두고, 부족하면 가로로 스크롤한다.
+
+          좁은 화면에서는 그 최소 폭을 걷어낸다.
+          최소 폭이 남아 있으면 폭 390px 화면에서 페이지 전체가 900px로 버티는 바람에
+          모든 화면이 가로로 밀리고, 세로 스크롤을 내리는 동안에도 좌우로 흔들린다.
+          넓어야 하는 건 페이지가 아니라 표다. 표는 자기 안에서 스크롤한다. (`Table`)
         */}
         <main className="flex-1 overflow-auto bg-bg-base scrollbar-thin">
-          <div className="flex min-w-[900px] flex-col gap-6 px-8 py-7">
+          <div className="flex min-w-0 flex-col gap-5 px-4 py-5 lg:min-w-[900px] lg:gap-6 lg:px-8 lg:py-7">
             {children}
           </div>
         </main>

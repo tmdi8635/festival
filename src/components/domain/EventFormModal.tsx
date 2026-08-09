@@ -228,7 +228,7 @@ const EventFormModal = ({
           />
         </FormField>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="거래처" required error={errors.clientId?.message}>
             <Controller
               control={control}
@@ -259,7 +259,7 @@ const EventFormModal = ({
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="시작일" required error={errors.startDate?.message}>
             <Input
               type="date"
@@ -314,7 +314,7 @@ const EventFormModal = ({
           />
         </FormField>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="시작 시각" required error={errors.startTime?.message}>
             <Input
               type="time"
@@ -400,7 +400,7 @@ const EventFormModal = ({
           )}
         />
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="장소명" required error={errors.venue?.message}>
             <Input
               {...register("venue")}
@@ -431,7 +431,7 @@ const EventFormModal = ({
           />
         </FormField>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="복장" required error={errors.dressCode?.message}>
             <Input
               {...register("dressCode")}

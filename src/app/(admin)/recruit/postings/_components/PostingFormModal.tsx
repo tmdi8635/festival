@@ -171,7 +171,7 @@ const PostingFormModal = ({
           />
         </FormField>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="직무" required error={errors.role?.message}>
             <Controller
               control={control}

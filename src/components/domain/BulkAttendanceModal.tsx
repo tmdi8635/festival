@@ -201,7 +201,7 @@ const BulkAttendanceModal = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="근태" required>
             <Select
               options={ATTENDANCE_OPTIONS}
@@ -256,7 +256,7 @@ const BulkAttendanceModal = ({
 
             {shouldRecordTime ? (
               <>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <FormField label="출근">
                     <Input
                       type="time"

@@ -147,7 +147,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           />
         </FormField>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="이름" required error={errors.name?.message}>
             <Input {...register("name")} hasError={Boolean(errors.name)} />
           </FormField>
@@ -166,7 +166,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="생년월일" required error={errors.birthDate?.message}>
             <Input
               type="date"
@@ -198,7 +198,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           (강남 / 강남구 / 서울강남) 그래서 지역으로 인력을 추리는 일이 불가능했다.
           시/도와 시·군·구를 두 단계로 고르게 해서 값을 하나로 맞춘다.
         */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField
             label="활동 지역 (시/도)"
             required
@@ -277,7 +277,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           />
         </FormField>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="주소" error={errors.address?.message}>
             <Input {...register("address")} />
           </FormField>
@@ -291,7 +291,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField
             label="키(cm)"
             hint="의전 · 모델 배치 참고용"
@@ -310,7 +310,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           뒷자리를 가린 상태로 받아 주세요.
         </Alert>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="은행" error={errors.bankName?.message}>
             <Controller
               control={control}
@@ -341,7 +341,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="신분증 사본">
             <Controller
               control={control}

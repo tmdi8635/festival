@@ -142,7 +142,7 @@ const MessageHistory = () => {
         fallback="실제 발송 여부는 기존 문자 앱에서 확인해 주세요. 여기에는 시스템에 기록한 내역만 남습니다."
       />
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput
             value={keyword}
             onSearch={handleSearch}

@@ -4,8 +4,9 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ADMIN_MENU, isMenuItemActive } from "@/constants/menu";
 import { useIsClient } from "@/hooks/useIsClient";
-import { ChevronRight, Moon, Search, Sun } from "@/icons";
+import { ChevronRight, Menu, Moon, Search, Sun } from "@/icons";
 import { ADMIN_ROLE_LABEL, useAdminStore } from "@/store/useAdminStore";
+import { useSidebarStore } from "@/store/useSidebarStore";
 import IconButton from "@/components/ui/IconButton";
 
 /** 현재 경로에 해당하는 [1뎁스, 2뎁스] 라벨을 찾는다. */
@@ -32,6 +33,7 @@ const findBreadcrumb = (pathname: string): string[] => {
 const Header = () => {
   const pathname = usePathname();
   const admin = useAdminStore((state) => state.admin);
+  const openMobile = useSidebarStore((state) => state.openMobile);
   const { resolvedTheme, setTheme } = useTheme();
 
   // 테마 아이콘은 하이드레이션 이후에만 렌더링해야 마크업 불일치가 없다.
@@ -41,8 +43,18 @@ const Header = () => {
   const isDark = resolvedTheme === "dark";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border-main bg-surface px-6">
-      <nav className="flex min-w-0 items-center gap-1.5 text-[13px] text-font-2">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border-main bg-surface px-4 lg:gap-4 lg:px-6">
+      {/* 좁은 화면에서 사이드바는 덮여 있다. 이 버튼이 메뉴로 가는 유일한 입구다. */}
+      <button
+        type="button"
+        onClick={openMobile}
+        aria-label="메뉴 열기"
+        className="flex size-9 shrink-0 items-center justify-center rounded-field text-font-1 transition hover:bg-surface-hover lg:hidden"
+      >
+        <Menu size={20} />
+      </button>
+
+      <nav className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] text-font-2 lg:flex-none">
         {breadcrumb.map((label, index) => (
           <span key={label} className="flex items-center gap-1.5">
             {index > 0 && <ChevronRight size={13} />}
@@ -57,7 +69,7 @@ const Header = () => {
         ))}
       </nav>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 lg:gap-3">
         {/* 실제 열기는 CommandPalette가 전역 단축키로 처리한다. 여기서는 발견 가능성만 제공한다. */}
         <button
           type="button"
@@ -66,11 +78,13 @@ const Header = () => {
               new KeyboardEvent("keydown", { key: "k", metaKey: true }),
             )
           }
-          className="flex h-8 items-center gap-2 rounded-field border border-border-main px-2.5 text-[13px] text-font-2 transition hover:bg-surface-hover hover:text-font-1"
+          aria-label="통합 검색"
+          className="flex h-8 items-center gap-2 rounded-field border border-border-main px-2 text-[13px] text-font-2 transition hover:bg-surface-hover hover:text-font-1 sm:px-2.5"
         >
           <Search size={15} />
-          통합 검색
-          <kbd className="rounded-[5px] bg-subtle px-1.5 py-0.5 text-[11px]">
+          <span className="hidden sm:inline">통합 검색</span>
+          {/* ⌘K는 물리 키보드가 있을 때만 뜻이 있다. */}
+          <kbd className="hidden rounded-[5px] bg-subtle px-1.5 py-0.5 text-[11px] lg:inline">
             ⌘K
           </kbd>
         </button>
@@ -84,12 +98,12 @@ const Header = () => {
         )}
 
         {admin && (
-          <div className="flex items-center gap-2.5 border-l border-border-main pl-3">
+          <div className="flex items-center gap-2.5 border-border-main pl-0 sm:border-l sm:pl-3">
             <span className="flex size-8 items-center justify-center rounded-full bg-brand-opacity text-[13px] font-semibold text-brand">
               {admin.name.slice(0, 1)}
             </span>
 
-            <div className="leading-tight">
+            <div className="hidden leading-tight sm:block">
               <p className="text-[13px] font-medium text-font-1">{admin.name}</p>
               <p className="text-[12px] text-font-2">
                 {ADMIN_ROLE_LABEL[admin.role]}

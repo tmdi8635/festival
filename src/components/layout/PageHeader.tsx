@@ -18,16 +18,23 @@ const PageHeader = ({
 }: PageHeaderProps) => {
   return (
     <div
-      className={cn("flex items-start justify-between gap-6", className)}
+      className={cn(
+        "flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start sm:gap-6",
+        className,
+      )}
     >
       <div className="min-w-0">
-        <h1 className="text-[28px] font-bold text-font-0">{title}</h1>
+        <h1 className="text-[22px] font-bold text-font-0 sm:text-[28px]">{title}</h1>
         {description && (
           <p className="mt-1.5 text-[14px] text-font-2">{description}</p>
         )}
       </div>
 
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      {action && (
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+          {action}
+        </div>
+      )}
     </div>
   );
 };

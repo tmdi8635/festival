@@ -24,6 +24,7 @@ export { default as Globe } from "./Globe";
 export { default as ImageIcon } from "./ImageIcon";
 export { default as Layers } from "./Layers";
 export { default as ListLines } from "./ListLines";
+export { default as Menu } from "./Menu";
 export { default as Megaphone } from "./Megaphone";
 export { default as MessageSquare } from "./MessageSquare";
 export { default as Package } from "./Package";

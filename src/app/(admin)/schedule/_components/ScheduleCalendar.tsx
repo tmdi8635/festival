@@ -254,8 +254,8 @@ const ScheduleCalendar = () => {
   return (
     <>
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center rounded-field border border-border-main p-0.5">
               <button
                 type="button"
@@ -373,146 +373,155 @@ const ScheduleCalendar = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-7 border-b border-border-main bg-subtle">
-          {WEEKDAY_LABELS.map((label, index) => (
-            <div
-              key={label}
-              className={cn(
-                "px-3 py-2 text-center text-[13px] font-medium",
-                index === 0 && "text-danger",
-                index === 6 && "text-info",
-                index !== 0 && index !== 6 && "text-font-2",
-              )}
-            >
-              {label}
-            </div>
-          ))}
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-7">
-            {Array.from({ length: view === "WEEK" ? 7 : 35 }).map((_, index) => (
-              <div
-                key={index}
-                className="border-r border-b border-border-main p-2"
-              >
-                <Skeleton
-                  className={cn("w-full", view === "WEEK" ? "h-40" : "h-24")}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          weeks.map(({ weekStart, days, segments }) => {
-            const laneCount = segments.reduce(
-              (max, segment) => Math.max(max, segment.lane + 1),
-              0,
-            );
-            const barAreaHeight = laneCount * BAR_LANE_HEIGHT;
-
-            return (
-              <div key={weekStart.format("YYYY-MM-DD")} className="relative">
-                <div className="grid grid-cols-7">
-                  {days.map((day) => {
-                    const date = day.format("YYYY-MM-DD");
-                    const dayEvents = singleDayEventsByDate.get(date) ?? [];
-                    const isCurrentMonth =
-                      view === "WEEK" || day.isSame(cursor, "month");
-                    const isToday = date === today;
-                    const weekday = day.day();
-
-                    return (
-                      <div
-                        key={date}
-                        style={{ paddingTop: barAreaHeight }}
-                        className={cn(
-                          "group flex flex-col gap-1 border-r border-b border-border-main p-2",
-                          /*
-                            자세히 보기는 명단이 들어가 칸이 길어진다.
-                            최소 높이만 키우고 잘라내지 않아야 "한 번에 보는" 목적이 산다.
-                          */
-                          view === "WEEK"
-                            ? "min-h-56"
-                            : isDetailed
-                              ? "min-h-44"
-                              : "min-h-28",
-                          !isCurrentMonth && "bg-subtle",
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span
-                            className={cn(
-                              "flex size-6 items-center justify-center rounded-full text-[13px] tabular-nums",
-                              isToday && "bg-brand font-semibold text-font-4",
-                              !isToday && weekday === 0 && "text-danger",
-                              !isToday && weekday === 6 && "text-info",
-                              !isToday &&
-                                weekday !== 0 &&
-                                weekday !== 6 &&
-                                "text-font-1",
-                              !isCurrentMonth &&
-                                !isToday &&
-                                "text-font-disabled",
-                            )}
-                          >
-                            {day.date()}
-                          </span>
-
-                          {/* 빈 날짜에서 바로 행사를 만들 수 있게 한다. */}
-                          <button
-                            type="button"
-                            aria-label={`${date}에 행사 등록`}
-                            onClick={() => handleOpenForm(date)}
-                            className="flex size-6 items-center justify-center rounded-field text-font-disabled opacity-0 transition group-hover:opacity-100 hover:bg-surface-hover hover:text-brand"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-
-                        <div className="flex flex-col gap-1">
-                          {dayEvents.map((event) => (
-                            <CalendarEventChip
-                              key={event.eventId}
-                              event={event}
-                              date={date}
-                              isDetailed={isDetailed || view === "WEEK"}
-                              onClick={() => openDetail(event.eventId)}
-                              onStaffClick={setDetailStaffId}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+        {/*
+          좁은 화면에서 한 주 7칸을 그대로 욱여넣으면 칸마다 글자가 두세 자씩만 남아
+          무슨 행사인지 읽을 수 없다. 달력은 폭을 지키고 대신 가로로 스크롤한다.
+          (막대는 주 컨테이너 기준 퍼센트로 놓이므로 최소 폭 위에서 그대로 맞는다)
+        */}
+        <div className="overflow-x-auto scrollbar-thin">
+          <div className="min-w-[720px]">
+            <div className="grid grid-cols-7 border-b border-border-main bg-subtle">
+              {WEEKDAY_LABELS.map((label, index) => (
+                <div
+                  key={label}
+                  className={cn(
+                    "px-3 py-2 text-center text-[13px] font-medium",
+                    index === 0 && "text-danger",
+                    index === 6 && "text-info",
+                    index !== 0 && index !== 6 && "text-font-2",
+                  )}
+                >
+                  {label}
                 </div>
+              ))}
+            </div>
 
-                {/*
-                  이어지는 근무일 막대.
-                  셀 위에 겹쳐 그리되, 셀이 그만큼 위쪽 여백을 비워 두므로 내용과 겹치지 않는다.
-                */}
-                {segments.map((segment) => (
+            {isLoading ? (
+              <div className="grid grid-cols-7">
+                {Array.from({ length: view === "WEEK" ? 7 : 35 }).map((_, index) => (
                   <div
-                    key={segment.key}
-                    style={{
-                      left: `calc(${(segment.startColumn / 7) * 100}% + 4px)`,
-                      width: `calc(${(segment.span / 7) * 100}% - 8px)`,
-                      top: CELL_HEADER_HEIGHT + segment.lane * BAR_LANE_HEIGHT,
-                    }}
-                    className="absolute"
+                    key={index}
+                    className="border-r border-b border-border-main p-2"
                   >
-                    <MultiDayEventBar
-                      event={segment.event}
-                      segmentDayCount={segment.segmentDayCount}
-                      isContinuedFromPrevWeek={segment.isContinuedFromPrevWeek}
-                      isContinuedToNextWeek={segment.isContinuedToNextWeek}
-                      onClick={() => openDetail(segment.event.eventId)}
+                    <Skeleton
+                      className={cn("w-full", view === "WEEK" ? "h-40" : "h-24")}
                     />
                   </div>
                 ))}
               </div>
-            );
-          })
-        )}
+            ) : (
+              weeks.map(({ weekStart, days, segments }) => {
+                const laneCount = segments.reduce(
+                  (max, segment) => Math.max(max, segment.lane + 1),
+                  0,
+                );
+                const barAreaHeight = laneCount * BAR_LANE_HEIGHT;
+
+                return (
+                  <div key={weekStart.format("YYYY-MM-DD")} className="relative">
+                    <div className="grid grid-cols-7">
+                      {days.map((day) => {
+                        const date = day.format("YYYY-MM-DD");
+                        const dayEvents = singleDayEventsByDate.get(date) ?? [];
+                        const isCurrentMonth =
+                          view === "WEEK" || day.isSame(cursor, "month");
+                        const isToday = date === today;
+                        const weekday = day.day();
+
+                        return (
+                          <div
+                            key={date}
+                            style={{ paddingTop: barAreaHeight }}
+                            className={cn(
+                              "group flex flex-col gap-1 border-r border-b border-border-main p-2",
+                              /*
+                                자세히 보기는 명단이 들어가 칸이 길어진다.
+                                최소 높이만 키우고 잘라내지 않아야 "한 번에 보는" 목적이 산다.
+                              */
+                              view === "WEEK"
+                                ? "min-h-56"
+                                : isDetailed
+                                  ? "min-h-44"
+                                  : "min-h-28",
+                              !isCurrentMonth && "bg-subtle",
+                            )}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span
+                                className={cn(
+                                  "flex size-6 items-center justify-center rounded-full text-[13px] tabular-nums",
+                                  isToday && "bg-brand font-semibold text-font-4",
+                                  !isToday && weekday === 0 && "text-danger",
+                                  !isToday && weekday === 6 && "text-info",
+                                  !isToday &&
+                                    weekday !== 0 &&
+                                    weekday !== 6 &&
+                                    "text-font-1",
+                                  !isCurrentMonth &&
+                                    !isToday &&
+                                    "text-font-disabled",
+                                )}
+                              >
+                                {day.date()}
+                              </span>
+
+                              {/* 빈 날짜에서 바로 행사를 만들 수 있게 한다. */}
+                              <button
+                                type="button"
+                                aria-label={`${date}에 행사 등록`}
+                                onClick={() => handleOpenForm(date)}
+                                className="flex size-6 items-center justify-center rounded-field text-font-disabled opacity-0 transition group-hover:opacity-100 hover:bg-surface-hover hover:text-brand"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              {dayEvents.map((event) => (
+                                <CalendarEventChip
+                                  key={event.eventId}
+                                  event={event}
+                                  date={date}
+                                  isDetailed={isDetailed || view === "WEEK"}
+                                  onClick={() => openDetail(event.eventId)}
+                                  onStaffClick={setDetailStaffId}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/*
+                      이어지는 근무일 막대.
+                      셀 위에 겹쳐 그리되, 셀이 그만큼 위쪽 여백을 비워 두므로 내용과 겹치지 않는다.
+                    */}
+                    {segments.map((segment) => (
+                      <div
+                        key={segment.key}
+                        style={{
+                          left: `calc(${(segment.startColumn / 7) * 100}% + 4px)`,
+                          width: `calc(${(segment.span / 7) * 100}% - 8px)`,
+                          top: CELL_HEADER_HEIGHT + segment.lane * BAR_LANE_HEIGHT,
+                        }}
+                        className="absolute"
+                      >
+                        <MultiDayEventBar
+                          event={segment.event}
+                          segmentDayCount={segment.segmentDayCount}
+                          isContinuedFromPrevWeek={segment.isContinuedFromPrevWeek}
+                          isContinuedToNextWeek={segment.isContinuedToNextWeek}
+                          onClick={() => openDetail(segment.event.eventId)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </Card>
 
       <StaffDetailModal

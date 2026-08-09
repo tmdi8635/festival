@@ -23,11 +23,12 @@ interface ModalProps {
   className?: string;
 }
 
+/** 좁은 화면에서는 폭을 강제하지 않는다. `w-full`이 이기고 화면에 맞춰 줄어든다. */
 const SIZE_CLASS: Record<ModalSize, string> = {
-  sm: "w-[400px]",
-  md: "w-[520px]",
-  lg: "w-[720px]",
-  xl: "w-[960px]",
+  sm: "sm:w-[400px]",
+  md: "sm:w-[520px]",
+  lg: "sm:w-[720px]",
+  xl: "sm:w-[960px]",
 };
 
 /**
@@ -68,19 +69,19 @@ const Modal = ({
   return createPortal(
     <div
       onClick={closeOnOverlayClick ? onClose : undefined}
-      className="animate-fade-in fixed inset-0 z-100 flex items-center justify-center bg-overlay p-6 backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-100 flex items-center justify-center bg-overlay p-3 backdrop-blur-[2px] sm:p-6"
     >
       <div
         role="dialog"
         aria-modal="true"
         onClick={(event) => event.stopPropagation()}
         className={cn(
-          "animate-slide-up flex max-h-[calc(100vh-96px)] max-w-full flex-col overflow-hidden rounded-modal bg-surface shadow-modal",
+          "animate-slide-up flex max-h-[calc(100dvh-24px)] w-full max-w-full flex-col overflow-hidden rounded-modal bg-surface shadow-modal sm:max-h-[calc(100dvh-96px)]",
           SIZE_CLASS[size],
           className,
         )}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-border-main px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-border-main px-4 py-3.5 sm:px-6 sm:py-4">
           <div className="min-w-0">
             <h2 className="text-[17px] font-semibold text-font-0">{title}</h2>
             {description && (
@@ -96,12 +97,12 @@ const Modal = ({
           />
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin sm:px-6 sm:py-5">
           {children}
         </div>
 
         {footer && (
-          <footer className="flex items-center justify-end gap-2 border-t border-border-main px-6 py-4">
+          <footer className="flex items-center justify-end gap-2 border-t border-border-main px-4 py-3.5 sm:px-6 sm:py-4">
             {footer}
           </footer>
         )}

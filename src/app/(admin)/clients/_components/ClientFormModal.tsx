@@ -99,7 +99,7 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
       }
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="거래처명" required error={errors.name?.message}>
             <Input {...register("name")} hasError={Boolean(errors.name)} />
           </FormField>
@@ -116,7 +116,7 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
           </FormField>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="담당자" required error={errors.managerName?.message}>
             <Input
               {...register("managerName")}
@@ -149,7 +149,7 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
             직무별 청구 단가 (시급)
           </p>
 
-          <div className="grid grid-cols-3 gap-3 rounded-field border border-border-main p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-field border border-border-main p-3">
             {fields.map((field, index) => (
               <label key={field.id} className="flex flex-col gap-1.5">
                 <span className="text-[13px] text-font-2">

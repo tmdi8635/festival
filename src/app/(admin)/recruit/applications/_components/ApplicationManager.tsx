@@ -221,8 +221,8 @@ const ApplicationManager = () => {
       </Alert>
 
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+          <div className="flex flex-wrap items-center gap-3">
             <SearchInput
               value={keyword}
               onSearch={handleSearch}

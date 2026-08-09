@@ -53,7 +53,7 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
     summarizeEventCost(event);
 
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <Card title="발주 조건" className="col-span-2" bodyClassName="px-5 py-1">
         <DetailRow
           label="반복"

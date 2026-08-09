@@ -393,7 +393,7 @@ const SettingsForm = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4 px-4 py-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-4 py-3">
               <FormField label="연장근로 기준" hint="이 시간을 넘긴 만큼 가산">
                 <Input
                   type="number"
@@ -445,7 +445,7 @@ const SettingsForm = () => {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-4 px-4 py-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-4 py-3">
               <FormField label="야간 시작">
                 <Input
                   type="time"
@@ -488,7 +488,7 @@ const SettingsForm = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               label="원천징수율"
               hint={`${(settings.withholdingRate * 100).toFixed(1)}% (사업소득 기본 3.3%)`}
@@ -530,7 +530,7 @@ const SettingsForm = () => {
         title="인사 · 운영 기준"
         description="사람이 매번 판단하지 않아도 되도록 기준을 숫자로 고정합니다."
       >
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="블랙리스트 후보 기준" hint="노쇼 누적 횟수">
             <Input
               type="number"

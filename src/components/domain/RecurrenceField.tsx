@@ -187,7 +187,7 @@ const RecurrenceField = ({
       {/* 2. 매주 반복의 세부 조건 */}
       {value.type === "WEEKLY" && (
         <div className="flex flex-wrap items-center gap-3 rounded-field border border-border-main bg-subtle px-3 py-2.5">
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {WEEKDAY_LABELS.map((label, weekday) => (
               <button
                 key={label}

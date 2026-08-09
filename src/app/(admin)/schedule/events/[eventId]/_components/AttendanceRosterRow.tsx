@@ -57,7 +57,7 @@ const AttendanceRosterRow = ({
   return (
     <li
       className={cn(
-        "flex items-center gap-3 rounded-field border px-3 py-2",
+        "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-field border px-3 py-2",
         isSelected ? "border-brand bg-brand-opacity-3" : "border-border-main",
       )}
     >
@@ -68,14 +68,14 @@ const AttendanceRosterRow = ({
       />
 
       {groupMode === "STAFF" ? (
-        <span className="w-28 shrink-0 text-[13px] text-font-1 tabular-nums">
+        <span className="shrink-0 text-[13px] text-font-1 tabular-nums sm:w-28">
           {formatDate(assignment.workDate)}
         </span>
       ) : (
         <button
           type="button"
           onClick={() => onOpenStaff(assignment.staffId)}
-          className="w-40 shrink-0 text-left text-[13px] text-font-1 transition hover:opacity-70"
+          className="shrink-0 text-left text-[13px] text-font-1 transition hover:opacity-70 sm:w-40"
           title="인력 상세를 엽니다."
         >
           {assignment.staffName}
@@ -114,7 +114,7 @@ const AttendanceRosterRow = ({
         type="button"
         onClick={() => onEditWage(assignment)}
         title="적용 금액을 변경합니다."
-        className="ml-auto shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98]"
+        className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
       >
         <WageText wageType={assignment.wageType} wage={assignment.wage} />
       </button>

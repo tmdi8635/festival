@@ -48,7 +48,7 @@ const DashboardOverview = () => {
   if (isLoading || !data) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-28 w-full rounded-card" />
           ))}
@@ -64,7 +64,7 @@ const DashboardOverview = () => {
   return (
     <>
       <div className="flex flex-col gap-6">
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatTile
             label="오늘 진행 행사"
             value={`${metric.todayEventCount}건`}
@@ -145,7 +145,7 @@ const DashboardOverview = () => {
           <RevenueTrendChart data={monthlyTrend} />
         </Card>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card title="다가오는 행사" noPadding>
             {upcomingEvents.length === 0 ? (
               <EmptyState

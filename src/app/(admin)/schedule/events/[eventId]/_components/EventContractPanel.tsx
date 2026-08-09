@@ -362,8 +362,8 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
       )}
 
       <Card noPadding>
-        <div className="flex items-center justify-between gap-3 border-b border-border-main px-5 py-3.5">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2.5 border-b border-border-main px-4 py-3 lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               aria-label="계약서 템플릿"
               options={

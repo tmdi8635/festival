@@ -165,7 +165,7 @@ const MessageComposer = () => {
         feature="MESSAGE"
         fallback="아래에서 문구를 만들어 복사한 뒤, 기존에 쓰던 방식(단체 문자 · 오픈카톡방)으로 보내 주세요."
       />
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
         <Card
           title="수신 대상"
           description="행사 확정 인원 중에서 고릅니다."
@@ -262,7 +262,7 @@ const MessageComposer = () => {
 
         <Card title="내용 작성" className="col-span-3">
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <FormField label="템플릿">
                 <Select
                   options={templateOptions}
