@@ -1,0 +1,5 @@
+1:"$Sreact.fragment"
+2:I[97367,["/festival/_next/static/chunks/1cd78e56fe88d491.js","/festival/_next/static/chunks/a2dfb6fc5208ab9b.js","/festival/_next/static/chunks/d222c23558f3e48b.js","/festival/_next/static/chunks/65a6ffdf0e52175b.js"],"ViewportBoundary"]
+3:I[97367,["/festival/_next/static/chunks/1cd78e56fe88d491.js","/festival/_next/static/chunks/a2dfb6fc5208ab9b.js","/festival/_next/static/chunks/d222c23558f3e48b.js","/festival/_next/static/chunks/65a6ffdf0e52175b.js"],"MetadataBoundary"]
+4:"$Sreact.suspense"
+0:{"buildId":"6VVmjFxuDHSOCDlh04OxS","rsc":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"인력 에이전시 통합 관리 시스템"}],["$","meta","1",{"name":"description","content":"행사 일정 · 인력 배치 · 인사 · 계약 · 정산을 한 곳에서 관리합니다."}]]}]}]}],null]}],"loading":null,"isPartial":false}

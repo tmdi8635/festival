@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[4688,["/festival/_next/static/chunks/4e91c5396f71e8a8.js","/festival/_next/static/chunks/d222c23558f3e48b.js","/festival/_next/static/chunks/65a6ffdf0e52175b.js","/festival/_next/static/chunks/bb9e6fff006ae68f.js","/festival/_next/static/chunks/12289cfafe49f44f.js","/festival/_next/static/chunks/9935f5f81d35255c.js","/festival/_next/static/chunks/689378f9ea06d600.js"],"default"]
+3:I[97367,["/festival/_next/static/chunks/ff1a16fafef87110.js","/festival/_next/static/chunks/a2dfb6fc5208ab9b.js"],"OutletBoundary"]
+4:"$Sreact.suspense"
+0:{"buildId":"6VVmjFxuDHSOCDlh04OxS","rsc":["$","$1","c",{"children":[[["$","div",null,{"className":"flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start sm:gap-6","children":[["$","div",null,{"className":"min-w-0","children":[["$","h1",null,{"className":"text-[22px] font-bold text-font-0 sm:text-[28px]","children":"직책 · 권한"}],["$","p",null,{"className":"mt-1.5 text-[14px] text-font-2","children":"직책을 만들고 할 수 있는 일을 정합니다. 직원은 직책에 배정합니다."}]]}],"$undefined"]}],["$","$L2",null,{}]],[["$","script","script-0",{"src":"/festival/_next/static/chunks/689378f9ea06d600.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"loading":null,"isPartial":false}
+5:null
