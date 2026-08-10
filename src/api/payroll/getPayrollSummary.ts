@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { PayrollSummary } from "@/type/payroll";
 import type { PayrollListParams } from "./getPayrollList";
 
@@ -17,7 +16,7 @@ export const getPayrollSummary = async (params: PayrollSummaryParams) => {
 
 /** 정산 화면 상단 합계입니다. 목록과 같은 필터를 넘겨 숫자가 어긋나지 않게 합니다. */
 export const usePayrollSummaryQuery = (params: PayrollSummaryParams) => {
-  return useQuery<PayrollSummary, AppError>({
+  return usePermittedQuery<PayrollSummary>("payroll:read", {
     queryKey: ["get-payroll-summary", params],
     queryFn: () => getPayrollSummary(params),
   });

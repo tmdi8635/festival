@@ -75,6 +75,7 @@ const EVENT_CSV_COLUMNS: CsvColumn<EventSummary>[] = [
 const EventManager = () => {
   /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
   const canWrite = useHasPermission("event:write");
+  const canDelete = useHasPermission("event:delete");
 
   const router = useRouter();
   const { page, setPage, keyword, handleSearch, withPageReset } =
@@ -153,19 +154,27 @@ const EventManager = () => {
       icon: <Eye size={15} />,
       onSelect: () => openDetail(event.eventId),
     },
-    {
-      label: "행사 취소",
-      icon: <Ban size={15} />,
-      tone: "danger",
-      disabled: event.status === "CANCELED" || event.status === "DONE",
-      onSelect: () => handleCancel(event),
-    },
-    {
-      label: "삭제",
-      icon: <Trash size={15} />,
-      tone: "danger",
-      onSelect: () => handleDelete(event),
-    },
+    ...(canWrite
+      ? [
+          {
+            label: "행사 취소",
+            icon: <Ban size={15} />,
+            tone: "danger" as const,
+            disabled: event.status === "CANCELED" || event.status === "DONE",
+            onSelect: () => handleCancel(event),
+          },
+        ]
+      : []),
+    ...(canDelete
+      ? [
+          {
+            label: "삭제",
+            icon: <Trash size={15} />,
+            tone: "danger" as const,
+            onSelect: () => handleDelete(event),
+          },
+        ]
+      : []),
   ];
 
   const columns: TableColumn<EventSummary>[] = [
@@ -330,13 +339,15 @@ const EventManager = () => {
           emptyTitle="조건에 맞는 행사가 없습니다."
           emptyDescription="기간이나 상태 필터를 바꿔서 다시 찾아보세요."
           emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => setIsFormOpen(true)}
-            >
-              행사 등록
-            </Button>
+            canWrite ? (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => setIsFormOpen(true)}
+              >
+                행사 등록
+              </Button>
+            ) : undefined
           }
         />
 

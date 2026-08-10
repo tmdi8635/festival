@@ -180,6 +180,11 @@ const StaffPickerModal = ({
           : undefined
       }
       size="xl"
+      onSubmit={
+        selectedIds.length === 0 || targetDates.length === 0
+          ? undefined
+          : handleSubmit
+      }
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>

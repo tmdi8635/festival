@@ -163,6 +163,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
           : undefined
       }
       size="lg"
+      onSubmit={handleSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>

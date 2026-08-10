@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { JobRole, Staff, StaffStatus } from "@/type/staff";
 
 /** 인력 목록 정렬 기준 */
@@ -35,7 +35,7 @@ export const getStaffList = async (params: StaffListParams) => {
 
 /** 인력풀 화면에서 검색 · 등급/직무/서류 필터 · 정렬과 함께 사용합니다. */
 export const useStaffListQuery = (params: StaffListParams) => {
-  return useQuery<PageResponse<Staff>, AppError>({
+  return usePermittedQuery<PageResponse<Staff>>("staff:read", {
     queryKey: ["get-staff-list", params],
     queryFn: () => getStaffList(params),
   });

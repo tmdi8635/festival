@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
   ASSIGNMENT_STATUS_TONE,
   FILL_STATE_BADGE_TONE,
@@ -105,6 +106,15 @@ const EventDailyPanel = ({
   const roleLabel = useJobRoleLabel();
   // 직무 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
+  /*
+    같은 표 안에서 손대는 대상이 둘이다.
+    사람을 붙이고 떼는 것은 배치(`assignment`)이고,
+    그날 몇 명이 필요한지(발주 인원)는 행사(`event`)다.
+  */
+  const canAssign = useHasPermission("assignment:write");
+  const canUnassign = useHasPermission("assignment:delete");
+  const canWriteEvent = useHasPermission("event:write");
+
   const { deleteMutation } = useAssignmentMutation();
 
   const [onlyUnderstaffed, setOnlyUnderstaffed] = useState(false);
@@ -183,7 +193,7 @@ const EventDailyPanel = ({
     openConfirm({
       title: "배치를 해제할까요?",
       description: `'${assignment.staffName}'님을 ${formatDate(assignment.workDate)} 근무에서 제외합니다.`,
-      warning: "이미 발송한 계약서가 있다면 따로 취소 안내가 필요합니다.",
+      warning: "이미 서명본을 등록한 계약서가 있다면 따로 취소 안내가 필요합니다.",
       confirmText: "해제",
       tone: "danger",
       onConfirm: () => deleteMutation.mutateAsync(assignment.assignmentId),
@@ -230,14 +240,16 @@ const EventDailyPanel = ({
               disabled={activeAssignments.length === 0}
             />
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => onAddStaff()}
-            >
-              전체 근무일 배치
-            </Button>
+            {canAssign && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => onAddStaff()}
+              >
+                전체 근무일 배치
+              </Button>
+            )}
 
             {/* 근무일이 여럿일 때만 뜻이 있다. 하루짜리 행사에서는 누를 이유가 없다. */}
             {visibleDays.length > 1 && (
@@ -387,14 +399,16 @@ const EventDailyPanel = ({
                       </Badge>
 
                       {/* 발주에 없던 직무(설치 · 철거 등)를 그날만 붙일 때 쓴다. */}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        leftIcon={<Plus size={14} />}
-                        onClick={() => onAddStaff(undefined, [day.date])}
-                      >
-                        이 날 배치
-                      </Button>
+                      {canAssign && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          leftIcon={<Plus size={14} />}
+                          onClick={() => onAddStaff(undefined, [day.date])}
+                        >
+                          이 날 배치
+                        </Button>
+                      )}
 
                       {/*
                         발주는 행사 폼에서 모든 날에 똑같이 깔린다.
@@ -402,15 +416,17 @@ const EventDailyPanel = ({
                         여기밖에 없다. 배치 옆에 두어 "몇 명 필요한가 → 누구를 넣는가"가
                         한자리에서 끝나게 한다.
                       */}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        leftIcon={<Sliders size={14} />}
-                        onClick={() => setRoleEditDay(day)}
-                        title="이 날에만 적용되는 발주 인원을 고칩니다."
-                      >
-                        발주 수정
-                      </Button>
+                      {canWriteEvent && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          leftIcon={<Sliders size={14} />}
+                          onClick={() => setRoleEditDay(day)}
+                          title="이 날에만 적용되는 발주 인원을 고칩니다."
+                        >
+                          발주 수정
+                        </Button>
+                      )}
                     </div>
 
                     {/*
@@ -477,26 +493,37 @@ const EventDailyPanel = ({
                               기준 설정의 시급은 초기값일 뿐이고, 사람마다 · 날마다
                               다르게 주기로 하는 일이 현장에서는 오히려 흔하다.
                             */}
-                            <button
-                              type="button"
-                              onClick={() => setWageTarget(assignment)}
-                              title="적용 금액을 변경합니다."
-                              className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
-                            >
-                              <WageText
-                                wageType={assignment.wageType}
-                                wage={assignment.wage}
-                              />
-                            </button>
+                            {canAssign ? (
+                              <button
+                                type="button"
+                                onClick={() => setWageTarget(assignment)}
+                                title="적용 금액을 변경합니다."
+                                className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
+                              >
+                                <WageText
+                                  wageType={assignment.wageType}
+                                  wage={assignment.wage}
+                                />
+                              </button>
+                            ) : (
+                              <span className="shrink-0 px-1.5 py-0.5 sm:ml-auto">
+                                <WageText
+                                  wageType={assignment.wageType}
+                                  wage={assignment.wage}
+                                />
+                              </span>
+                            )}
 
-                            <Button
-                              size="sm"
-                              variant="dangerGhost"
-                              leftIcon={<Trash size={14} />}
-                              onClick={() => handleRemove(assignment)}
-                            >
-                              해제
-                            </Button>
+                            {canUnassign && (
+                              <Button
+                                size="sm"
+                                variant="dangerGhost"
+                                leftIcon={<Trash size={14} />}
+                                onClick={() => handleRemove(assignment)}
+                              >
+                                해제
+                              </Button>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -513,14 +540,14 @@ const EventDailyPanel = ({
       </Card>
 
       <WageEditModal
-        assignment={wageTarget}
+        assignment={canAssign ? wageTarget : null}
         event={event}
         onClose={() => setWageTarget(null)}
       />
 
       <DayRoleEditModal
         event={event}
-        day={roleEditDay}
+        day={canWriteEvent ? roleEditDay : null}
         onClose={() => setRoleEditDay(null)}
       />
     </>

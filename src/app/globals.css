@@ -366,6 +366,17 @@ select:focus-visible {
   display: none;
 }
 
+/*
+  인쇄할 때만 존재하는 묶음.
+
+  여러 명분을 한 번에 배부하려면 계약서 서른 장이 **한 번의 인쇄**로 나와야 한다.
+  (한 명씩 인쇄 창을 서른 번 여는 것은 아무도 하지 않는다)
+  화면에는 그릴 이유가 없으므로 인쇄에서만 나타난다.
+*/
+.contract-print-batch {
+  display: none;
+}
+
 @media print {
   body * {
     visibility: hidden;
@@ -391,6 +402,31 @@ select:focus-visible {
 
   .contract-print-hidden {
     display: none !important;
+  }
+
+  /*
+    묶음 인쇄.
+
+    낱장 인쇄는 문서 하나를 화면 맨 위로 끌어올리면 됐지만(`position: absolute`),
+    여러 장을 그대로 두면 전부 같은 자리에 겹쳐 한 장만 나온다.
+    묶음에서는 바깥 상자만 끌어올리고 문서들은 제 흐름대로 세운 뒤,
+    사람마다 장을 넘긴다. 두 사람의 계약서가 한 장에 이어지면 배부할 수 없다.
+  */
+  .contract-print-batch {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  .contract-print-batch .contract-print-area {
+    position: static;
+    break-after: page;
+  }
+
+  .contract-print-batch .contract-print-area:last-child {
+    break-after: auto;
   }
 
   /*

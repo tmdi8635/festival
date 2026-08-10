@@ -195,6 +195,7 @@ const MessageHistory = () => {
             : undefined
         }
         size="lg"
+        onSubmit={() => setDetailLog(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDetailLog(null)}>

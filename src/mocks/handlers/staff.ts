@@ -32,6 +32,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requesterCan,
   requirePermission,
 } from "../utils";
 
@@ -71,8 +72,88 @@ const toStaffSummary = (staff: StaffDetail) => {
   return summary;
 };
 
+/**
+ * 상세 응답에서 **볼 권한이 없는 값만** 덜어 낸다.
+ *
+ * 인력 상세 한 장에 세 가지 성격의 값이 섞여 있다.
+ * 이름 · 연락처(인력), 신분증 · 통장사본(인력 서류), 계좌번호(정산)다.
+ * 화면에서 계좌 칸을 감추는 것만으로는 값이 이미 응답에 실려 온 뒤라
+ * 개발자도구만 열면 그대로 보인다. 실제로 지우는 곳은 여기다.
+ *
+ * 상세를 통째로 막지 않는 이유는, 배치하려면 이름과 연락처는 봐야 하기 때문이다.
+ * 자료마다 권한을 나눠 놓고 화면 단위로 막으면 나눈 의미가 없어진다.
+ */
+const maskStaffDetail = (staff: StaffDetail, request: Request): StaffDetail => {
+  const masked = { ...staff };
+
+  if (!requesterCan(request, "staffDocument:read")) {
+    masked.idCardImageUrl = "";
+    masked.bankBookImageUrl = "";
+  }
+
+  /*
+    계좌는 두 갈래로 열린다.
+    이체하려면 정산 담당이 봐야 하고(`payroll:read`),
+    통장사본을 받아 옮겨 적는 사람도 봐야 한다(`staffDocument:read`).
+    뒤쪽을 빼면 서류 담당이 자기가 입력한 계좌를 못 보게 되고,
+    그 상태로 인력 폼을 저장하면 빈 값이 올라가 계좌번호가 지워진다.
+  */
+  if (
+    !requesterCan(request, "payroll:read") &&
+    !requesterCan(request, "staffDocument:read")
+  ) {
+    masked.bankName = "";
+    masked.accountNumber = "";
+    masked.accountHolder = "";
+  }
+
+  if (!requesterCan(request, "payroll:read")) {
+    masked.totalPaidAmount = 0;
+  }
+
+  if (!requesterCan(request, "blacklist:read")) {
+    masked.blacklistReason = undefined;
+  }
+
+  return masked;
+};
+
+/**
+ * 인력 등록 · 수정 요청에서 **서류 칸을 손댈 수 있는지** 본다.
+ *
+ * 인력 폼 한 장에 인적사항과 서류(신분증 · 통장사본 · 계좌)가 함께 들어 있다.
+ * 폼 전체를 `staff:write` 하나로 받으면, 서류 권한이 없는 사람이
+ * 인력 수정 화면을 통해 서류를 올릴 수 있다. 따로 뗀 권한이 뜻을 잃는다.
+ *
+ * 값을 무시할 뿐 요청을 거부하지는 않는다. 상세 조회에서 이미 가려 둔 값이라
+ * 폼을 열어 저장하면 빈 값이 그대로 올라오는데, 이때 거부하면
+ * 이름 하나 고치려던 사람이 막히고, 그대로 반영하면 **계좌번호가 지워진다.**
+ * 그래서 서류 칸은 건드리지 않고 나머지만 반영한다.
+ */
+const DOCUMENT_FIELDS = [
+  "bankName",
+  "accountNumber",
+  "accountHolder",
+  "idCardImageUrl",
+  "bankBookImageUrl",
+] as const;
+
+const omitDocumentFields = (body: StaffFormValues): StaffFormValues => {
+  const next = { ...body };
+
+  DOCUMENT_FIELDS.forEach((field) => {
+    delete next[field];
+  });
+
+  return next;
+};
+
 export const staffHandlers = [
   http.get(`${BASE_URI}/admin/staff`, async ({ request }) => {
+    const denied = requirePermission(request, "staff:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as StaffStatus | null;
@@ -131,20 +212,28 @@ export const staffHandlers = [
     return HttpResponse.json(paginate(sorted.map(toStaffSummary), url));
   }),
 
-  http.get(`${BASE_URI}/admin/staff/:staffId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "staff:read");
+
+    if (denied) return denied;
+
     const staff = findStaff(Number(params.staffId));
 
     await delay(MOCK_DELAY_MS);
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
-    return HttpResponse.json(staff);
+    return HttpResponse.json(maskStaffDetail(staff, request));
   }),
 
   /** 인력이 참여한 행사 이력. 블랙리스트 판단의 근거 화면이다. */
   http.get(
     `${BASE_URI}/admin/staff/:staffId/histories`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:read");
+
+      if (denied) return denied;
+
       const staffId = Number(params.staffId);
       const staff = findStaff(staffId);
 
@@ -243,7 +332,11 @@ export const staffHandlers = [
    */
   http.get(
     `${BASE_URI}/admin/staff/:staffId/reputations`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:read");
+
+      if (denied) return denied;
+
       const staffId = Number(params.staffId);
       const staff = findStaff(staffId);
 
@@ -312,7 +405,10 @@ export const staffHandlers = [
 
       if (denied) return denied;
 
-    const body = (await request.json()) as StaffFormValues;
+    const raw = (await request.json()) as StaffFormValues;
+    const body = requesterCan(request, "staffDocument:write")
+      ? raw
+      : omitDocumentFields(raw);
 
     const isDuplicated = staffList.some(
       (staff) => staff.phoneNumber === body.phoneNumber,
@@ -357,7 +453,10 @@ export const staffHandlers = [
       if (denied) return denied;
 
     const staff = findStaff(Number(params.staffId));
-    const body = (await request.json()) as StaffFormValues;
+    const raw = (await request.json()) as StaffFormValues;
+    const body = requesterCan(request, "staffDocument:write")
+      ? raw
+      : omitDocumentFields(raw);
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
@@ -378,7 +477,11 @@ export const staffHandlers = [
    * 다만 근무 이력이 있는 사람을 지우면 정산·계약서가 주인 없는 데이터가 되므로 막는다.
    * (그런 경우는 '활동종료'로 상태만 바꾸는 것이 맞다)
    */
-  http.delete(`${BASE_URI}/admin/staff/:staffId`, async ({ params }) => {
+  http.delete(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "staff:delete");
+
+    if (denied) return denied;
+
     const staffId = Number(params.staffId);
     const index = staffList.findIndex((staff) => staff.staffId === staffId);
 
@@ -411,6 +514,26 @@ export const staffHandlers = [
         reason?: string;
       };
 
+      /*
+        같은 주소지만 요구하는 권한이 둘이다.
+        '활동종료'로 바꾸는 것은 인력 정보 수정이고,
+        블랙리스트에 넣거나 빼는 것은 그 사람을 다시 부르지 못하게 하는 일이라
+        따로 뗀 권한(`blacklist:write`)이 있어야 한다.
+        해제도 마찬가지다 — 지정만 막고 해제를 열어 두면 막은 뜻이 없다.
+
+        **없는 대상이라도 권한부터 본다.** 404를 먼저 돌려주면
+        권한이 없는 사람이 아무 번호나 넣어 보며 "몇 번이 존재하는지"를 알아낼 수 있다.
+      */
+      const touchesBlacklist =
+        body.status === "BLACKLIST" || staff?.status === "BLACKLIST";
+
+      const denied = requirePermission(
+        request,
+        touchesBlacklist ? "blacklist:write" : "staff:write",
+      );
+
+      if (denied) return denied;
+
       if (!staff) return notFound("존재하지 않는 인력입니다.");
 
       staff.status = body.status;
@@ -436,6 +559,10 @@ export const staffHandlers = [
   http.patch(
     `${BASE_URI}/admin/staff/:staffId/favorite`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const { isFavorite } = (await request.json()) as { isFavorite: boolean };
 
@@ -452,6 +579,10 @@ export const staffHandlers = [
   http.patch(
     `${BASE_URI}/admin/staff/:staffId/documents`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staffDocument:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const body = (await request.json()) as {
         idCardImageUrl?: string;
@@ -477,6 +608,10 @@ export const staffHandlers = [
   http.post(
     `${BASE_URI}/admin/staff/:staffId/memos`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const body = (await request.json()) as {
         content: string;
@@ -509,7 +644,11 @@ export const staffHandlers = [
 
   http.delete(
     `${BASE_URI}/admin/staff/:staffId/memos/:memoId`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
 
       if (!staff) return notFound("존재하지 않는 인력입니다.");

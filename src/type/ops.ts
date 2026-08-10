@@ -167,8 +167,13 @@ export interface OperationSettings {
   blacklistNoShowThreshold: number;
   /** 행사 시작 며칠 전에 출근 안내를 보낼지 */
   reminderDaysBefore: number;
-  /** 계약서 서명 요청 링크 유효 기간(일) */
-  contractExpireDays: number;
+  /**
+   * 근무 시작 며칠 전까지 서명본이 등록돼야 하는지.
+   *
+   * 서명 요청 링크의 유효 기간이 아니다. 지금은 링크가 나가지 않는다.
+   * 담당자가 종이를 배부하고 받아 오는 데 걸리는 시간을 앞에 두는 값이다.
+   */
+  contractRegisterDeadlineDays: number;
 
   /*
     행사 등록 폼의 시간 · 휴게시간 기본값은 두지 않는다.

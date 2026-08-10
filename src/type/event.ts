@@ -141,8 +141,19 @@ export const buildRecurrenceFromPreset = (
   };
 
   switch (preset) {
+    /*
+      하루짜리로 되돌리면 제외일을 버린다.
+      하나뿐인 근무일을 제외하면 근무일이 0일인 행사가 되는데,
+      "하루만"에는 제외를 되돌릴 자리가 없어서 손쓸 방법이 없어진다.
+    */
     case "SINGLE":
-      return { ...common, type: "SINGLE", weekdays: [], intervalWeeks: 1 };
+      return {
+        ...common,
+        type: "SINGLE",
+        weekdays: [],
+        intervalWeeks: 1,
+        excludeDates: [],
+      };
     case "CONSECUTIVE":
       return { ...common, type: "CONSECUTIVE", weekdays: [] };
     case "WEEKEND":
@@ -652,8 +663,13 @@ export const resolveEventDates = (
     date >= startDate && (!endDate || date <= endDate);
 
   switch (recurrence.type) {
+    /*
+      하루짜리는 제외를 보지 않는다.
+      뺄 날이 하나뿐이라 제외하는 순간 근무일 0일짜리 행사가 되고,
+      그건 담당자가 뜻한 것일 수 없다. 지우려면 행사를 지우는 것이 맞다.
+    */
     case "SINGLE":
-      return excluded.has(startDate) ? [] : [startDate];
+      return [startDate];
 
     case "CONSECUTIVE":
       return buildDateRange(startDate, endDate || startDate).filter(

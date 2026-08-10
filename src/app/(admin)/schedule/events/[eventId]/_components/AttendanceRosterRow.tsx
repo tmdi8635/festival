@@ -19,6 +19,7 @@ import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
 import WageText from "@/components/domain/WageText";
 import type { GroupMode } from "./AttendanceRosterGroup";
+import { useHasPermission } from "@/store/useAdminStore";
 
 interface AttendanceRosterRowProps {
   assignment: Assignment;
@@ -51,6 +52,9 @@ const AttendanceRosterRow = ({
   onEditAttendance,
   onEditReputation,
 }: AttendanceRosterRowProps) => {
+  /* 근태 · 금액 · 평가는 모두 배치를 고치는 일이다. 조회만 있으면 값만 읽는다. */
+  const canWrite = useHasPermission("assignment:write");
+
   const roleLabel = useJobRoleLabel();
   const { workHours, isActual } = resolveWorkHours(assignment, event);
 
@@ -110,35 +114,51 @@ const AttendanceRosterRow = ({
       </span>
 
       {/* 금액은 눌러서 바로 고친다. 사람마다 · 날마다 다를 수 있다. */}
-      <button
-        type="button"
-        onClick={() => onEditWage(assignment)}
-        title="적용 금액을 변경합니다."
-        className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
-      >
-        <WageText wageType={assignment.wageType} wage={assignment.wage} />
-      </button>
+      {canWrite ? (
+        <button
+          type="button"
+          onClick={() => onEditWage(assignment)}
+          title="적용 금액을 변경합니다."
+          className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
+        >
+          <WageText wageType={assignment.wageType} wage={assignment.wage} />
+        </button>
+      ) : (
+        <span className="shrink-0 px-1.5 py-0.5 sm:ml-auto">
+          <WageText wageType={assignment.wageType} wage={assignment.wage} />
+        </span>
+      )}
 
-      <Button
-        size="sm"
-        variant="ghost"
-        leftIcon={<UserCheck size={14} />}
-        onClick={() => onEditAttendance(assignment)}
-      >
-        근태
-      </Button>
+      {canWrite && (
+        <Button
+          size="sm"
+          variant="ghost"
+          leftIcon={<UserCheck size={14} />}
+          onClick={() => onEditAttendance(assignment)}
+        >
+          근태
+        </Button>
+      )}
 
       {/* 이미 평가한 건은 결과를 그대로 버튼에 띄운다. 다시 눌러 고칠 수 있다. */}
-      <Button
-        size="sm"
-        variant="ghost"
-        leftIcon={<Star size={14} />}
-        onClick={() => onEditReputation(assignment)}
-      >
-        {assignment.reputationVerdict
-          ? REPUTATION_VERDICT_LABEL[assignment.reputationVerdict]
-          : "평가"}
-      </Button>
+      {canWrite ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          leftIcon={<Star size={14} />}
+          onClick={() => onEditReputation(assignment)}
+        >
+          {assignment.reputationVerdict
+            ? REPUTATION_VERDICT_LABEL[assignment.reputationVerdict]
+            : "평가"}
+        </Button>
+      ) : (
+        assignment.reputationVerdict && (
+          <span className="shrink-0 px-1.5 text-[13px] text-font-2">
+            {REPUTATION_VERDICT_LABEL[assignment.reputationVerdict]}
+          </span>
+        )
+      )}
     </li>
   );
 };

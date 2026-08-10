@@ -89,13 +89,10 @@ const RecurrenceField = ({
     onChange(next);
 
     /*
-      "하루만"으로 되돌리면 종료일이 과거에 남아 근무일이 0일이 되는 일이 잦다.
-      프리셋을 고르는 순간 종료일도 말이 되게 맞춰 준다.
+      "하루만"의 종료일은 여기서 손대지 않는다.
+      시작일을 나중에 고치는 경우까지 따라붙어야 해서 폼이 계속 맞춰 준다.
+      (`EventFormModal`) 두 곳에서 같은 값을 밀면 어느 쪽이 이겼는지 알기 어렵다.
     */
-    if (nextPreset.value === "SINGLE" && startDate) {
-      onRequestEndDate?.(startDate);
-    }
-
     if (
       nextPreset.value !== "SINGLE" &&
       startDate &&
@@ -131,6 +128,14 @@ const RecurrenceField = ({
    */
   const handleDateClick = (date: string) => {
     if (!startDate) return;
+
+    /*
+      하루짜리는 근무일이 하나뿐이라 제외할 것이 없다.
+      한 번 더 눌렀다고 그날을 빼 버리면 근무일 0일짜리 행사가 되는데,
+      되돌릴 자리도 없어서 담당자는 왜 0일이 됐는지조차 알기 어렵다.
+      날짜를 바꾸는 자리는 위의 시작일 하나다.
+    */
+    if (value.type === "SINGLE") return;
 
     if (value.type === "CUSTOM") {
       const dates = value.dates.includes(date)
@@ -293,19 +298,28 @@ const RecurrenceField = ({
             const isWorkDay = resolvedSet.has(date);
             const isExcluded = excludedSet.has(date);
             const inRange = isWithinRange(date);
+            /*
+              하루짜리에서는 달력이 결과를 보여 주기만 한다.
+              눌리는데 아무 일도 일어나지 않으면 고장으로 읽히므로 아예 잠근다.
+            */
+            const isClickable = Boolean(startDate) && value.type !== "SINGLE";
 
             return (
               <button
                 key={date}
                 type="button"
-                disabled={!startDate}
+                disabled={!isClickable}
                 onClick={() => handleDateClick(date)}
                 title={
-                  isExcluded
-                    ? "제외한 날입니다. 다시 누르면 근무일로 돌아옵니다."
-                    : isWorkDay
-                      ? "근무일입니다. 누르면 이 날만 제외합니다."
+                  value.type === "SINGLE"
+                    ? isWorkDay
+                      ? "하루짜리 행사의 근무일입니다. 날짜는 시작일에서 바꿉니다."
                       : undefined
+                    : isExcluded
+                      ? "제외한 날입니다. 다시 누르면 근무일로 돌아옵니다."
+                      : isWorkDay
+                        ? "근무일입니다. 누르면 이 날만 제외합니다."
+                        : undefined
                 }
                 className={cn(
                   "flex h-8 items-center justify-center rounded-field text-[12px] transition tabular-nums",
@@ -313,14 +327,13 @@ const RecurrenceField = ({
                   isWorkDay && "bg-brand font-semibold text-font-4",
                   isExcluded &&
                     "bg-danger-bg text-danger line-through decoration-danger",
+                  !isWorkDay && !isExcluded && inRange && "text-font-1",
+                  !isWorkDay && !isExcluded && !inRange && "text-font-disabled",
                   !isWorkDay &&
                     !isExcluded &&
-                    inRange &&
-                    "text-font-1 hover:bg-surface-hover",
-                  !isWorkDay &&
-                    !isExcluded &&
-                    !inRange &&
-                    "text-font-disabled hover:bg-surface-hover",
+                    isClickable &&
+                    "hover:bg-surface-hover",
+                  !isClickable && "cursor-default",
                 )}
               >
                 {day.date()}
@@ -331,9 +344,11 @@ const RecurrenceField = ({
       </div>
 
       <p className="text-[12px] text-font-2">
-        {value.type === "CUSTOM"
-          ? "달력에서 근무일을 직접 눌러 지정하세요. 기간 밖의 날짜는 저장되지 않습니다."
-          : "규칙대로 잡힌 날 중 쉬는 날이 있으면 달력에서 눌러 제외하세요."}
+        {value.type === "SINGLE"
+          ? "하루짜리 행사입니다. 날짜를 바꾸려면 위의 시작일을 고치세요."
+          : value.type === "CUSTOM"
+            ? "달력에서 근무일을 직접 눌러 지정하세요. 기간 밖의 날짜는 저장되지 않습니다."
+            : "규칙대로 잡힌 날 중 쉬는 날이 있으면 달력에서 눌러 제외하세요."}
       </p>
 
       {error && <p className="text-[12px] text-font-error">{error}</p>}

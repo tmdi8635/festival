@@ -81,9 +81,10 @@ const ContractSheetView = ({ document, className }: ContractSheetViewProps) => {
           className="contract-print-hidden"
         >
           조항은 장 경계에서 잘리지 않게 통째로 다음 장으로 넘어가고, 모든 장
-          아래에 계약번호가 찍힙니다. 서명은 마지막 장에서만 받으므로, 문자로
-          보낼 때 &lsquo;전체 {pageCount}장을 확인한 뒤 서명&rsquo;이라고 함께
-          안내해 주세요.
+          아래에 계약번호가 찍힙니다. 서명은 마지막 장에서만 받으므로,{" "}
+          <b>{pageCount}장을 모두 배부</b>하고 근로자가 전체를 확인한 뒤
+          서명하도록 안내해 주세요. 서명본을 올릴 때도 {pageCount}장을 한
+          파일로 묶어 주세요.
         </Alert>
       )}
 

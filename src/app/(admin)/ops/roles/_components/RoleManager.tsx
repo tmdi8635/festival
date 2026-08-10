@@ -13,7 +13,9 @@ import {
   ALL_PERMISSIONS,
   PERMISSION_ACTION_HINT,
   PERMISSION_ACTION_LABEL,
+  PERMISSION_CATEGORIES,
   PERMISSION_RESOURCES,
+  categoryActions,
   normalizePermissions,
   permissionKey,
   type PermissionAction,
@@ -30,9 +32,46 @@ import Skeleton from "@/components/ui/Skeleton";
 import Textarea from "@/components/ui/Textarea";
 import { PermissionDenied } from "@/components/domain/PermissionGate";
 
-const RESOURCE_KEYS = Object.keys(
-  PERMISSION_RESOURCES,
-) as PermissionResource[];
+/** 자료 한 줄에 걸린 권한 수를 센다. 갈래 머리에 "3/7"로 붙인다. */
+const countGranted = (
+  permissions: string[],
+  resources: readonly PermissionResource[],
+) =>
+  resources.reduce(
+    (sum, resource) =>
+      sum +
+      PERMISSION_RESOURCES[resource].actions.filter((action) =>
+        permissions.includes(permissionKey(resource, action)),
+      ).length,
+    0,
+  );
+
+const countTotal = (resources: readonly PermissionResource[]) =>
+  resources.reduce(
+    (sum, resource) => sum + PERMISSION_RESOURCES[resource].actions.length,
+    0,
+  );
+
+/**
+ * 모든 갈래가 쓰는 체크칸 수. **가장 많은 갈래에 맞춘다.**
+ *
+ * 갈래마다 열 개수가 다른데 자리까지 갈래마다 다르게 잡으면,
+ * 어떤 갈래는 체크박스가 왼쪽에서 시작하고 어떤 갈래는 오른쪽에서 시작한다.
+ * 세로로 훑을 때 눈이 계속 좌우로 움직인다.
+ *
+ * 자리는 넷으로 고정하고 **왼쪽부터 채운다.** 열이 둘인 갈래는 오른쪽 두 자리가
+ * 그냥 빈다. (그 갈래에 없는 열이라 선을 긋지 않는다 —
+ * 선은 "이 갈래에는 있는데 이 자료에는 없다"는 뜻으로만 쓴다)
+ *
+ * 숫자를 박지 않고 갈래에서 뽑아, 행위가 늘어도 자리가 따라 늘어나게 한다.
+ */
+const ACTION_COLUMN_COUNT = Math.max(
+  ...PERMISSION_CATEGORIES.map(
+    (category) => categoryActions(category.resources).length,
+  ),
+);
+
+const GRID_TEMPLATE = `minmax(180px,1fr) repeat(${ACTION_COLUMN_COUNT}, 76px)`;
 
 /**
  * 직책 · 권한 설정.
@@ -90,6 +129,7 @@ const RoleManager = () => {
     patch({ permissions: next });
   };
 
+  /** 자료 이름을 눌러 그 자료의 권한을 한 번에 켜고 끈다. */
   const toggleResource = (resource: PermissionResource) => {
     if (!editing) return;
 
@@ -311,120 +351,139 @@ const RoleManager = () => {
           </Card>
 
           {!editing.isSuperAdmin && (
-            <Card noPadding title="권한">
+            <>
               {/*
-                자료(행) × 행위(열)로 놓는다. 목록으로 늘어놓으면
-                "이 직책이 정산에 대해 무엇을 할 수 있나"를 보려고 전체를 훑어야 한다.
+                갈래마다 **카드를 따로 둔다.**
+
+                하나의 긴 표 안에 머리글을 다섯 번 끼워 넣으면, 지금 보고 있는 줄이
+                어느 갈래에 속하는지 위로 되짚어 올라가야 안다. 카드로 끊으면
+                갈래가 곧 덩어리라 되짚을 일이 없다.
+
+                열은 갈래마다 다르지만 **자리는 넷으로 고정하고 왼쪽부터 채운다.**
+                카드가 달라도 체크칸이 같은 자리에 서 있어야 세로로 훑을 수 있다.
               */}
-              <div className="overflow-x-auto scrollbar-thin">
-                <div className="min-w-[640px]">
-                  <div className="grid grid-cols-[minmax(0,1fr)_repeat(6,72px)] items-center gap-2 border-b border-border-main bg-subtle px-4 py-2.5 text-[12px] font-medium text-font-2">
-                    <span>자료</span>
-                    {(
-                      [
-                        "read",
-                        "write",
-                        "delete",
-                        "approve",
-                        "pay",
-                        "send",
-                      ] as PermissionAction[]
-                    ).map((action) => (
-                      <span
-                        key={action}
-                        className="text-center"
-                        title={PERMISSION_ACTION_HINT[action]}
-                      >
-                        {PERMISSION_ACTION_LABEL[action]}
+              {PERMISSION_CATEGORIES.map((category) => {
+                /* 열은 손으로 적지 않고 자료에서 뽑는다. (`categoryActions`) */
+                const columns = categoryActions(category.resources);
+
+                return (
+                  <Card
+                    key={category.id}
+                    noPadding
+                    title={category.label}
+                    description={category.description}
+                    action={
+                      <span className="text-[13px] text-font-2 tabular-nums">
+                        {countGranted(editing.permissions, category.resources)}
+                        {" / "}
+                        {countTotal(category.resources)}
                       </span>
-                    ))}
-                  </div>
-
-                  <ul className="divide-y divide-border-main">
-                    {RESOURCE_KEYS.map((resource) => {
-                      const def = PERMISSION_RESOURCES[resource];
-                      const granted = def.actions.filter((action) =>
-                        editing.permissions.includes(
-                          permissionKey(resource, action),
-                        ),
-                      );
-
-                      return (
-                        <li
-                          key={resource}
-                          className="grid grid-cols-[minmax(0,1fr)_repeat(6,72px)] items-center gap-2 px-4 py-2.5"
+                    }
+                  >
+                    <div className="overflow-x-auto scrollbar-thin">
+                      {/*
+                        자료 이름 칸에 바닥을 준다. 없으면 열이 네 개인 갈래에서
+                        이름 칸이 먼저 줄어들어 '근로계약서'가 두 줄로 깨진다.
+                        좁은 화면에서는 표만 안쪽에서 가로로 밀린다.
+                      */}
+                      <div className="min-w-[520px]">
+                        <div
+                          className="grid items-center gap-2 border-b border-border-main bg-subtle px-5 py-2 text-[12px] font-medium text-font-2"
+                          style={{ gridTemplateColumns: GRID_TEMPLATE }}
                         >
-                          <button
-                            type="button"
-                            disabled={!canWrite}
-                            onClick={() => toggleResource(resource)}
-                            className="min-w-0 text-left transition hover:opacity-70 disabled:cursor-not-allowed"
-                            title="이 자료의 권한을 한 번에 켜고 끕니다."
-                          >
-                            <span className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-[13px] font-medium text-font-1">
-                                {def.label}
-                              </span>
-                              {/* 개인정보 · 금전은 좁게 열어야 하는 자료라 표시해 둔다. */}
-                              {def.isSensitive && (
-                                <Badge tone="warning">민감</Badge>
-                              )}
+                          <span>자료</span>
+                          {columns.map((action) => (
+                            <span
+                              key={action}
+                              className="text-center"
+                              title={PERMISSION_ACTION_HINT[action]}
+                            >
+                              {PERMISSION_ACTION_LABEL[action]}
                             </span>
-                            <span className="block truncate text-[12px] text-font-2">
-                              {def.description}
-                            </span>
-                          </button>
+                          ))}
+                        </div>
 
-                          {(
-                            [
-                              "read",
-                              "write",
-                              "delete",
-                              "approve",
-                              "pay",
-                              "send",
-                            ] as PermissionAction[]
-                          ).map((action) => {
-                            const supported = def.actions.includes(action);
+                        <ul className="divide-y divide-border-main">
+                          {category.resources.map((resource) => {
+                            const def = PERMISSION_RESOURCES[resource];
+                            const granted = def.actions.filter((action) =>
+                              editing.permissions.includes(
+                                permissionKey(resource, action),
+                              ),
+                            );
 
                             return (
-                              <span
-                                key={action}
-                                className="flex items-center justify-center"
+                              <li
+                                key={resource}
+                                className="grid items-center gap-2 px-5 py-2.5"
+                                style={{ gridTemplateColumns: GRID_TEMPLATE }}
                               >
-                                {supported ? (
-                                  <Checkbox
-                                    aria-label={`${def.label} ${PERMISSION_ACTION_LABEL[action]}`}
-                                    disabled={!canWrite}
-                                    checked={granted.includes(action)}
-                                    onChange={() =>
-                                      togglePermission(resource, action)
-                                    }
-                                  />
-                                ) : (
-                                  /* 그 자료에 없는 행위는 빈칸이 아니라 선으로 둔다. 꺼진 것과 구분돼야 한다. */
-                                  <span className="text-font-disabled">–</span>
-                                )}
-                              </span>
+                                <button
+                                  type="button"
+                                  disabled={!canWrite}
+                                  onClick={() => toggleResource(resource)}
+                                  className="min-w-0 text-left transition hover:opacity-70 disabled:cursor-not-allowed"
+                                  title="이 자료의 권한을 한 번에 켜고 끕니다."
+                                >
+                                  <span className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[13px] font-medium text-font-1">
+                                      {def.label}
+                                    </span>
+                                    {/* 개인정보 · 금전은 좁게 열어야 하는 자료라 표시해 둔다. */}
+                                    {def.isSensitive && (
+                                      <Badge tone="warning">민감</Badge>
+                                    )}
+                                  </span>
+                                  <span className="block truncate text-[12px] text-font-2">
+                                    {def.description}
+                                  </span>
+                                </button>
+
+                                {columns.map((action) => {
+                                  const supported = def.actions.includes(action);
+
+                                  return (
+                                    <span
+                                      key={action}
+                                      className="flex items-center justify-center"
+                                    >
+                                      {supported ? (
+                                        <Checkbox
+                                          aria-label={`${def.label} ${PERMISSION_ACTION_LABEL[action]}`}
+                                          disabled={!canWrite}
+                                          checked={granted.includes(action)}
+                                          onChange={() =>
+                                            togglePermission(resource, action)
+                                          }
+                                        />
+                                      ) : (
+                                        /* 같은 갈래 안에서도 그 자료에 없는 행위는 선으로 둔다. 꺼진 것과 구분돼야 한다. */
+                                        <span className="text-font-disabled">
+                                          –
+                                        </span>
+                                      )}
+                                    </span>
+                                  );
+                                })}
+                              </li>
                             );
                           })}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              </div>
+                        </ul>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
 
-              <div className="flex flex-wrap items-center gap-2 border-t border-border-main px-4 py-3 text-[12px] text-font-2">
+              <p className="px-1 text-[12px] text-font-2">
                 <span className="tabular-nums">
                   {editing.permissions.length} / {ALL_PERMISSIONS.length}개 권한
                 </span>
-                <span>
-                  · &lsquo;등록 · 수정&rsquo;을 켜면 &lsquo;조회&rsquo;도 함께
-                  켜집니다. 볼 수 없는데 고칠 수 있는 상태는 뜻이 없습니다.
-                </span>
-              </div>
-            </Card>
+                {" · "}
+                &lsquo;등록 · 수정&rsquo;을 켜면 &lsquo;조회&rsquo;도 함께
+                켜집니다. 볼 수 없는데 고칠 수 있는 상태는 뜻이 없습니다.
+              </p>
+            </>
           )}
         </div>
       )}

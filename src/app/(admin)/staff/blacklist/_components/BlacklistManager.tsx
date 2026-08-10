@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useListSearch } from "@/hooks/useListSearch";
 import { useStaffListQuery } from "@/api/staff/getStaffList";
 import { useStaffMutation } from "@/api/staff/mutateStaff";
+import { useHasPermission } from "@/store/useAdminStore";
 import { Ban, ShieldAlert, Warning } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { openConfirm } from "@/store/useConfirmStore";
@@ -63,6 +64,12 @@ const BlacklistManager = () => {
   const candidates = (candidateData?.content ?? []).filter(
     (staff) => staff.noShowCount >= NO_SHOW_THRESHOLD,
   );
+
+  /*
+    지정과 해제는 같은 권한으로 본다.
+    해제만 열어 두면 지정을 막은 뜻이 없어진다 — 지운 뒤 다시 부르면 되기 때문이다.
+  */
+  const canWrite = useHasPermission("blacklist:write");
 
   const { statusMutation } = useStaffMutation();
 
@@ -162,13 +169,15 @@ const BlacklistManager = () => {
           className="flex justify-end"
           onClick={(event) => event.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => handleRelease(staff)}
-          >
-            해제
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => handleRelease(staff)}
+            >
+              해제
+            </Button>
+          )}
         </div>
       ),
     },
@@ -324,7 +333,7 @@ const BlacklistManager = () => {
       />
 
       <BlacklistModal
-        staff={blacklistTarget}
+        staff={canWrite ? blacklistTarget : null}
         onClose={() => setBlacklistTarget(null)}
       />
     </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/useIsClient";
 import { Close } from "@/icons";
@@ -27,9 +27,51 @@ interface ModalProps {
   headerAction?: ReactNode;
   /** 파괴적 작업 모달은 오버레이 클릭으로 닫지 않는다. */
   closeOnOverlayClick?: boolean;
+  /**
+   * Enter로 실행할 기본 동작. 푸터의 **확인 버튼과 같은 것**을 넘긴다.
+   *
+   * 넘기지 않으면 Enter는 아무 일도 하지 않는다. 조회용 모달이나
+   * 되돌리기 어려운 일을 곧바로 저지르는 모달에는 달지 않는 편이 낫다.
+   */
+  onSubmit?: () => void;
   children: ReactNode;
   className?: string;
 }
+
+/**
+ * 열려 있는 모달들.
+ *
+ * 확인 다이얼로그가 폼 모달 위에 겹쳐 뜨는 일이 흔한데,
+ * 키 처리를 각자 하면 Enter 한 번에 두 창이 같이 반응하고
+ * Escape 한 번에 두 창이 같이 닫힌다. **맨 위 창만** 키를 받는다.
+ */
+const openStack: symbol[] = [];
+
+/** Enter를 확인으로 받으면 안 되는 자리인지. */
+const shouldIgnoreEnter = (event: KeyboardEvent): boolean => {
+  /*
+    한글은 Enter로 조합을 끝낸다. 그 Enter까지 확인으로 받으면
+    이름을 "김승우"까지 치고 마지막 글자를 확정하는 순간 저장돼 버린다.
+    (`keyCode === 229`는 조합 중임을 알리는 옛 브라우저의 신호다)
+  */
+  if (event.isComposing || event.keyCode === 229) return true;
+
+  const target = event.target as HTMLElement | null;
+
+  if (!target) return false;
+
+  // 버튼 · 링크 위에서 Enter는 그것을 누르는 것이다. 확인까지 겹치면 두 번 실행된다.
+  if (target.tagName === "BUTTON" || target.tagName === "A") return true;
+
+  if (target.isContentEditable) return true;
+
+  // 여러 줄 칸에서 Enter는 줄바꿈이다. 굳이 보내려면 ⌘(Ctrl)+Enter.
+  if (target.tagName === "TEXTAREA" && !event.metaKey && !event.ctrlKey) {
+    return true;
+  }
+
+  return false;
+};
 
 /** 좁은 화면에서는 폭을 강제하지 않는다. `w-full`이 이기고 화면에 맞춰 줄어든다. */
 const SIZE_CLASS: Record<ModalSize, string> = {
@@ -55,23 +97,52 @@ const Modal = ({
   footer,
   headerAction,
   closeOnOverlayClick = true,
+  onSubmit,
   children,
   className,
 }: ModalProps) => {
   // SSR 환경에서는 portal 대상이 없으므로 클라이언트에서만 렌더링
   const isClient = useIsClient();
 
+  /* 겹쳐 열린 창들 사이에서 자기를 알아보는 표식. 값 자체에는 뜻이 없다. */
+  const idRef = useRef<symbol>(Symbol("modal"));
+
   useEffect(() => {
     if (!isOpen) return;
 
+    const id = idRef.current;
+
+    openStack.push(id);
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (openStack[openStack.length - 1] !== id) return;
+
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Enter" || !onSubmit) return;
+      if (shouldIgnoreEnter(event)) return;
+
+      /*
+        폼 안에서의 Enter는 브라우저가 이미 submit으로 바꾼다.
+        막지 않으면 저장이 두 번 돈다.
+      */
+      event.preventDefault();
+      onSubmit();
     };
 
     window.addEventListener("keydown", handleKeyDown);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+
+      const index = openStack.indexOf(id);
+
+      if (index >= 0) openStack.splice(index, 1);
+    };
+  }, [isOpen, onClose, onSubmit]);
 
   if (!isClient || !isOpen) return null;
 

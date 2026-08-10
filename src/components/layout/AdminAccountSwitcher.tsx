@@ -26,6 +26,7 @@ const AdminAccountSwitcher = () => {
   const { admin, setAdmin } = useAdminStore();
   const [isOpen, setIsOpen] = useState(false);
 
+  /* 목록 조회는 `admin:read`가 없으면 스스로 나가지 않는다. (`usePermittedQuery`) */
   const { data: managerData } = useManagerListQuery({ keyword: "" });
   /* 서버가 내려 준 권한으로 스토어를 채운다. 화면이 직접 만들지 않는다. */
   const { data: profile } = useCurrentAdminQuery();
@@ -38,16 +39,42 @@ const AdminAccountSwitcher = () => {
     (manager) => manager.isActive,
   );
 
-  const handleSwitch = (managerId: number) => {
+  /*
+    담당자가 바뀌면 받아 둔 자료를 되돌린다.
+
+    **버튼을 누른 자리가 아니라 효과에서 한다.** 누른 자리에서 바로 되돌리면
+    React가 아직 다시 그리기 전이라, 조회들은 이전 담당자 기준의 `enabled`를 들고 있다.
+    그 상태로 다시 받으면 **새 담당자에게는 없는 권한으로 요청이 한 번 더 나가고**,
+    그게 거부되어 전환하자마자 거부 안내가 뜬다. 누른 적 없는 일에 대한 거부다.
+    (운영 로그를 보던 중 조회 전용으로 바꾸면 '운영 로그 > 조회' 거부가 떴다)
+
+    효과는 다시 그린 뒤에 돈다. 그때는 볼 수 없게 된 조회가 이미 꺼져 있어 나가지 않는다.
+
+    `clear()`가 아니라 `resetQueries()`인 이유도 있다. `clear()`는 캐시를 비우기만 해서,
+    담당자 스토어를 구독하지 않는 화면은 다시 그려지지 않고 **이전 담당자의 자료를
+    그대로 띄운 채로 남는다.** 실제로 조회 전용으로 바꾼 뒤에도 미지급 정산액이 남아 있었다.
+  */
+  const switchedTo = admin?.managerId;
+
+  useEffect(() => {
+    if (switchedTo === undefined) return;
+
     /*
-      먼저 스토어의 담당자를 바꾸고(요청 헤더가 바뀐다) 캐시를 통째로 비운다.
-      비우지 않으면 이전 담당자 권한으로 받아 둔 목록이 그대로 남아,
-      바뀐 사람에게 보이면 안 되는 자료가 화면에 남는다.
+      담당자 목록만 남긴다. 이 목록이 없으면 **다시 돌아올 수 없다.**
+      `admin:read`가 없는 담당자로 바꾸면 목록 조회가 꺼지므로,
+      캐시를 지워 버리면 전환 창이 빈 채로 남는다. (실제로 그렇게 갇혔다)
+      남겨도 새는 자료가 없다 — 이 창에 쓰는 이름과 직책뿐이고,
+      로그인이 붙으면 이 컴포넌트가 통째로 빠진다.
     */
+    void queryClient.resetQueries({
+      predicate: (query) => query.queryKey[0] !== "get-manager-list",
+    });
+  }, [switchedTo, queryClient]);
+
+  const handleSwitch = (managerId: number) => {
     setAdmin(
       admin ? { ...admin, managerId, permissions: [], isSuperAdmin: false } : null,
     );
-    queryClient.clear();
     setIsOpen(false);
   };
 

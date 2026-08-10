@@ -1,6 +1,7 @@
 "use client";
 
 import { useStaffMutation } from "@/api/staff/mutateStaff";
+import { useHasPermission } from "@/store/useAdminStore";
 import { Star } from "@/icons";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,28 @@ const FavoriteToggle = ({
   size = 16,
   className,
 }: FavoriteToggleProps) => {
+  /*
+    즐겨찾기는 인력 정보를 바꾸는 일이라 `staff:write`가 필요하다.
+    권한이 없으면 별을 아예 그리지 않는다. 눌리지 않는 별을 남겨 두면
+    "고장났다"로 읽힌다. (켜진 별은 정보이므로 그대로 두고 누르지만 못하게 한다)
+  */
+  const canWrite = useHasPermission("staff:write");
+
   const { favoriteMutation } = useStaffMutation();
+
+  if (!canWrite) {
+    return isFavorite ? (
+      <span
+        title="즐겨찾기"
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center p-1 text-warning",
+          className,
+        )}
+      >
+        <Star size={size} fill="currentColor" />
+      </span>
+    ) : null;
+  }
 
   return (
     <button

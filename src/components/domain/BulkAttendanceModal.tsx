@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
 import { ATTENDANCE_OPTIONS } from "@/constants/staffOptions";
 import { formatDate } from "@/lib/dayjs";
+import { openConfirm } from "@/store/useConfirmStore";
 import {
   calculateScheduledWorkHours,
   calculateWorkHoursFromTimes,
@@ -19,6 +20,7 @@ import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
 import FormField from "@/components/ui/FormField";
 import Input from "@/components/ui/Input";
+import TimeInput from "@/components/ui/TimeInput";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
 import DayOffsetField from "./DayOffsetField";
@@ -160,12 +162,30 @@ const BulkAttendanceModal = ({
     );
   };
 
+  /*
+    한 번에 여러 건을 덮어쓰는 자리라 확인을 한 번 더 받는다.
+
+    잘못 고른 채로 90건을 덮어쓰면 원래 값이 무엇이었는지 알 방법이 없다.
+    다시 찍으면 되는 것이 아니라 **무엇이 지워졌는지를 모르게 되는 것**이라
+    되돌릴 수 없다. 몇 명에게 무엇이 찍히는지를 눈으로 한 번 더 읽게 한다.
+  */
+  const confirmSubmit = () =>
+    openConfirm({
+      title: "선택한 근태를 한 번에 기록합니다",
+      description: `${staffCount}명 · ${dates.length}일 · ${assignments.length}건에 '${ATTENDANCE_STATUS_LABEL[attendance]}'을(를) 기록합니다.`,
+      warning: "이미 기록된 건은 덮어쓰며, 이전 값은 남지 않습니다.",
+      confirmText: `${assignments.length}건 기록`,
+      tone: isAbsent ? "danger" : "default",
+      onConfirm: handleSubmit,
+    });
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
       title="근태 일괄 기록"
       description={`${assignments.length}건 · ${staffCount}명 · ${dates.length}일`}
+      onSubmit={assignments.length === 0 ? undefined : confirmSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -173,7 +193,7 @@ const BulkAttendanceModal = ({
           </Button>
           <Button
             variant={isAbsent ? "danger" : "primary"}
-            onClick={handleSubmit}
+            onClick={confirmSubmit}
             disabled={assignments.length === 0}
             isLoading={bulkAttendanceMutation.isPending}
           >
@@ -258,11 +278,10 @@ const BulkAttendanceModal = ({
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <FormField label="출근">
-                    <Input
-                      type="time"
+                    <TimeInput
                       value={checkInTime}
-                      onChange={(changeEvent) =>
-                        patchDraft({ checkInTime: changeEvent.target.value })
+                      onChange={(nextTime) =>
+                        patchDraft({ checkInTime: nextTime })
                       }
                     />
                   </FormField>
@@ -275,16 +294,15 @@ const BulkAttendanceModal = ({
                         : undefined
                     }
                   >
-                    <Input
-                      type="time"
+                    <TimeInput
                       value={checkOutTime}
-                      onChange={(changeEvent) =>
+                      onChange={(nextTime) =>
                         patchDraft({
-                          checkOutTime: changeEvent.target.value,
+                          checkOutTime: nextTime,
                           // 시각을 새로 고르면 날짜 넘김을 다시 추측해 깔아 준다.
                           checkOutDayOffset: guessDayOffset(
                             checkInTime,
-                            changeEvent.target.value,
+                            nextTime,
                           ),
                         })
                       }

@@ -137,6 +137,7 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
       title="이 날의 발주 인원"
       description={day ? formatDate(day.date) : undefined}
       size="lg"
+      onSubmit={slots.length === 0 ? undefined : handleSave}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>

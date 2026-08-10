@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminRoleListQuery } from "@/api/ops/getAdminRoleList";
+import { useHasPermission } from "@/store/useAdminStore";
 import { Controller, useForm } from "react-hook-form";
 import { useManagerMutation } from "@/api/ops/mutateManager";
 import {
@@ -67,10 +68,18 @@ const ManagerFormModal = ({
   const roleId = watch("roleId");
 
   const roles = roleData?.items ?? [];
-  const roleOptions = roles.map((item) => ({
-    label: item.isSuperAdmin ? `${item.name} (전권)` : item.name,
-    value: String(item.roleId),
-  }));
+  /*
+    직책 목록은 `role:read`가 있어야 온다. 담당자 관리(`admin:read`)와는 다른 권한이다.
+    비어 있는 이유를 적지 않으면 고장으로 읽힌다.
+  */
+  const canReadRole = useHasPermission("role:read");
+
+  const roleOptions = canReadRole
+    ? roles.map((item) => ({
+        label: item.isSuperAdmin ? `${item.name} (전권)` : item.name,
+        value: String(item.roleId),
+      }))
+    : [{ label: "'직책 · 권한 > 조회' 권한이 필요합니다", value: "0" }];
   const selectedRole = roles.find((item) => item.roleId === roleId);
 
   const onSubmit = handleSubmit((values) => {
@@ -91,6 +100,7 @@ const ManagerFormModal = ({
       isOpen={isOpen}
       onClose={onClose}
       title={manager ? "담당자 수정" : "담당자 추가"}
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

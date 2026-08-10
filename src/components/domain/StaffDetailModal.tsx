@@ -44,7 +44,9 @@ import Table, { type TableColumn } from "@/components/ui/Table";
 import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import Textarea from "@/components/ui/Textarea";
 import FavoriteToggle from "./FavoriteToggle";
-import ContractDetailModal from "./ContractDetailModal";
+import ContractDetailModal, {
+  type ContractDetailTarget,
+} from "./ContractDetailModal";
 import RatingStat from "./RatingStat";
 import VerdictBadge from "./VerdictBadge";
 
@@ -151,13 +153,31 @@ const StaffDetailModal = ({
   const [tab, setTab] = useState<StaffTab>("PROFILE");
   const [memoContent, setMemoContent] = useState("");
   const [isWarningMemo, setIsWarningMemo] = useState(false);
-  const [contractId, setContractId] = useState<number | null>(null);
+  /*
+    계약서 상세는 계약서 번호가 아니라 **사람 × 행사**로 연다.
+    아직 등록 전이라 계약서 기록이 없는 행사에서도 문서를 내려받아야 하기 때문이다.
+  */
+  const [contractTarget, setContractTarget] =
+    useState<ContractDetailTarget | null>(null);
   /** 날짜별 근태를 펼쳐 볼 행사. 여러 날 행사만 펼칠 수 있다. */
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(
     null,
   );
-  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  /*
+    한 창 안에 성격이 다른 자료가 섞여 있어 권한도 나눠서 본다.
+
+    - 계좌 · 누적 지급액  → `payroll:read` (이체에 쓰는 금전 정보)
+    - 신분증 · 통장 사본  → `staffDocument:read` (개인정보 사본)
+    - 메모 · 즐겨찾기     → `staff:write`
+    - 블랙리스트 지정·해제 → `blacklist:write`
+
+    서버도 같은 기준으로 응답에서 값을 덜어 낸다(`mocks/handlers/staff.ts`).
+    화면에서만 가리면 개발자도구에 그대로 남는다.
+  */
   const canViewAccount = useHasPermission("payroll:read");
+  const canViewDocument = useHasPermission("staffDocument:read");
+  const canWrite = useHasPermission("staff:write");
+  const canBlacklist = useHasPermission("blacklist:write");
 
   const jobRoleLabel = useJobRoleLabel();
 
@@ -320,28 +340,40 @@ const StaffDetailModal = ({
       */
       key: "contract",
       header: "근로계약서",
-      render: (history) =>
-        history.contractStatus ? (
-          <button
-            type="button"
-            onClick={() =>
-              history.contractId && setContractId(history.contractId)
-            }
-            className="text-left transition hover:opacity-80"
-            title="계약서 상세로 이동합니다."
-          >
-            <Badge tone={CONTRACT_STATUS_TONE[history.contractStatus]}>
-              {CONTRACT_STATUS_LABEL[history.contractStatus]}
-            </Badge>
-            {history.contractStatus === "SIGNED" && history.contractNumber && (
-              <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
-                {history.contractNumber}
-              </p>
-            )}
-          </button>
-        ) : (
-          <Badge tone="danger">미작성</Badge>
-        ),
+      /*
+        아직 등록 전인 행사도 눌러서 열 수 있어야 한다.
+        거기서 문서를 내려받아 배부하는 것이 다음에 할 일이기 때문이다.
+        예전에는 계약서가 있는 줄만 눌렸고, 정작 급한 줄은 눌러도 아무 일이 없었다.
+      */
+      render: (history) => (
+        <button
+          type="button"
+          onClick={() =>
+            staff &&
+            setContractTarget({
+              eventId: history.eventId,
+              staffId: staff.staffId,
+            })
+          }
+          className="text-left transition hover:opacity-80"
+          title="계약서 상세를 엽니다."
+        >
+          {history.contractStatus ? (
+            <>
+              <Badge tone={CONTRACT_STATUS_TONE[history.contractStatus]}>
+                {CONTRACT_STATUS_LABEL[history.contractStatus]}
+              </Badge>
+              {history.contractNumber && (
+                <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
+                  {history.contractNumber}
+                </p>
+              )}
+            </>
+          ) : (
+            <Badge tone="danger">발급 전</Badge>
+          )}
+        </button>
+      ),
     },
     {
       key: "reputation",
@@ -478,7 +510,8 @@ const StaffDetailModal = ({
             푸터의 저장 · 블랙리스트와 나란히 두면 무게가 같아 보여
             "눌러도 되는 것"인지 매번 판단하게 된다. 별 하나로 충분하다.
           */
-          staff && (
+          staff &&
+          canWrite && (
             <FavoriteToggle
               staffId={staff.staffId}
               isFavorite={staff.isFavorite}
@@ -490,10 +523,13 @@ const StaffDetailModal = ({
           staff && (
             <>
               {staff.status === "BLACKLIST" ? (
-                <Button variant="secondary" onClick={handleUnblacklist}>
-                  블랙리스트 해제
-                </Button>
+                canBlacklist && (
+                  <Button variant="secondary" onClick={handleUnblacklist}>
+                    블랙리스트 해제
+                  </Button>
+                )
               ) : (
+                canBlacklist &&
                 onBlacklist && (
                   <Button
                     variant="danger"
@@ -505,7 +541,7 @@ const StaffDetailModal = ({
                 )
               )}
 
-              {onEdit && (
+              {canWrite && onEdit && (
                 <Button
                   variant="primary"
                   leftIcon={<Edit size={15} />}
@@ -655,7 +691,7 @@ const StaffDetailModal = ({
                         )
                       ) : (
                         <span className="text-font-disabled">
-                          대표 권한에서만 확인할 수 있습니다.
+                          &lsquo;정산 &gt; 조회&rsquo; 권한이 필요합니다.
                         </span>
                       )
                     }
@@ -669,10 +705,12 @@ const StaffDetailModal = ({
                   <DetailRow label="등록일" value={formatDate(staff.createdAt)} />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
-                  <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
-                </div>
+                {canViewDocument && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
+                    <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -808,18 +846,20 @@ const StaffDetailModal = ({
                           </p>
                         </div>
 
-                        <IconButton
-                          label="메모 삭제"
-                          icon={<Trash size={15} />}
-                          tone="danger"
-                          size="sm"
-                          onClick={() =>
-                            memoDeleteMutation.mutate({
-                              staffId: staff.staffId,
-                              memoId: memo.memoId,
-                            })
-                          }
-                        />
+                        {canWrite && (
+                          <IconButton
+                            label="메모 삭제"
+                            icon={<Trash size={15} />}
+                            tone="danger"
+                            size="sm"
+                            onClick={() =>
+                              memoDeleteMutation.mutate({
+                                staffId: staff.staffId,
+                                memoId: memo.memoId,
+                              })
+                            }
+                          />
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -830,6 +870,7 @@ const StaffDetailModal = ({
                   메모는 댓글처럼 읽고 이어 쓰는 것이라, 입력창이 위에 있으면
                   기존 메모를 읽기 전에 쓰게 되고 같은 이야기가 반복된다.
                 */}
+                {canWrite && (
                 <div className="flex flex-col gap-2 rounded-card border border-border-main p-4">
                   <Textarea
                     value={memoContent}
@@ -858,6 +899,7 @@ const StaffDetailModal = ({
                     </Button>
                   </div>
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -865,8 +907,8 @@ const StaffDetailModal = ({
       </Modal>
 
       <ContractDetailModal
-        contractId={contractId}
-        onClose={() => setContractId(null)}
+        target={contractTarget}
+        onClose={() => setContractTarget(null)}
       />
     </>
   );

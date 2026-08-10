@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMessageTemplateListQuery } from "@/api/message/getMessageTemplateList";
 import { useMessageTemplateMutation } from "@/api/message/mutateMessageTemplate";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
   MESSAGE_CHANNEL_TONE,
   MESSAGE_PURPOSE_FILTER_OPTIONS,
@@ -42,6 +43,8 @@ const MessageTemplateManager = () => {
     keyword: keyword || undefined,
     purpose: purpose || undefined,
   });
+  const canWrite = useHasPermission("message:write");
+
   const { deleteMutation } = useMessageTemplateMutation();
 
   const templates = data?.items ?? [];
@@ -83,17 +86,19 @@ const MessageTemplateManager = () => {
               selectBoxClassName="w-36"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormTemplate(null);
-                setIsFormOpen(true);
-              }}
-            >
-              템플릿 추가
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormTemplate(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                템플릿 추가
+              </Button>
+            )}
           </div>
         </div>
 
@@ -110,16 +115,18 @@ const MessageTemplateManager = () => {
             title="등록된 템플릿이 없습니다."
             description="자주 쓰는 공지 문구부터 만들어 두세요."
             action={
-              <Button
-                variant="primary"
-                leftIcon={<Plus size={15} />}
-                onClick={() => {
-                  setFormTemplate(null);
-                  setIsFormOpen(true);
-                }}
-              >
-                템플릿 추가
-              </Button>
+              canWrite ? (
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus size={15} />}
+                  onClick={() => {
+                    setFormTemplate(null);
+                    setIsFormOpen(true);
+                  }}
+                >
+                  템플릿 추가
+                </Button>
+              ) : undefined
             }
           />
         )}
@@ -152,27 +159,29 @@ const MessageTemplateManager = () => {
                   </p>
                 </div>
 
-                <div className="flex shrink-0 flex-col gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    leftIcon={<Edit size={14} />}
-                    onClick={() => {
-                      setFormTemplate(template);
-                      setIsFormOpen(true);
-                    }}
-                  >
-                    수정
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="dangerGhost"
-                    leftIcon={<Trash size={14} />}
-                    onClick={() => handleDelete(template)}
-                  >
-                    삭제
-                  </Button>
-                </div>
+                {canWrite && (
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<Edit size={14} />}
+                      onClick={() => {
+                        setFormTemplate(template);
+                        setIsFormOpen(true);
+                      }}
+                    >
+                      수정
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="dangerGhost"
+                      leftIcon={<Trash size={14} />}
+                      onClick={() => handleDelete(template)}
+                    >
+                      삭제
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

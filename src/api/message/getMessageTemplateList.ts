@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { MessagePurpose, MessageTemplate } from "@/type/message";
 
 export interface MessageTemplateListParams {
@@ -27,7 +26,7 @@ export const getMessageTemplateList = async (
 export const useMessageTemplateListQuery = (
   params: MessageTemplateListParams = {},
 ) => {
-  return useQuery<MessageTemplateResponse, AppError>({
+  return usePermittedQuery<MessageTemplateResponse>("message:read", {
     queryKey: ["get-message-templates", params],
     queryFn: () => getMessageTemplateList(params),
   });

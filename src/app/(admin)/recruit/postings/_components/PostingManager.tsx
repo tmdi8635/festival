@@ -276,16 +276,18 @@ const PostingManager = () => {
           emptyTitle="등록된 공고가 없습니다."
           emptyDescription="인원이 덜 찬 행사가 있으면 공고부터 만들어 보세요."
           emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormPosting(null);
-                setIsFormOpen(true);
-              }}
-            >
-              공고 등록
-            </Button>
+            canWrite ? (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormPosting(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                공고 등록
+              </Button>
+            ) : undefined
           }
         />
 
@@ -309,6 +311,7 @@ const PostingManager = () => {
         title="공고문"
         description={previewPosting?.title}
         size="lg"
+        onSubmit={() => setPreviewPosting(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setPreviewPosting(null)}>

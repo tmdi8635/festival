@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { Manager } from "@/type/ops";
 
 export interface ManagerListParams {
@@ -20,9 +19,9 @@ export const getManagerList = async (params: ManagerListParams = {}) => {
   return response.data;
 };
 
-/** 담당자 관리 화면에서 사용합니다. */
+/** 담당자 관리 화면과 담당자 전환(테스트)에서 사용합니다. */
 export const useManagerListQuery = (params: ManagerListParams = {}) => {
-  return useQuery<ManagerListResponse, AppError>({
+  return usePermittedQuery<ManagerListResponse>("admin:read", {
     queryKey: ["get-manager-list", params],
     queryFn: () => getManagerList(params),
   });

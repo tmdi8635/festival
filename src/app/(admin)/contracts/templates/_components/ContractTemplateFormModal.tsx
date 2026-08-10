@@ -131,6 +131,7 @@ const ContractTemplateFormModal = ({
       title={template ? "템플릿 수정" : "템플릿 추가"}
       description="조항을 자유롭게 넣고 빼서 우리 회사 양식을 만듭니다. 저장해 두면 계약서를 만들 때 골라 씁니다."
       size="xl"
+      onSubmit={onSubmit}
       footer={
         <>
           {/*

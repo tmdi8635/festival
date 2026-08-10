@@ -95,6 +95,7 @@ const MessageTemplateFormModal = ({
       onClose={onClose}
       title={template ? "템플릿 수정" : "템플릿 추가"}
       size="lg"
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

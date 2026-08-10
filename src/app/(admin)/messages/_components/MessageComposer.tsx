@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useEventDetailQuery } from "@/api/event/getEventDetail";
 import { useMessageTemplateListQuery } from "@/api/message/getMessageTemplateList";
 import { useMessageMutation } from "@/api/message/mutateMessage";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
   MESSAGE_CHANNEL_OPTIONS,
   MESSAGE_PURPOSE_OPTIONS,
@@ -69,6 +70,12 @@ const MessageComposer = () => {
     selectedEvent?.eventId ?? null,
   );
   const { data: templateData } = useMessageTemplateListQuery();
+  /*
+    문구를 짜 보는 것까지는 누구나 할 수 있게 두고, 실제로 내보내는 버튼만 막는다.
+    나간 문자는 회수할 수 없고 받는 쪽은 회사 이름으로 읽는다.
+  */
+  const canSend = useHasPermission("message:send");
+
   const { sendMutation } = useMessageMutation();
 
   const templates = (templateData?.items ?? []).filter(
@@ -344,21 +351,25 @@ const MessageComposer = () => {
 
             <div className="flex items-center justify-end gap-3">
               <span className="text-[13px] text-font-2 tabular-nums">
-                수신 {selectedIds.length}명
+                {canSend
+                  ? `수신 ${selectedIds.length}명`
+                  : "발송하려면 '공지 · 발송 > 발송' 권한이 필요합니다."}
               </span>
-              <Button
-                variant="primary"
-                leftIcon={<Send size={15} />}
-                onClick={handleSend}
-                disabled={
-                  selectedIds.length === 0 ||
-                  content.trim().length === 0 ||
-                  isOverSmsLimit
-                }
-                isLoading={sendMutation.isPending}
-              >
-                발송
-              </Button>
+              {canSend && (
+                <Button
+                  variant="primary"
+                  leftIcon={<Send size={15} />}
+                  onClick={handleSend}
+                  disabled={
+                    selectedIds.length === 0 ||
+                    content.trim().length === 0 ||
+                    isOverSmsLimit
+                  }
+                  isLoading={sendMutation.isPending}
+                >
+                  발송
+                </Button>
+              )}
             </div>
           </div>
         </Card>

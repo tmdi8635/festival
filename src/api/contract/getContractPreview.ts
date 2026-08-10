@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { Contract, ContractTemplate } from "@/type/contract";
 
 /**
@@ -25,7 +24,7 @@ export const getContractPreview = async (contractId: number) => {
 
 /** 계약서 미리보기 · 서명 모달에서 사용합니다. */
 export const useContractPreviewQuery = (contractId: number | null) => {
-  return useQuery<ContractPreviewResponse, AppError>({
+  return usePermittedQuery<ContractPreviewResponse>("contract:read", {
     queryKey: ["get-contract-preview", contractId],
     queryFn: () => getContractPreview(contractId!),
     enabled: contractId !== null,

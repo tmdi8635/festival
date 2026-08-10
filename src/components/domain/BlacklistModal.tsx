@@ -60,6 +60,7 @@ const BlacklistModal = ({ staff, onClose }: BlacklistModalProps) => {
       title="블랙리스트 지정"
       description={staff ? `${staff.name}님을 배치 대상에서 제외합니다.` : undefined}
       closeOnOverlayClick={false}
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

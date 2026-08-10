@@ -97,7 +97,15 @@ interface EventPayrollPanelProps {
 const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const roleLabel = useJobRoleLabel();
   /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  /*
+    정산 탭은 행사 상세 안에 있어 `event:read`만으로 열린다.
+    그래서 금액을 볼 권한부터 여기서 다시 본다. (정산 메뉴와 달리 화면이 감싸 주지 않는다)
+    행위별 권한은 정산 화면과 같은 기준이다 — 조정/승인/지급 완료가 각각이다.
+  */
   const canViewAccount = useHasPermission("payroll:read");
+  const canWrite = useHasPermission("payroll:write");
+  const canApprove = useHasPermission("payroll:approve");
+  const canPay = useHasPermission("payroll:pay");
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [workDate, setWorkDate] = useState("");
@@ -382,14 +390,16 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           className="flex justify-end"
           onClick={(clickEvent) => clickEvent.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={item.status === "PAID"}
-            onClick={() => setAdjustTarget(item)}
-          >
-            조정
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={item.status === "PAID"}
+              onClick={() => setAdjustTarget(item)}
+            >
+              조정
+            </Button>
+          )}
         </div>
       ),
     },
@@ -398,9 +408,9 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   return (
     <>
       {!canViewAccount && (
-        <Alert tone="info" title="계좌 정보는 대표 권한에서만 보입니다.">
-          매니저 권한으로도 지급액 확인과 승인은 가능하지만, 계좌번호와 이체
-          파일은 열람할 수 없습니다.
+        <Alert tone="info" title="정산 금액을 볼 권한이 없습니다.">
+          이 행사의 지급액과 계좌를 보려면 &lsquo;정산 &gt; 조회&rsquo; 권한이
+          필요합니다.
         </Alert>
       )}
 
@@ -488,16 +498,18 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
               상세 CSV
             </Button>
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Download size={15} />}
-              onClick={handleDownloadTransfer}
-              disabled={rows.length === 0 || !canViewAccount}
-              title="은행 대량이체 양식으로 저장합니다."
-            >
-              은행 이체 파일
-            </Button>
+            {canPay && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Download size={15} />}
+                onClick={handleDownloadTransfer}
+                disabled={rows.length === 0}
+                title="은행 대량이체 양식으로 저장합니다."
+              >
+                은행 이체 파일
+              </Button>
+            )}
 
             <Select
               aria-label="상태 필터"
@@ -520,6 +532,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
 
             <div className="flex flex-wrap items-center gap-2">
               {/* 수당은 강제하지 않는다. 고른 건에 대해 붙이거나 뗀다. */}
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">연장</span>
                 <Button
@@ -537,7 +550,9 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
                   해제
                 </Button>
               </div>
+              )}
 
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">야간</span>
                 <Button
@@ -555,22 +570,27 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
                   해제
                 </Button>
               </div>
+              )}
 
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => handleBulkStatus("APPROVED")}
-              >
-                지급 승인
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                leftIcon={<Check size={14} />}
-                onClick={() => handleBulkStatus("PAID")}
-              >
-                지급 완료
-              </Button>
+              {canApprove && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleBulkStatus("APPROVED")}
+                >
+                  지급 승인
+                </Button>
+              )}
+              {canPay && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<Check size={14} />}
+                  onClick={() => handleBulkStatus("PAID")}
+                >
+                  지급 완료
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -586,7 +606,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       </Card>
 
       <PayrollAdjustModal
-        payroll={adjustTarget}
+        payroll={canWrite ? adjustTarget : null}
         onClose={() => setAdjustTarget(null)}
       />
     </>

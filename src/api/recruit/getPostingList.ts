@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { JobPosting, PostingStatus } from "@/type/recruit";
 import type { JobRole } from "@/type/staff";
 
@@ -23,7 +23,7 @@ export const getPostingList = async (params: PostingListParams) => {
 
 /** 공고 목록 화면에서 사용합니다. 근무일이 가까운 순으로 내려옵니다. */
 export const usePostingListQuery = (params: PostingListParams) => {
-  return useQuery<PageResponse<JobPosting>, AppError>({
+  return usePermittedQuery<PageResponse<JobPosting>>("recruit:read", {
     queryKey: ["get-posting-list", params],
     queryFn: () => getPostingList(params),
   });

@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { Assignment, AssignmentStatus } from "@/type/event";
 import type { AttendanceStatus, JobRole } from "@/type/staff";
 
@@ -30,7 +30,7 @@ export const getAssignmentList = async (params: AssignmentListParams) => {
 
 /** 배치 현황 화면에서 인력 기준으로 배치를 펴서 봅니다. */
 export const useAssignmentListQuery = (params: AssignmentListParams) => {
-  return useQuery<PageResponse<Assignment>, AppError>({
+  return usePermittedQuery<PageResponse<Assignment>>("assignment:read", {
     queryKey: ["get-assignment-list", params],
     queryFn: () => getAssignmentList(params),
   });

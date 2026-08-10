@@ -31,7 +31,7 @@ export const adminRoles: AdminRole[] = [
       "event:read", "event:write",
       "assignment:read", "assignment:write", "assignment:delete",
       "staff:read", "staff:write",
-      "contract:read", "contract:write", "contract:send",
+      "contract:read", "contract:write",
       "recruit:read", "recruit:write",
       "message:read", "message:write",
       "settings:read",
@@ -196,7 +196,7 @@ export const operationSettings: OperationSettings = {
 
   blacklistNoShowThreshold: 2,
   reminderDaysBefore: 1,
-  contractExpireDays: 3,
+  contractRegisterDeadlineDays: 3,
 
   minimumHourlyWage: 10_030,
 
@@ -271,7 +271,7 @@ export const operationLogs: OperationLog[] = [
     domain: "CONTRACT",
     action: "발송",
     actor: "박서진",
-    message: "근로계약서 15건을 일괄 발송했습니다.",
+    message: "근로계약서 15건의 서명본을 등록했습니다.",
     createdAt: daysAgo(5, 13),
   },
   {

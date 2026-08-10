@@ -63,6 +63,7 @@ const ContractTemplatePreviewModal = ({
       title="템플릿 미리보기"
       description="예시 값을 넣어 실제 계약서와 같은 방식으로 조립한 문서입니다."
       size="xl"
+      onSubmit={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
           닫기

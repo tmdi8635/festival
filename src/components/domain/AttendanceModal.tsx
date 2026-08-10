@@ -22,6 +22,7 @@ import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
 import Input from "@/components/ui/Input";
+import TimeInput from "@/components/ui/TimeInput";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
 import DayOffsetField from "./DayOffsetField";
@@ -163,6 +164,7 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
           ? `${assignment.staffName} · ${assignment.eventTitle} · ${formatDate(assignment.workDate)}`
           : undefined
       }
+      onSubmit={handleSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -236,12 +238,9 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <FormField label="출근">
-                <Input
-                  type="time"
+                <TimeInput
                   value={checkInTime}
-                  onChange={(changeEvent) =>
-                    patch({ checkInTime: changeEvent.target.value })
-                  }
+                  onChange={(nextTime) => patch({ checkInTime: nextTime })}
                 />
               </FormField>
 
@@ -253,21 +252,17 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
                     : undefined
                 }
               >
-                <Input
-                  type="time"
+                <TimeInput
                   value={checkOutTime}
-                  onChange={(changeEvent) =>
+                  onChange={(nextTime) =>
                     patch({
-                      checkOutTime: changeEvent.target.value,
+                      checkOutTime: nextTime,
                       /*
                         시각을 새로 고르면 날짜 넘김을 다시 추측해 깔아 준다.
                         사람이 버튼을 직접 만진 뒤에는 그 뜻을 존중해야 하지만,
                         시각 자체가 바뀌면 이야기가 달라진다.
                       */
-                      checkOutDayOffset: guessDayOffset(
-                        checkInTime,
-                        changeEvent.target.value,
-                      ),
+                      checkOutDayOffset: guessDayOffset(checkInTime, nextTime),
                     })
                   }
                 />

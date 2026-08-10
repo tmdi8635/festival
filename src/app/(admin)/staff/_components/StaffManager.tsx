@@ -96,6 +96,9 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
 const StaffManager = () => {
   /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
   const canWrite = useHasPermission("staff:write");
+  /* 삭제와 블랙리스트는 수정과 다른 권한이다. 되돌리기 어려운 쪽부터 떼어 놓았다. */
+  const canDelete = useHasPermission("staff:delete");
+  const canBlacklist = useHasPermission("blacklist:write");
 
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
@@ -155,19 +158,27 @@ const StaffManager = () => {
       icon: <Eye size={15} />,
       onSelect: () => setDetailStaffId(staff.staffId),
     },
-    {
-      label: "블랙리스트",
-      icon: <Ban size={15} />,
-      tone: "danger" as const,
-      disabled: staff.status === "BLACKLIST",
-      onSelect: () => setDetailStaffId(staff.staffId),
-    },
-    {
-      label: "삭제",
-      icon: <Trash size={15} />,
-      tone: "danger" as const,
-      onSelect: () => handleDelete(staff),
-    },
+    ...(canBlacklist
+      ? [
+          {
+            label: "블랙리스트",
+            icon: <Ban size={15} />,
+            tone: "danger" as const,
+            disabled: staff.status === "BLACKLIST",
+            onSelect: () => setDetailStaffId(staff.staffId),
+          },
+        ]
+      : []),
+    ...(canDelete
+      ? [
+          {
+            label: "삭제",
+            icon: <Trash size={15} />,
+            tone: "danger" as const,
+            onSelect: () => handleDelete(staff),
+          },
+        ]
+      : []),
   ];
 
   const columns: TableColumn<Staff>[] = [
@@ -373,16 +384,18 @@ const StaffManager = () => {
           emptyTitle="조건에 맞는 인력이 없습니다."
           emptyDescription="검색어나 직무 · 지역 필터를 바꿔서 다시 찾아보세요."
           emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormStaff(null);
-                setIsFormOpen(true);
-              }}
-            >
-              인력 등록
-            </Button>
+            canWrite ? (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormStaff(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                인력 등록
+              </Button>
+            ) : undefined
           }
         />
 

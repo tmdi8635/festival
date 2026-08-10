@@ -30,6 +30,13 @@ export const ACTION_TYPE_LABEL: Record<ActionItem["type"], string> = {
   APPLICATION_PENDING: "지원 검토",
 };
 
+/**
+ * 대시보드 지표.
+ *
+ * **볼 권한이 없는 값은 서버가 아예 담지 않는다.** 그래서 여러 항목이 optional이다.
+ * 0으로 내려보내면 "미지급이 0원"과 "미지급을 볼 수 없음"이 화면에서 같아 보인다.
+ * 앞은 안심해도 되는 상태고 뒤는 다른 사람에게 물어봐야 하는 상태다.
+ */
 export interface DashboardMetric {
   /** 오늘 진행되는 행사 수 */
   todayEventCount: number;
@@ -39,14 +46,14 @@ export interface DashboardMetric {
   todayStaffCount: number;
   /** 아직 채우지 못한 자리 */
   openSlotCount: number;
-  /** 계약서 미서명 건수 */
-  unsignedContractCount: number;
-  /** 서류 미제출 인력 수 */
-  incompleteDocumentCount: number;
+  /** 계약서 미서명 건수. `contract:read`가 없으면 내려오지 않는다. */
+  unsignedContractCount?: number;
+  /** 서류 미제출 인력 수. `staffDocument:read`가 없으면 내려오지 않는다. */
+  incompleteDocumentCount?: number;
   /** 지난 근무인데 출퇴근이 안 적힌 건수. 정산 금액이 아직 잠정이라는 뜻이다. */
   missingCheckTimeCount: number;
-  /** 미지급 정산 금액 */
-  unpaidAmount: number;
+  /** 미지급 정산 금액. `payroll:read`가 없으면 내려오지 않는다. */
+  unpaidAmount?: number;
   /** 활동 인력 수 */
   activeStaffCount: number;
 }
@@ -87,8 +94,10 @@ export interface AttendanceIssue {
 
 export interface DashboardSummary {
   metric: DashboardMetric;
+  /** 할 일은 처리할 권한이 있는 것만 내려온다. 누를 수 없는 일을 띄워 봐야 소용이 없다. */
   actions: ActionItem[];
-  monthlyTrend: MonthlyTrendPoint[];
-  upcomingEvents: UpcomingEvent[];
-  attendanceIssues: AttendanceIssue[];
+  /** 매출은 거래처 청구 단가에서 나온다. `client:read`가 없으면 내려오지 않는다. */
+  monthlyTrend?: MonthlyTrendPoint[];
+  upcomingEvents?: UpcomingEvent[];
+  attendanceIssues?: AttendanceIssue[];
 }

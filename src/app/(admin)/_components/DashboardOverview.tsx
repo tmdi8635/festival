@@ -78,20 +78,33 @@ const DashboardOverview = () => {
             tone={metric.openSlotCount > 0 ? "danger" : "default"}
             icon={<Users size={18} />}
           />
-          <StatTile
-            label="계약서 미완료"
-            value={`${metric.unsignedContractCount}건`}
-            description={`서류 미제출 ${metric.incompleteDocumentCount}명`}
-            tone={metric.unsignedContractCount > 0 ? "warning" : "default"}
-            icon={<FileText size={18} />}
-          />
-          <StatTile
-            label="미지급 정산액"
-            value={formatCurrency(metric.unpaidAmount)}
-            description={`활동 인력 ${formatWithCommas(metric.activeStaffCount)}명`}
-            tone={metric.unpaidAmount > 0 ? "warning" : "default"}
-            icon={<Wallet size={18} />}
-          />
+          {/*
+            볼 권한이 없는 칸은 0으로 채우지 않고 **칸 자체를 뺀다.**
+            "미지급 0원"으로 보이면 안심해도 되는 상태로 읽히는데,
+            실제로는 볼 수 없을 뿐 금액은 쌓여 있다.
+          */}
+          {metric.unsignedContractCount !== undefined && (
+            <StatTile
+              label="계약서 미완료"
+              value={`${metric.unsignedContractCount}건`}
+              description={
+                metric.incompleteDocumentCount !== undefined
+                  ? `서류 미제출 ${metric.incompleteDocumentCount}명`
+                  : undefined
+              }
+              tone={metric.unsignedContractCount > 0 ? "warning" : "default"}
+              icon={<FileText size={18} />}
+            />
+          )}
+          {metric.unpaidAmount !== undefined && (
+            <StatTile
+              label="미지급 정산액"
+              value={formatCurrency(metric.unpaidAmount)}
+              description={`활동 인력 ${formatWithCommas(metric.activeStaffCount)}명`}
+              tone={metric.unpaidAmount > 0 ? "warning" : "default"}
+              icon={<Wallet size={18} />}
+            />
+          )}
         </div>
 
         <Card
@@ -141,11 +154,14 @@ const DashboardOverview = () => {
           )}
         </Card>
 
-        <Card title="월별 매출 · 인건비" description="단위: 만원">
-          <RevenueTrendChart data={monthlyTrend} />
-        </Card>
+        {monthlyTrend && (
+          <Card title="월별 매출 · 인건비" description="단위: 만원">
+            <RevenueTrendChart data={monthlyTrend} />
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {upcomingEvents && (
           <Card title="다가오는 행사" noPadding>
             {upcomingEvents.length === 0 ? (
               <EmptyState
@@ -209,7 +225,9 @@ const DashboardOverview = () => {
               </ul>
             )}
           </Card>
+          )}
 
+          {attendanceIssues && (
           <Card
             title="최근 근태 이슈"
             description="누적되면 등급과 블랙리스트에 반영됩니다."
@@ -248,6 +266,7 @@ const DashboardOverview = () => {
               </ul>
             )}
           </Card>
+          )}
         </div>
 
         <Alert tone="info" title="다음 단계">

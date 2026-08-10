@@ -35,6 +35,13 @@ const ConfirmDialogHost = () => {
       size="sm"
       // 파괴적 작업은 오버레이 클릭으로 닫히면 안 된다.
       closeOnOverlayClick={false}
+      /*
+        Enter는 여기서만 확인이 된다.
+        되돌리기 어려운 일은 앞선 창에서 곧바로 저지르지 않고 이 창을 한 번 거치는데,
+        그 마지막 한 번을 손으로만 누르게 하면 Enter로 넘어온 흐름이 여기서 끊긴다.
+        (읽고 나서 누르는 자리이므로 이 Enter는 실수가 되기 어렵다)
+      */
+      onSubmit={isProcessing ? undefined : handleConfirm}
       footer={
         <>
           <Button variant="ghost" onClick={closeConfirm} disabled={isProcessing}>

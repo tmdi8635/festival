@@ -21,10 +21,15 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 export const messageHandlers = [
   http.get(`${BASE_URI}/admin/messages`, async ({ request }) => {
+    const denied = requirePermission(request, "message:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const purpose = url.searchParams.get("purpose") as MessagePurpose | null;
@@ -57,6 +62,14 @@ export const messageHandlers = [
    * 성공 응답을 돌려준다. 전송 구간만 나중에 갈아 끼우면 화면은 그대로 쓴다.
    */
   http.post(`${BASE_URI}/admin/messages/send`, async ({ request }) => {
+    /*
+      문구를 짜는 것(`write`)과 실제로 내보내는 것(`send`)은 다른 권한이다.
+      나간 문자는 되돌릴 수 없고, 받는 쪽은 회사 이름으로 읽는다.
+    */
+    const denied = requirePermission(request, "message:send");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as SendMessageRequest;
 
     if (body.staffIds.length === 0) {
@@ -106,6 +119,10 @@ export const messageHandlers = [
   /* ---------------------------------- 템플릿 --------------------------------- */
 
   http.get(`${BASE_URI}/admin/message-templates`, async ({ request }) => {
+    const denied = requirePermission(request, "message:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const purpose = url.searchParams.get("purpose") as MessagePurpose | null;
@@ -122,6 +139,10 @@ export const messageHandlers = [
   }),
 
   http.post(`${BASE_URI}/admin/message-templates`, async ({ request }) => {
+    const denied = requirePermission(request, "message:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as MessageTemplateFormValues;
 
     const created: MessageTemplate = {
@@ -141,6 +162,10 @@ export const messageHandlers = [
   http.put(
     `${BASE_URI}/admin/message-templates/:templateId`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "message:write");
+
+      if (denied) return denied;
+
       const template = findMessageTemplate(Number(params.templateId));
       const body = (await request.json()) as MessageTemplateFormValues;
 
@@ -155,7 +180,16 @@ export const messageHandlers = [
 
   http.delete(
     `${BASE_URI}/admin/message-templates/:templateId`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      /*
+        '공지 · 발송'에는 `delete`를 두지 않았다. 템플릿을 지우는 것은
+        문구를 고치는 일과 되돌리기 어려운 정도가 같아서, 행위를 늘리는 대신
+        `write`에 포함한다. (되돌리기 어려운 것만 떼어 낸다 — `type/permission.ts`)
+      */
+      const denied = requirePermission(request, "message:write");
+
+      if (denied) return denied;
+
       const templateId = Number(params.templateId);
       const index = messageTemplates.findIndex(
         (template) => template.templateId === templateId,

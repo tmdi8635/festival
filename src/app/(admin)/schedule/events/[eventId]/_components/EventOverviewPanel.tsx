@@ -15,6 +15,7 @@ import {
 import type { JobRole } from "@/type/staff";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import { useHasPermission } from "@/store/useAdminStore";
 
 /** 라벨 · 값 한 줄. 개요에서만 쓴다. */
 const DetailRow = ({
@@ -48,6 +49,8 @@ interface EventOverviewPanelProps {
  * 집합 장소 · 복장 · 준비물은 안내 문구로 그대로 나가므로 여기서 확인한다.
  */
 const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
+  const canAssign = useHasPermission("assignment:write");
+
   const jobRoleLabel = useJobRoleLabel();
   // 발주 목록도 기준 설정에서 정한 직무 순서로 세운다.
   const compareRoles = useJobRoleComparator();
@@ -148,7 +151,7 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                 </span>
 
                 {/* 부족한 직무는 여기서 바로 채운다. 배치 화면으로 나갈 이유가 없다. */}
-                {isShort && (
+                {canAssign && isShort && (
                   <Button
                     size="sm"
                     variant="secondary"

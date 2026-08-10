@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { useClientListQuery } from "@/api/client/getClientList";
+import { useHasPermission } from "@/store/useAdminStore";
 import { useEventMutation } from "@/api/event/mutateEvent";
 import {
   BREAK_MINUTE_OPTIONS,
@@ -37,6 +38,7 @@ import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
 import IconButton from "@/components/ui/IconButton";
 import Input from "@/components/ui/Input";
+import TimeInput from "@/components/ui/TimeInput";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
 import DayOffsetField from "./DayOffsetField";
@@ -138,8 +140,20 @@ const EventFormModal = ({
     );
   }, [isOpen, event, defaultDate, reset, jobRoles]);
 
+  /*
+    거래처를 볼 권한이 없으면 목록이 아예 오지 않는다. (`usePermittedQuery`)
+    빈 목록을 그대로 두면 "거래처를 선택하세요"만 있는 칸이 되어
+    담당자는 자기 잘못인 줄 알고 계속 눌러 본다. 왜 비었는지 적어 준다.
+  */
+  const canReadClient = useHasPermission("client:read");
+
   const clientOptions = [
-    { label: "거래처를 선택하세요", value: "0" },
+    {
+      label: canReadClient
+        ? "거래처를 선택하세요"
+        : "'거래처 > 조회' 권한이 필요합니다",
+      value: "0",
+    },
     ...(clientData?.content ?? []).map((client) => ({
       label: client.name,
       value: String(client.clientId),
@@ -184,6 +198,21 @@ const EventFormModal = ({
     recurrence ?? EMPTY_EVENT_VALUES.recurrence,
   );
 
+  /*
+    하루짜리면 종료일은 시작일을 따라간다.
+
+    종료일 칸은 이때 잠겨 있어서 사람이 직접 채울 수 없다.
+    "하루만"을 고른 뒤 시작일을 정하면(또는 나중에 고치면) 종료일이 빈 채로 남아
+    저장할 때야 "종료일을 입력하세요"에 막히는데, 잠긴 칸이라 고칠 방법이 없다.
+    프리셋을 누르는 순간만 맞춰 주는 것으로는 부족해서 여기서 계속 따라붙인다.
+  */
+  useEffect(() => {
+    if (recurrence?.type !== "SINGLE") return;
+    if (!startDate || endDate === startDate) return;
+
+    setValue("endDate", startDate, { shouldValidate: true });
+  }, [recurrence?.type, startDate, endDate, setValue]);
+
   const onSubmit = handleSubmit((values) => {
     if (event) {
       updateMutation.mutate(
@@ -204,6 +233,7 @@ const EventFormModal = ({
       title={event ? "행사 수정" : "행사 등록"}
       description="거래처에서 받은 발주 내용을 그대로 옮겨 적으면 됩니다."
       size="lg"
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -229,7 +259,16 @@ const EventFormModal = ({
         </FormField>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="거래처" required error={errors.clientId?.message}>
+          <FormField
+            label="거래처"
+            required
+            hint={
+              canReadClient
+                ? undefined
+                : "거래처를 고를 수 없어 행사를 등록할 수 없습니다. 최고관리자에게 '거래처 > 조회' 권한을 요청하세요."
+            }
+            error={errors.clientId?.message}
+          >
             <Controller
               control={control}
               name="clientId"
@@ -316,10 +355,17 @@ const EventFormModal = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="시작 시각" required error={errors.startTime?.message}>
-            <Input
-              type="time"
-              {...register("startTime")}
-              hasError={Boolean(errors.startTime)}
+            <Controller
+              control={control}
+              name="startTime"
+              render={({ field }) => (
+                <TimeInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  hasError={Boolean(errors.startTime)}
+                />
+              )}
             />
           </FormField>
 
@@ -328,20 +374,17 @@ const EventFormModal = ({
               control={control}
               name="endTime"
               render={({ field }) => (
-                <Input
-                  type="time"
+                <TimeInput
                   value={field.value}
+                  onBlur={field.onBlur}
                   hasError={Boolean(errors.endTime)}
-                  onChange={(changeEvent) => {
-                    field.onChange(changeEvent.target.value);
+                  onChange={(nextTime) => {
+                    field.onChange(nextTime);
                     /*
                       시각을 새로 고르면 날짜 넘김을 다시 추측해 깔아 준다.
                       추측은 어디까지나 초기값이고, 사람이 D+1 · D+2를 눌러 확정한다.
                     */
-                    setValue(
-                      "endDayOffset",
-                      guessDayOffset(startTime, changeEvent.target.value),
-                    );
+                    setValue("endDayOffset", guessDayOffset(startTime, nextTime));
                   }}
                 />
               )}

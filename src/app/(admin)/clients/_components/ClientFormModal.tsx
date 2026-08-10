@@ -87,6 +87,7 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
       onClose={onClose}
       title={client ? "거래처 수정" : "거래처 등록"}
       size="lg"
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

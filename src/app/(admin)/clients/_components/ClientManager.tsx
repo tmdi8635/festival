@@ -267,16 +267,18 @@ const ClientManager = () => {
           emptyTitle="등록된 거래처가 없습니다."
           emptyDescription="행사를 등록하려면 거래처가 먼저 필요합니다."
           emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormClient(null);
-                setIsFormOpen(true);
-              }}
-            >
-              거래처 등록
-            </Button>
+            canWrite ? (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormClient(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                거래처 등록
+              </Button>
+            ) : undefined
           }
         />
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useContractTemplateListQuery } from "@/api/contract/getContractTemplateList";
 import { useContractTemplateMutation } from "@/api/contract/mutateContractTemplate";
+import { useHasPermission } from "@/store/useAdminStore";
 import { Edit, Eye, Plus, Trash } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
@@ -38,6 +39,9 @@ const ContractTemplateManager = () => {
   const { data, isLoading } = useContractTemplateListQuery({
     keyword: keyword || undefined,
   });
+  const canWrite = useHasPermission("contract:write");
+  const canDelete = useHasPermission("contract:delete");
+
   const { deleteMutation } = useContractTemplateMutation();
 
   const templates = data?.items ?? [];
@@ -73,17 +77,19 @@ const ContractTemplateManager = () => {
             placeholder="템플릿 이름 · 본문 검색"
           />
 
-          <Button
-            variant="primary"
-            size="sm"
-            leftIcon={<Plus size={15} />}
-            onClick={() => {
-              setFormTemplate(null);
-              setIsFormOpen(true);
-            }}
-          >
-            템플릿 추가
-          </Button>
+          {canWrite && (
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<Plus size={15} />}
+              onClick={() => {
+                setFormTemplate(null);
+                setIsFormOpen(true);
+              }}
+            >
+              템플릿 추가
+            </Button>
+          )}
         </div>
 
         {isLoading && (
@@ -99,16 +105,18 @@ const ContractTemplateManager = () => {
             title="등록된 템플릿이 없습니다."
             description="직무별로 다른 계약서를 쓰려면 템플릿부터 만들어 주세요."
             action={
-              <Button
-                variant="primary"
-                leftIcon={<Plus size={15} />}
-                onClick={() => {
-                  setFormTemplate(null);
-                  setIsFormOpen(true);
-                }}
-              >
-                템플릿 추가
-              </Button>
+              canWrite ? (
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus size={15} />}
+                  onClick={() => {
+                    setFormTemplate(null);
+                    setIsFormOpen(true);
+                  }}
+                >
+                  템플릿 추가
+                </Button>
+              ) : undefined
             }
           />
         )}
@@ -179,26 +187,30 @@ const ContractTemplateManager = () => {
                   >
                     미리보기
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    leftIcon={<Edit size={14} />}
-                    onClick={() => {
-                      setFormTemplate(template);
-                      setIsFormOpen(true);
-                    }}
-                  >
-                    수정
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="dangerGhost"
-                    leftIcon={<Trash size={14} />}
-                    disabled={template.isDefault}
-                    onClick={() => handleDelete(template)}
-                  >
-                    삭제
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<Edit size={14} />}
+                      onClick={() => {
+                        setFormTemplate(template);
+                        setIsFormOpen(true);
+                      }}
+                    >
+                      수정
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="dangerGhost"
+                      leftIcon={<Trash size={14} />}
+                      disabled={template.isDefault}
+                      onClick={() => handleDelete(template)}
+                    >
+                      삭제
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}

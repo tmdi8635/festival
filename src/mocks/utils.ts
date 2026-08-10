@@ -153,3 +153,29 @@ export const requirePermission = (
     { status: 403 },
   );
 };
+
+/**
+ * 권한을 갖고 있는지 **묻기만** 한다. 거부하지 않는다.
+ *
+ * `requirePermission`은 "이 요청을 통째로 막을까"를 정하는 자리에 쓰고,
+ * 이쪽은 **응답에서 일부를 덜어 낼 때** 쓴다.
+ *
+ * 한 화면이 여러 자료를 섞어 보여 주는 곳이 있다. 통합검색은 인력 · 행사 · 거래처를
+ * 한 번에 훑고, 대시보드는 미지급 금액과 매출 추이까지 함께 내려준다.
+ * 이런 응답을 통째로 막으면 화면이 열리지 않고, 그대로 내려주면
+ * 거래처를 볼 수 없는 직책이 검색창에서 거래처 이름을 읽게 된다.
+ * 그래서 막는 대신 **볼 수 있는 것만 남긴다.**
+ */
+export const requesterCan = (
+  request: Request,
+  required: PermissionKey,
+): boolean => {
+  const managerId = Number(request.headers.get("X-Admin-Id"));
+  const manager = managers.find((item) => item.managerId === managerId);
+
+  if (!manager || !manager.isActive) return false;
+
+  const role = adminRoles.find((item) => item.roleId === manager.roleId);
+
+  return hasPermission(role?.permissions, required, role?.isSuperAdmin);
+};

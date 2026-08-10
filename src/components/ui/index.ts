@@ -23,6 +23,7 @@ export { default as Switch } from "./Switch";
 export { default as Table, TableCellStack } from "./Table";
 export { default as Tabs } from "./Tabs";
 export { default as Textarea } from "./Textarea";
+export { default as TimeInput } from "./TimeInput";
 
 export type { AlertTone } from "./Alert";
 export type { BadgeTone } from "./Badge";

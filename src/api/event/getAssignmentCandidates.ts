@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { AssignmentCandidate } from "@/type/event";
 import type { JobRole } from "@/type/staff";
 
@@ -41,7 +40,7 @@ export const useAssignmentCandidateQuery = (
   params: AssignmentCandidateParams,
   isEnabled: boolean,
 ) => {
-  return useQuery<AssignmentCandidateResponse, AppError>({
+  return usePermittedQuery<AssignmentCandidateResponse>("assignment:read", {
     queryKey: ["get-assignment-candidates", params],
     queryFn: () => getAssignmentCandidates(params),
     enabled: isEnabled,

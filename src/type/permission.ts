@@ -84,8 +84,17 @@ export const PERMISSION_RESOURCES: Record<PermissionResource, ResourceDef> = {
   },
   contract: {
     label: "근로계약서",
-    description: "계약서 발급 · 재작성 · 템플릿",
-    actions: ["read", "write", "delete", "send"],
+    /*
+      `send`를 두지 않는다.
+
+      지금은 계약서가 시스템 밖으로 나가지 않는다. 담당자가 문서를 내려받아
+      종이로 배부하고 서명본을 올린다. 그 등록이 `write`다.
+      쓰이지 않는 권한을 설정 화면에 세워 두면, 켜 놓고도 아무 일이 안 일어나거나
+      꺼 놓고도 문서가 나가는 것으로 오해하게 된다.
+      근로자에게 링크가 나가는 서버가 붙는 날 다시 붙인다.
+    */
+    description: "계약서 등록 · 재작성 · 템플릿",
+    actions: ["read", "write", "delete"],
   },
   payroll: {
     label: "정산",
@@ -151,6 +160,129 @@ export const PERMISSION_ACTION_HINT: Record<PermissionAction, string> = {
   pay: "실제 지급 완료로 처리합니다.",
   send: "외부(근로자 · 지원자)에게 내보냅니다.",
 };
+
+/* ------------------------------------------------------------------ */
+/* 분류                                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 자료를 묶는 갈래.
+ *
+ * **행위 구성이 같은 자료끼리 묶는다.** 업무 영역(현장 · 인력 · 정산)이 아니다.
+ *
+ * 이 표는 자료(행) × 행위(열)인데, 자료마다 할 수 있는 행위가 다르다.
+ * 열네 개를 한 표에 넣으면 행위 여섯 개를 전부 열로 세워야 하고,
+ * 그러면 `승인` 열은 열네 칸 중 열세 칸이 빈칸이 된다.
+ * 정산에만 있는 행위가 행사 줄에도 자리를 차지하는 셈이다.
+ *
+ * 갈래를 행위 구성으로 나누면 **갈래마다 열 이름이 달라진다.**
+ * 정산 갈래의 열은 `조회 · 등록 · 승인 · 지급 완료`이고, 거기에만 있다.
+ * 빈칸이 사라지고, 갈래 이름이 곧 "이 자료들로 무엇을 할 수 있는가"가 된다.
+ */
+export interface PermissionCategoryDef {
+  id: string;
+  label: string;
+  /** 이 갈래의 행위 구성이 왜 이런지. 설정 화면에서 그대로 보여 준다. */
+  description: string;
+  resources: readonly PermissionResource[];
+}
+
+export const PERMISSION_CATEGORIES = [
+  {
+    id: "general",
+    label: "만들고 고치고 지우는 자료",
+    description: "조회 · 등록 · 삭제. 대부분의 자료가 여기에 해당합니다.",
+    resources: [
+      "event",
+      "assignment",
+      "recruit",
+      "staff",
+      /*
+        근로계약서가 여기 있는 이유.
+
+        예전에는 '밖으로 나가는 자료'였다. 그런데 지금은 계약서가 시스템 밖으로
+        나가지 않는다. 담당자가 내려받아 종이로 배부하고 서명본을 올린다.
+        `send` 열이 있는 갈래에 두면 계약서 줄만 그 칸이 비어, 켤 수 없는 권한이
+        설정 화면에 남는다. 근로자에게 링크가 나가는 서버가 붙는 날 되돌린다.
+      */
+      "contract",
+      "client",
+      "admin",
+      "role",
+    ],
+  },
+  {
+    id: "keep",
+    label: "지우지 않는 자료",
+    description:
+      "받아 두거나 기준이 되는 자료라 삭제가 없습니다. 해제하거나 새로 받습니다.",
+    resources: ["staffDocument", "blacklist", "settings"],
+  },
+  {
+    id: "outbound",
+    label: "밖으로 나가는 자료",
+    description:
+      "근로자에게 발송합니다. 나가면 되돌릴 수 없어 '발송'을 따로 뗐습니다.",
+    resources: ["message"],
+  },
+  {
+    id: "money",
+    label: "돈이 오가는 자료",
+    description:
+      "지급을 승인하고 지급 완료로 찍습니다. 둘 다 되돌릴 수 없어 따로 뗐습니다.",
+    resources: ["payroll"],
+  },
+  {
+    id: "record",
+    label: "바꿀 수 없는 자료",
+    description: "누가 무엇을 바꿨는지 남긴 기록입니다. 고칠 수 있으면 기록이 아닙니다.",
+    resources: ["log"],
+  },
+] as const satisfies readonly PermissionCategoryDef[];
+
+/** 열을 세울 순서. 되돌리기 쉬운 것부터 어려운 것 순으로 둔다. */
+const ACTION_ORDER: readonly PermissionAction[] = [
+  "read",
+  "write",
+  "delete",
+  "approve",
+  "pay",
+  "send",
+];
+
+/**
+ * 이 갈래의 열.
+ *
+ * 손으로 적지 않고 **자료에서 뽑는다.** 손으로 적으면 자료에 행위를 하나 더한 날
+ * 열이 따라오지 않아, 켤 수 없는 권한이 조용히 생긴다.
+ */
+export const categoryActions = (
+  resources: readonly PermissionResource[],
+): PermissionAction[] => {
+  const actions = new Set(
+    resources.flatMap((resource) => PERMISSION_RESOURCES[resource].actions),
+  );
+
+  return ACTION_ORDER.filter((action) => actions.has(action));
+};
+
+/**
+ * 갈래에 넣지 않은 자료가 있으면 **여기서 타입 오류가 난다.**
+ *
+ * 자료를 새로 만들고 갈래에 넣는 것을 잊으면, 그 자료는 설정 화면에
+ * 아예 나타나지 않는다. 아무도 켤 수 없으니 그 기능은 최고관리자만 쓰게 되고,
+ * 화면에서는 "권한을 안 준 것"과 구분되지 않아 한참 뒤에야 발견된다.
+ */
+type CategorizedResource =
+  (typeof PERMISSION_CATEGORIES)[number]["resources"][number];
+
+type MustBeNever<T extends never> = T;
+
+/* 쓰이지 않는 것이 목적이다. 존재하는 것만으로 컴파일 때 검사가 된다. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _EveryResourceHasCategory = MustBeNever<
+  Exclude<PermissionResource, CategorizedResource>
+>;
 
 export const permissionKey = (
   resource: PermissionResource,

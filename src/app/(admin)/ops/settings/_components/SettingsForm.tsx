@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSettingsQuery } from "@/api/ops/getSettings";
 import { WAGE_TYPE_OPTIONS } from "@/constants/eventOptions";
 import { useSettingsMutation } from "@/api/ops/mutateSettings";
+import { useHasPermission } from "@/store/useAdminStore";
 import { ArrowDown, ArrowUp, Plus, Refresh, Trash, Warning } from "@/icons";
 import { formatDateTime } from "@/lib/dayjs";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -32,6 +33,7 @@ import Card from "@/components/ui/Card";
 import FormField from "@/components/ui/FormField";
 import IconButton from "@/components/ui/IconButton";
 import Input from "@/components/ui/Input";
+import TimeInput from "@/components/ui/TimeInput";
 import Select from "@/components/ui/Select";
 import Skeleton from "@/components/ui/Skeleton";
 import Switch from "@/components/ui/Switch";
@@ -74,6 +76,14 @@ const buildNewJobRole = (jobRoles: JobRoleDef[]): JobRoleDef => ({
 const SettingsForm = () => {
   const { data, isLoading } = useSettingsQuery();
   const { updateMutation } = useSettingsMutation();
+
+  /*
+    기준 설정은 화면 전체가 하나의 긴 폼이라, 저장 버튼만 감추면
+    담당자는 직무를 지우고 수당을 바꾼 뒤에야 저장할 수 없다는 것을 안다.
+    그래서 `fieldset disabled`로 입력 칸을 통째로 잠근다.
+    (조회는 `settings:read`, 수정은 `settings:write` — 이 화면은 둘을 모두 쓴다)
+  */
+  const canWrite = useHasPermission("settings:write");
 
   // 편집 전에는 서버 값을 그대로 쓰고, 편집이 시작되면 draft가 화면을 담당한다.
   const [draft, setDraft] = useState<OperationSettings | null>(null);
@@ -178,7 +188,14 @@ const SettingsForm = () => {
   );
 
   return (
-    <>
+    <fieldset disabled={!canWrite} className="contents">
+      {!canWrite && (
+        <Alert tone="warning" title="기준 설정을 볼 수만 있습니다.">
+          직무 · 수당 기준 · 기능 잠금을 바꾸려면 &lsquo;기준 설정 &gt; 등록 ·
+          수정&rsquo; 권한이 필요합니다.
+        </Alert>
+      )}
+
       <Alert tone="info" title="여기서 정한 값이 자동 계산의 기준이 됩니다.">
         직무 기본 시급은 행사 등록 시 초기값으로, 수당 기준은 정산 계산에
         쓰입니다. 여기서 정한 시급은 어디까지나 <b>기준값</b>이라 행사 안에서
@@ -456,24 +473,18 @@ const SettingsForm = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-4 py-3">
               <FormField label="야간 시작">
-                <Input
-                  type="time"
+                <TimeInput
                   disabled={!settings.isNightPayEnabled}
                   value={settings.nightStartTime}
-                  onChange={(event) =>
-                    update("nightStartTime", event.target.value)
-                  }
+                  onChange={(nextTime) => update("nightStartTime", nextTime)}
                 />
               </FormField>
 
               <FormField label="야간 종료">
-                <Input
-                  type="time"
+                <TimeInput
                   disabled={!settings.isNightPayEnabled}
                   value={settings.nightEndTime}
-                  onChange={(event) =>
-                    update("nightEndTime", event.target.value)
-                  }
+                  onChange={(nextTime) => update("nightEndTime", nextTime)}
                 />
               </FormField>
 
@@ -566,14 +577,20 @@ const SettingsForm = () => {
             />
           </FormField>
 
-          <FormField label="계약서 서명 기한" hint="발송 후 유효 기간">
+          <FormField
+            label="계약서 등록 기한"
+            hint="근무 시작 며칠 전까지 서명본을 받아야 하는지"
+          >
             <Input
               type="number"
               min={1}
               max={30}
-              value={settings.contractExpireDays}
+              value={settings.contractRegisterDeadlineDays}
               onChange={(event) =>
-                update("contractExpireDays", Number(event.target.value))
+                update(
+                  "contractRegisterDeadlineDays",
+                  Number(event.target.value),
+                )
               }
               rightSlot={<span className="text-[13px] text-font-2">일</span>}
             />
@@ -644,7 +661,7 @@ const SettingsForm = () => {
           ))}
         </div>
       </Card>
-    </>
+    </fieldset>
   );
 };
 

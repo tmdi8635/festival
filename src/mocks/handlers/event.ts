@@ -120,6 +120,10 @@ export const eventHandlers = [
    * 한 덩어리로 내려주고, 주 단위로 자르는 일은 화면이 한다.
    */
   http.get(`${BASE_URI}/admin/events/calendar`, async ({ request }) => {
+    const denied = requirePermission(request, "event:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const from = url.searchParams.get("from") ?? "";
     const to = url.searchParams.get("to") ?? "";
@@ -183,6 +187,10 @@ export const eventHandlers = [
 
   /** 행사 목록 */
   http.get(`${BASE_URI}/admin/events`, async ({ request }) => {
+    const denied = requirePermission(request, "event:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as EventStatus | null;
@@ -219,7 +227,11 @@ export const eventHandlers = [
     return HttpResponse.json(paginate(sorted.map(toEventSummary), url));
   }),
 
-  http.get(`${BASE_URI}/admin/events/:eventId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/events/:eventId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "event:read");
+
+    if (denied) return denied;
+
     const event = findEvent(Number(params.eventId));
 
     await delay(MOCK_DELAY_MS);
@@ -460,6 +472,10 @@ export const eventHandlers = [
   http.get(
     `${BASE_URI}/admin/events/:eventId/candidates`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "assignment:read");
+
+      if (denied) return denied;
+
       const event = findEvent(Number(params.eventId));
       const url = new URL(request.url);
       const role = url.searchParams.get("role") as JobRole | null;
@@ -715,6 +731,10 @@ export const eventHandlers = [
   http.patch(
     `${BASE_URI}/admin/events/:eventId/days`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
       const event = findEvent(Number(params.eventId));
       const body = (await request.json()) as {
         date: string;
@@ -861,7 +881,11 @@ export const eventHandlers = [
 
   http.delete(
     `${BASE_URI}/admin/assignments/:assignmentId`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "assignment:delete");
+
+      if (denied) return denied;
+
       const assignmentId = Number(params.assignmentId);
       const event = events.find((item) =>
         item.assignments.some(
@@ -884,6 +908,10 @@ export const eventHandlers = [
 
   /** 배치 현황 보드. 인력 기준으로 배치를 펴서 본다. */
   http.get(`${BASE_URI}/admin/assignments`, async ({ request }) => {
+    const denied = requirePermission(request, "assignment:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const role = url.searchParams.get("role") as JobRole | null;

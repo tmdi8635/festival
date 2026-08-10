@@ -104,6 +104,7 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
           ? `${assignment.staffName} · ${assignment.eventTitle}`
           : undefined
       }
+      onSubmit={handleSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>

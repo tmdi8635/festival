@@ -10,12 +10,16 @@ import {
   calculateBasePay,
   calculateScheduledWorkHours,
 } from "@/type/event";
-import { contracts } from "../db/contract";
 import { events } from "../db/event";
 import { payrollItems } from "../db/payroll";
 import { applications } from "../db/recruit";
 import { staffList, staffMissingDocuments } from "../db/staff";
-import { BASE_URI, MOCK_DELAY_MS, dateFromToday } from "../utils";
+import {
+  BASE_URI,
+  MOCK_DELAY_MS,
+  dateFromToday,
+  requesterCan,
+} from "../utils";
 
 /** 최근 6개월의 매출 · 인건비를 만든다. 마진이 어떻게 움직였는지 한눈에 본다. */
 const buildMonthlyTrend = (): MonthlyTrendPoint[] => {
@@ -54,7 +58,23 @@ const buildMonthlyTrend = (): MonthlyTrendPoint[] => {
 };
 
 export const dashboardHandlers = [
-  http.get(`${BASE_URI}/admin/dashboard/summary`, async () => {
+  http.get(`${BASE_URI}/admin/dashboard/summary`, async ({ request }) => {
+    /*
+      대시보드는 모든 자료를 한 장에 모아 놓은 화면이라, 권한이 가장 새기 쉬운 곳이다.
+
+      메뉴에서 정산을 감추고 서버에서 정산 API를 막아도, 대시보드가 미지급 금액과
+      월별 매출을 그대로 띄우면 막은 것이 아니다.
+      **그래서 대시보드는 통째로 막지 않고 볼 수 있는 칸만 채운다.**
+      대시보드는 첫 화면이라 통째로 막으면 로그인하자마자 거부 안내를 보게 된다.
+    */
+    const canSeePayroll = requesterCan(request, "payroll:read");
+    const canSeeClient = requesterCan(request, "client:read");
+    const canSeeContract = requesterCan(request, "contract:read");
+    const canSeeDocument = requesterCan(request, "staffDocument:read");
+    const canSeeEvent = requesterCan(request, "event:read");
+    const canSeeAssignment = requesterCan(request, "assignment:read");
+    const canSeeRecruit = requesterCan(request, "recruit:read");
+
     const today = dateFromToday(0);
     const weekLater = dateFromToday(7);
 
@@ -78,12 +98,25 @@ export const dashboardHandlers = [
         0,
       );
 
-    const unsignedContracts = contracts.filter(
-      (contract) =>
-        contract.workDate >= today &&
-        contract.status !== "SIGNED" &&
-        contract.status !== "EXPIRED",
-    );
+    /*
+      계약서를 아직 못 받은 사람.
+
+      계약서 목록에서 세면 안 된다. 서명본을 등록해야 기록이 생기므로
+      **아직 아무것도 안 한 사람은 목록에 아예 없다.** 그게 제일 급한 사람인데도.
+      그래서 확정 배치를 기준으로 세고, 그 사람의 유효한 계약서가 있는지를 본다.
+    */
+    const unsignedAssignments = events
+      .filter((event) => event.startDate >= today)
+      .flatMap((event) =>
+        event.assignments
+          .filter(
+            (assignment) =>
+              assignment.status === "CONFIRMED" && !assignment.isContractSigned,
+          )
+          .map((assignment) => `${event.eventId}-${assignment.staffId}`),
+      );
+
+    const unsignedContractCount = new Set(unsignedAssignments).size;
 
     const missingDocuments = staffMissingDocuments();
 
@@ -105,7 +138,7 @@ export const dashboardHandlers = [
       )
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
-    if (understaffedEvents.length > 0) {
+    if (canSeeEvent && understaffedEvents.length > 0) {
       const nearest = understaffedEvents[0];
 
       actions.push({
@@ -139,7 +172,7 @@ export const dashboardHandlers = [
           !(assignment.checkInAt && assignment.checkOutAt),
       );
 
-    if (missingCheckTimeAssignments.length > 0) {
+    if (canSeeAssignment && missingCheckTimeAssignments.length > 0) {
       actions.push({
         actionId: 6,
         type: "CHECK_TIME_MISSING",
@@ -151,19 +184,19 @@ export const dashboardHandlers = [
       });
     }
 
-    if (unsignedContracts.length > 0) {
+    if (canSeeContract && unsignedContractCount > 0) {
       actions.push({
         actionId: 2,
         type: "CONTRACT_MISSING",
-        title: `근로계약서 미완료 ${unsignedContracts.length}건`,
+        title: `근로계약서 미등록 ${unsignedContractCount}명`,
         description:
-          "근무 시작 전까지 서명이 끝나야 합니다. 미발송 건부터 처리하세요.",
-        href: "/contracts",
-        count: unsignedContracts.length,
+          "현장 투입 전까지 서명본이 등록돼야 합니다. 행사 상세의 근로계약서 탭에서 내려받아 배부하세요.",
+        href: "/schedule/events",
+        count: unsignedContractCount,
       });
     }
 
-    if (missingDocuments.length > 0) {
+    if (canSeeDocument && missingDocuments.length > 0) {
       actions.push({
         actionId: 3,
         type: "DOCUMENT_MISSING",
@@ -174,7 +207,7 @@ export const dashboardHandlers = [
       });
     }
 
-    if (pendingPayrolls.length > 0) {
+    if (canSeePayroll && pendingPayrolls.length > 0) {
       actions.push({
         actionId: 4,
         type: "PAYROLL_PENDING",
@@ -187,7 +220,7 @@ export const dashboardHandlers = [
       });
     }
 
-    if (pendingApplications.length > 0) {
+    if (canSeeRecruit && pendingApplications.length > 0) {
       actions.push({
         actionId: 5,
         type: "APPLICATION_PENDING",
@@ -244,21 +277,25 @@ export const dashboardHandlers = [
           0,
         ),
         openSlotCount,
-        unsignedContractCount: unsignedContracts.length,
-        incompleteDocumentCount: missingDocuments.length,
+        unsignedContractCount: canSeeContract
+          ? unsignedContractCount
+          : undefined,
+        incompleteDocumentCount: canSeeDocument
+          ? missingDocuments.length
+          : undefined,
         missingCheckTimeCount: missingCheckTimeAssignments.length,
-        unpaidAmount: pendingPayrolls.reduce(
-          (sum, item) => sum + item.netPay,
-          0,
-        ),
+        unpaidAmount: canSeePayroll
+          ? pendingPayrolls.reduce((sum, item) => sum + item.netPay, 0)
+          : undefined,
         activeStaffCount: staffList.filter(
           (staff) => staff.status === "ACTIVE",
         ).length,
       },
       actions,
-      monthlyTrend: buildMonthlyTrend(),
-      upcomingEvents,
-      attendanceIssues,
+      /* 매출은 거래처 청구 단가에서 나온다. 거래처를 못 보는 직책에게는 마진도 보이면 안 된다. */
+      monthlyTrend: canSeeClient ? buildMonthlyTrend() : undefined,
+      upcomingEvents: canSeeEvent ? upcomingEvents : undefined,
+      attendanceIssues: canSeeAssignment ? attendanceIssues : undefined,
     };
 
     await delay(MOCK_DELAY_MS);
