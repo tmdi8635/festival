@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { Client } from "@/type/client";
 
 export interface ClientListParams {
@@ -21,7 +21,7 @@ export const getClientList = async (params: ClientListParams) => {
 
 /** 거래처 목록 화면과 행사 등록 폼의 선택지에서 함께 사용합니다. */
 export const useClientListQuery = (params: ClientListParams) => {
-  return useQuery<PageResponse<Client>, AppError>({
+  return usePermittedQuery<PageResponse<Client>>("client:read", {
     queryKey: ["get-client-list", params],
     queryFn: () => getClientList(params),
   });

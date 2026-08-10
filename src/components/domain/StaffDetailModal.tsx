@@ -9,6 +9,7 @@ import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import {
   ATTENDANCE_STATUS_TONE,
+  STAFF_STATUS_HINT,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
@@ -21,14 +22,15 @@ import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import { CONTRACT_STATUS_LABEL } from "@/type/contract";
 import {
   ATTENDANCE_STATUS_LABEL,
-  BASE_REPUTATION_SCORE,
   GENDER_LABEL,
   RATER_TYPE_LABEL,
+  REPUTATION_BASE_SCORE,
   REPUTATION_VERDICT_LABEL,
   calculateAge,
-  calculateReputationScore,
   formatPhoneNumber,
   formatRegion,
+  formatReputationDelta,
+  resolveTagVerdict,
   summarizeAttendance,
   type StaffDetail,
 } from "@/type/staff";
@@ -40,22 +42,34 @@ import EmptyState from "@/components/ui/EmptyState";
 import IconButton from "@/components/ui/IconButton";
 import Modal from "@/components/ui/Modal";
 import Skeleton from "@/components/ui/Skeleton";
-import Table, { type TableColumn } from "@/components/ui/Table";
+import Table, { TableCellStack, type TableColumn } from "@/components/ui/Table";
 import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import Textarea from "@/components/ui/Textarea";
 import FavoriteToggle from "./FavoriteToggle";
-import ContractDetailModal from "./ContractDetailModal";
+import ContractDetailModal, {
+  type ContractDetailTarget,
+} from "./ContractDetailModal";
 import RatingStat from "./RatingStat";
-import VerdictBadge from "./VerdictBadge";
 
 type StaffTab = "PROFILE" | "HISTORY" | "RATING" | "MEMO";
 
-/** 근무일 목록을 "2026.08.19 ~ 09.01" 형태로 줄인다. */
-const formatWorkPeriod = (workDates: string[]): string => {
-  if (workDates.length === 0) return "-";
-  if (workDates.length === 1) return formatDate(workDates[0]);
+/**
+ * 근무 기간을 **두 줄로** 나눈다.
+ *
+ * `2026.07.21 ~ 2026.07.31`은 한 줄로 두면 스물세 자다. 표에서 이 칸 하나가
+ * 그만큼 넓어지고, 그 폭은 행사명 · 직무에서 빼앗아 온 것이다.
+ * 시작일과 종료일을 위아래로 쌓으면 칸은 절반이 되고 읽는 데는 지장이 없다.
+ */
+const resolveWorkPeriod = (
+  workDates: string[],
+): { start: string; end?: string } => {
+  if (workDates.length === 0) return { start: "-" };
+  if (workDates.length === 1) return { start: formatDate(workDates[0]) };
 
-  return `${formatDate(workDates[0])} ~ ${formatDate(workDates[workDates.length - 1])}`;
+  return {
+    start: formatDate(workDates[0]),
+    end: formatDate(workDates[workDates.length - 1]),
+  };
 };
 
 interface StaffDetailModalProps {
@@ -64,8 +78,6 @@ interface StaffDetailModalProps {
   onEdit?: (staff: StaffDetail) => void;
   /** 블랙리스트 지정 모달을 여는 콜백. 호출부가 모달을 갖고 있다. */
   onBlacklist?: (staff: StaffDetail) => void;
-  /** 참여 이력에서 행사를 눌렀을 때. 행사 상세로 넘어간다. */
-  onOpenEvent?: (eventId: number) => void;
 }
 
 const DetailRow = ({
@@ -146,18 +158,35 @@ const StaffDetailModal = ({
   onClose,
   onEdit,
   onBlacklist,
-  onOpenEvent,
 }: StaffDetailModalProps) => {
   const [tab, setTab] = useState<StaffTab>("PROFILE");
   const [memoContent, setMemoContent] = useState("");
   const [isWarningMemo, setIsWarningMemo] = useState(false);
-  const [contractId, setContractId] = useState<number | null>(null);
+  /*
+    계약서 상세는 계약서 번호가 아니라 **사람 × 행사**로 연다.
+    아직 등록 전이라 계약서 기록이 없는 행사에서도 문서를 내려받아야 하기 때문이다.
+  */
+  const [contractTarget, setContractTarget] =
+    useState<ContractDetailTarget | null>(null);
   /** 날짜별 근태를 펼쳐 볼 행사. 여러 날 행사만 펼칠 수 있다. */
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(
     null,
   );
-  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  /*
+    한 창 안에 성격이 다른 자료가 섞여 있어 권한도 나눠서 본다.
+
+    - 계좌 · 누적 지급액  → `payroll:read` (이체에 쓰는 금전 정보)
+    - 신분증 · 통장 사본  → `staffDocument:read` (개인정보 사본)
+    - 메모 · 즐겨찾기     → `staff:write`
+    - 블랙리스트 지정·해제 → `blacklist:write`
+
+    서버도 같은 기준으로 응답에서 값을 덜어 낸다(`mocks/handlers/staff.ts`).
+    화면에서만 가리면 개발자도구에 그대로 남는다.
+  */
   const canViewAccount = useHasPermission("payroll:read");
+  const canViewDocument = useHasPermission("staffDocument:read");
+  const canWrite = useHasPermission("staff:write");
+  const canBlacklist = useHasPermission("blacklist:write");
 
   const jobRoleLabel = useJobRoleLabel();
 
@@ -176,9 +205,7 @@ const StaffDetailModal = ({
   const reputations = reputationData?.items ?? [];
   const tagCounts = reputationData?.tagCounts ?? [];
   const warningMemos = staff?.memos.filter((memo) => memo.isWarning) ?? [];
-  const reputationScore = staff
-    ? calculateReputationScore(staff.goodCount, staff.badCount)
-    : BASE_REPUTATION_SCORE;
+  const reputationScore = staff?.reputationScore ?? REPUTATION_BASE_SCORE;
 
   const handleClose = () => {
     setTab("PROFILE");
@@ -230,9 +257,16 @@ const StaffDetailModal = ({
       key: "workDate",
       header: "근무일",
       numeric: true,
-      render: (history) => (
+      render: (history) => {
+        const period = resolveWorkPeriod(history.workDates);
+
+        return (
         <div>
-          <p className="text-font-1">{formatWorkPeriod(history.workDates)}</p>
+          {/* 연일이면 시작일 · 종료일을 위아래로 쌓아 칸이 넓어지지 않게 한다. */}
+          <p className="text-font-1 whitespace-nowrap">{period.start}</p>
+          {period.end && (
+            <p className="text-font-1 whitespace-nowrap">~ {period.end}</p>
+          )}
           {history.dayCount > 1 && (
             <button
               type="button"
@@ -248,23 +282,34 @@ const StaffDetailModal = ({
             </button>
           )}
         </div>
-      ),
+        );
+      },
     },
     {
+      /*
+        행사는 **새 탭**으로 연다.
+
+        이 표는 인력 상세 모달 안에 있다. 같은 탭에서 행사로 넘어가면
+        보고 있던 사람의 이력이 통째로 사라지고, 돌아오려면 인력을 다시 찾아
+        모달을 열고 탭을 골라야 한다. 이력을 훑다가 "이 행사 뭐였지"를
+        확인하는 동작이라 원래 화면이 남아 있어야 한다.
+      */
       key: "event",
       header: "행사",
       render: (history) => (
-        <button
-          type="button"
-          onClick={() => onOpenEvent?.(history.eventId)}
-          disabled={!onOpenEvent}
-          className="min-w-0 text-left transition enabled:hover:text-brand"
+        <a
+          href={`/schedule/events/${history.eventId}`}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(clickEvent) => clickEvent.stopPropagation()}
+          title="새 탭에서 행사 상세를 엽니다."
+          className="block min-w-0 text-left transition hover:text-brand"
         >
           <p className="truncate text-font-1">{history.eventTitle}</p>
           <p className="mt-0.5 truncate text-[12px] text-font-2">
             {history.clientName}
           </p>
-        </button>
+        </a>
       ),
     },
     {
@@ -320,35 +365,39 @@ const StaffDetailModal = ({
       */
       key: "contract",
       header: "근로계약서",
-      render: (history) =>
-        history.contractStatus ? (
-          <button
-            type="button"
-            onClick={() =>
-              history.contractId && setContractId(history.contractId)
-            }
-            className="text-left transition hover:opacity-80"
-            title="계약서 상세로 이동합니다."
-          >
-            <Badge tone={CONTRACT_STATUS_TONE[history.contractStatus]}>
-              {CONTRACT_STATUS_LABEL[history.contractStatus]}
-            </Badge>
-            {history.contractStatus === "SIGNED" && history.contractNumber && (
-              <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
-                {history.contractNumber}
-              </p>
-            )}
-          </button>
-        ) : (
-          <Badge tone="danger">미작성</Badge>
-        ),
-    },
-    {
-      key: "reputation",
-      header: "평가",
-      align: "center",
+      /*
+        아직 등록 전인 행사도 눌러서 열 수 있어야 한다.
+        거기서 문서를 내려받아 배부하는 것이 다음에 할 일이기 때문이다.
+        예전에는 계약서가 있는 줄만 눌렸고, 정작 급한 줄은 눌러도 아무 일이 없었다.
+      */
       render: (history) => (
-        <VerdictBadge verdict={history.verdict} emptyLabel="-" />
+        <button
+          type="button"
+          onClick={() =>
+            staff &&
+            setContractTarget({
+              eventId: history.eventId,
+              staffId: staff.staffId,
+            })
+          }
+          className="text-left transition hover:opacity-80"
+          title="계약서 상세를 엽니다."
+        >
+          {history.contractStatus ? (
+            <>
+              <Badge tone={CONTRACT_STATUS_TONE[history.contractStatus]}>
+                {CONTRACT_STATUS_LABEL[history.contractStatus]}
+              </Badge>
+              {history.contractNumber && (
+                <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
+                  {history.contractNumber}
+                </p>
+              )}
+            </>
+          ) : (
+            <Badge tone="danger">발급 전</Badge>
+          )}
+        </button>
       ),
     },
     {
@@ -380,17 +429,19 @@ const StaffDetailModal = ({
       key: "event",
       header: "행사",
       render: (item) => (
-        <button
-          type="button"
-          onClick={() => onOpenEvent?.(item.eventId)}
-          disabled={!onOpenEvent}
-          className="min-w-0 text-left transition enabled:hover:text-brand"
+        <a
+          href={`/schedule/events/${item.eventId}`}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(clickEvent) => clickEvent.stopPropagation()}
+          title="새 탭에서 행사 상세를 엽니다."
+          className="block min-w-0 text-left transition hover:text-brand"
         >
           <p className="truncate text-font-1">{item.eventTitle}</p>
           <p className="mt-0.5 truncate text-[12px] text-font-2">
             {item.clientName}
           </p>
-        </button>
+        </a>
       ),
     },
     {
@@ -399,13 +450,16 @@ const StaffDetailModal = ({
       render: (item) => <Badge tone="neutral">{jobRoleLabel(item.role)}</Badge>,
     },
     {
-      key: "verdict",
-      header: "평가",
-      align: "center",
-      render: (item) => <VerdictBadge verdict={item.verdict} />,
-    },
-    {
-      /* 고른 항목이 곧 사유다. 코멘트가 비어 있어도 여기만 보면 뜻이 통한다. */
+      /*
+        고른 항목이 곧 평가다.
+
+        옆에 '좋아요/별로예요' 칸을 따로 두지 않는다. `지시 이해가 빠름`이
+        이미 좋아요이고 `복장 규정 미준수`가 이미 별로예요라, 요약 배지를
+        하나 더 두면 같은 말이 두 번 적힌 칸이 된다.
+
+        색은 **항목 자체**가 정한다. 한 평가에 좋아요와 별로예요가 함께
+        담기므로, 평가 하나의 방향으로 칠하면 섞인 항목이 통째로 한 색이 된다.
+      */
       key: "tags",
       header: "평가 항목",
       render: (item) =>
@@ -414,15 +468,37 @@ const StaffDetailModal = ({
             {item.tags.map((tag) => (
               <Badge
                 key={tag}
-                tone={item.verdict === "GOOD" ? "success" : "danger"}
+                tone={resolveTagVerdict(tag) === "BAD" ? "danger" : "success"}
               >
                 {tag}
               </Badge>
             ))}
           </div>
         ) : (
-          <span className="text-[13px] text-font-disabled">-</span>
+          <span className="text-[13px] text-font-2">
+            {REPUTATION_VERDICT_LABEL[item.verdict]}만 남김
+          </span>
         ),
+    },
+    {
+      /* 이 평가가 점수를 얼마나 움직였는지. 목록의 총점이 어디서 왔는지 설명한다. */
+      key: "points",
+      header: "점수",
+      align: "right",
+      numeric: true,
+      render: (item) => (
+        <span
+          className={
+            item.points > 0
+              ? "font-medium text-success tabular-nums"
+              : item.points < 0
+                ? "font-medium text-danger tabular-nums"
+                : "text-font-2 tabular-nums"
+          }
+        >
+          {formatReputationDelta(item.points)}
+        </span>
+      ),
     },
     {
       key: "comment",
@@ -443,12 +519,15 @@ const StaffDetailModal = ({
       key: "ratedBy",
       header: "평가자",
       render: (item) => (
-        <span className="text-[13px] text-font-2">
-          {item.ratedBy}
-          <span className="ml-1 text-font-disabled">
-            ({RATER_TYPE_LABEL[item.raterType]})
-          </span>
-        </span>
+        /*
+          이름 아래에 주체를 작게 쌓는다.
+          `김도윤(에이전시)`처럼 한 줄로 붙이면 이름이 어디서 끝나는지
+          매번 괄호를 찾아 읽어야 하고, 주체가 길어질수록 칸이 넓어진다.
+        */
+        <TableCellStack
+          primary={<span className="text-[13px]">{item.ratedBy}</span>}
+          secondary={RATER_TYPE_LABEL[item.raterType]}
+        />
       ),
     },
   ];
@@ -478,7 +557,8 @@ const StaffDetailModal = ({
             푸터의 저장 · 블랙리스트와 나란히 두면 무게가 같아 보여
             "눌러도 되는 것"인지 매번 판단하게 된다. 별 하나로 충분하다.
           */
-          staff && (
+          staff &&
+          canWrite && (
             <FavoriteToggle
               staffId={staff.staffId}
               isFavorite={staff.isFavorite}
@@ -490,10 +570,13 @@ const StaffDetailModal = ({
           staff && (
             <>
               {staff.status === "BLACKLIST" ? (
-                <Button variant="secondary" onClick={handleUnblacklist}>
-                  블랙리스트 해제
-                </Button>
+                canBlacklist && (
+                  <Button variant="secondary" onClick={handleUnblacklist}>
+                    블랙리스트 해제
+                  </Button>
+                )
               ) : (
+                canBlacklist &&
                 onBlacklist && (
                   <Button
                     variant="danger"
@@ -505,7 +588,7 @@ const StaffDetailModal = ({
                 )
               )}
 
-              {onEdit && (
+              {canWrite && onEdit && (
                 <Button
                   variant="primary"
                   leftIcon={<Edit size={15} />}
@@ -559,10 +642,20 @@ const StaffDetailModal = ({
                 )}
               </div>
 
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              {/*
+                상태 옆에 그 뜻을 함께 적는다.
+
+                '대기중'만 보고는 무엇을 해야 하는지 알 수 없다. 서류를 받아야
+                한다는 것이 배지 하나에서 바로 읽혀야, 배치하려다 확정 단계에서
+                막히는 일이 생기지 않는다.
+              */}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                 <Badge tone={STAFF_STATUS_TONE[staff.status]}>
                   {STAFF_STATUS_LABEL[staff.status]}
                 </Badge>
+                <span className="text-[12px] text-font-2">
+                  {STAFF_STATUS_HINT[staff.status]}
+                </span>
               </div>
 
               <div className="grid w-full shrink-0 grid-cols-2 gap-4 text-center sm:w-auto sm:grid-cols-4">
@@ -573,15 +666,9 @@ const StaffDetailModal = ({
                   </p>
                 </div>
                 <div>
-                  {/*
-                    좋아요 비율만 크게 띄우면 "1건인데 100%"를 믿게 된다.
-                    평가 건수를 늘 함께 보여 준다.
-                  */}
+                  {/* 무엇을 받아서 이 점수가 됐는지는 아래 평판 탭이 답한다. */}
                   <p className="text-[12px] text-font-2">평판</p>
-                  <RatingStat
-                    goodCount={staff.goodCount}
-                    badCount={staff.badCount}
-                  />
+                  <RatingStat reputationScore={staff.reputationScore} />
                 </div>
                 <div>
                   <p className="text-[12px] text-font-2">지각</p>
@@ -655,7 +742,7 @@ const StaffDetailModal = ({
                         )
                       ) : (
                         <span className="text-font-disabled">
-                          대표 권한에서만 확인할 수 있습니다.
+                          &lsquo;정산 &gt; 조회&rsquo; 권한이 필요합니다.
                         </span>
                       )
                     }
@@ -669,10 +756,12 @@ const StaffDetailModal = ({
                   <DetailRow label="등록일" value={formatDate(staff.createdAt)} />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
-                  <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
-                </div>
+                {canViewDocument && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
+                    <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -692,22 +781,16 @@ const StaffDetailModal = ({
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-6 rounded-card border border-border-main bg-subtle px-5 py-4">
                   {/*
-                    크게 띄우는 숫자는 평판 점수다. 좋아요 비율을 그대로 쓰면
-                    "1건 100%"와 "200건 95%"가 같은 크기로 나란히 서 버린다.
-                    다만 점수가 왜 그 값인지 확인할 수 있어야 하므로 건수도 함께 적는다.
+                    크게 띄우는 숫자는 **누적 평판 점수**다.
+                    모두가 1000점에서 시작해 평가가 쌓인 만큼만 오르내리므로,
+                    숫자 하나로 "얼마나 쌓아 온 사람인가"가 읽힌다.
+                    그 숫자가 어떤 평가에서 왔는지는 아래 표가 항목째로 보여 준다.
                   */}
                   <div>
                     <p className="text-[12px] text-font-2">평판 점수</p>
-                    <div className="mt-1 flex items-baseline gap-1.5">
-                      <span className="text-[28px] font-bold text-font-0 tabular-nums">
-                        {reputationScore.toFixed(1)}
-                      </span>
-                      <span className="text-[13px] text-font-2">/ 5.0</span>
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-font-2 tabular-nums">
-                      평가 {staff.goodCount + staff.badCount}건 · 기본{" "}
-                      {BASE_REPUTATION_SCORE.toFixed(1)}
-                    </p>
+                    <span className="mt-1 block text-[28px] font-bold text-font-0 tabular-nums">
+                      {reputationScore}
+                    </span>
                   </div>
 
                   {/* 좋아요 · 별로예요 비율. 점수 하나보다 "몇 명이 어떻게 봤나"가 더 많은 것을 말한다. */}
@@ -808,18 +891,20 @@ const StaffDetailModal = ({
                           </p>
                         </div>
 
-                        <IconButton
-                          label="메모 삭제"
-                          icon={<Trash size={15} />}
-                          tone="danger"
-                          size="sm"
-                          onClick={() =>
-                            memoDeleteMutation.mutate({
-                              staffId: staff.staffId,
-                              memoId: memo.memoId,
-                            })
-                          }
-                        />
+                        {canWrite && (
+                          <IconButton
+                            label="메모 삭제"
+                            icon={<Trash size={15} />}
+                            tone="danger"
+                            size="sm"
+                            onClick={() =>
+                              memoDeleteMutation.mutate({
+                                staffId: staff.staffId,
+                                memoId: memo.memoId,
+                              })
+                            }
+                          />
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -830,6 +915,7 @@ const StaffDetailModal = ({
                   메모는 댓글처럼 읽고 이어 쓰는 것이라, 입력창이 위에 있으면
                   기존 메모를 읽기 전에 쓰게 되고 같은 이야기가 반복된다.
                 */}
+                {canWrite && (
                 <div className="flex flex-col gap-2 rounded-card border border-border-main p-4">
                   <Textarea
                     value={memoContent}
@@ -858,6 +944,7 @@ const StaffDetailModal = ({
                     </Button>
                   </div>
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -865,8 +952,8 @@ const StaffDetailModal = ({
       </Modal>
 
       <ContractDetailModal
-        contractId={contractId}
-        onClose={() => setContractId(null)}
+        target={contractTarget}
+        onClose={() => setContractTarget(null)}
       />
     </>
   );

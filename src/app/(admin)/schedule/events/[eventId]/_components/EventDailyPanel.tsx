@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
-  ASSIGNMENT_STATUS_TONE,
   FILL_STATE_BADGE_TONE,
   FILL_STATE_CHIP_CLASS,
   FILL_STATE_TEXT_CLASS,
@@ -25,6 +25,8 @@ import {
 import {
   formatTimeRange,
   ASSIGNMENT_STATUS_LABEL,
+  GENDER_PREFERENCE_BADGE,
+  GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
   resolveFillState,
   type Assignment,
@@ -94,6 +96,11 @@ interface EventDailyPanelProps {
  * 배치를 짜는 사람은 근태 배지에 눈이 걸리고, 근태를 찍는 사람은
  * 날짜마다 흩어진 같은 인물을 찾아다녀야 했다.
  *
+ * **배치 상태 · 계약서 배지도 없다.** 이 명단에 오는 사람은 전부 확정이라
+ * '확정' 배지는 모든 줄에 똑같이 붙어 아무것도 구분하지 못했고,
+ * 계약서는 계약서 탭이 사람 단위로 맡는다. 여기서 미완료를 띄워 봐야
+ * 처리는 다른 탭에서 해야 해서, 눈만 끌고 할 수 있는 일이 없었다.
+ *
  * 금액은 남긴다. **"이 사람을 이 날 얼마에 쓰는가"는 배치를 결정하는 조건**이지
  * 사후 기록이 아니기 때문이다. 여기서 바로 고칠 수 있다.
  */
@@ -105,6 +112,15 @@ const EventDailyPanel = ({
   const roleLabel = useJobRoleLabel();
   // 직무 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
+  /*
+    같은 표 안에서 손대는 대상이 둘이다.
+    사람을 붙이고 떼는 것은 배치(`assignment`)이고,
+    그날 몇 명이 필요한지(발주 인원)는 행사(`event`)다.
+  */
+  const canAssign = useHasPermission("assignment:write");
+  const canUnassign = useHasPermission("assignment:delete");
+  const canWriteEvent = useHasPermission("event:write");
+
   const { deleteMutation } = useAssignmentMutation();
 
   const [onlyUnderstaffed, setOnlyUnderstaffed] = useState(false);
@@ -131,7 +147,7 @@ const EventDailyPanel = ({
       .filter((assignment) => assignment.workDate === day.date)
       .sort(
         (a, b) =>
-          compareRoles(a.role, b.role) ||
+            compareRoles(a.role, b.role) ||
           a.staffName.localeCompare(b.staffName),
       );
 
@@ -162,12 +178,6 @@ const EventDailyPanel = ({
     (item) => item.confirmedCount < item.requiredCount,
   ).length;
 
-  /** 계약서가 아직인 확정 배치. 현장 투입 전에 반드시 끝나야 한다. */
-  const contractMissingCount = activeAssignments.filter(
-    (assignment) =>
-      assignment.status === "CONFIRMED" && !assignment.isContractSigned,
-  ).length;
-
   const isAllFolded =
     visibleDays.length > 0 &&
     visibleDays.every(({ day }) => foldedDates.includes(day.date));
@@ -183,7 +193,7 @@ const EventDailyPanel = ({
     openConfirm({
       title: "배치를 해제할까요?",
       description: `'${assignment.staffName}'님을 ${formatDate(assignment.workDate)} 근무에서 제외합니다.`,
-      warning: "이미 발송한 계약서가 있다면 따로 취소 안내가 필요합니다.",
+      warning: "이미 서명본을 등록한 계약서가 있다면 따로 취소 안내가 필요합니다.",
       confirmText: "해제",
       tone: "danger",
       onConfirm: () => deleteMutation.mutateAsync(assignment.assignmentId),
@@ -208,10 +218,6 @@ const EventDailyPanel = ({
               </span>
             </p>
 
-            {contractMissingCount > 0 && (
-              <Badge tone="danger">계약서 미완료 {contractMissingCount}건</Badge>
-            )}
-
             <Checkbox
               label="미충원 날짜만"
               boxClassName="whitespace-nowrap"
@@ -230,14 +236,16 @@ const EventDailyPanel = ({
               disabled={activeAssignments.length === 0}
             />
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => onAddStaff()}
-            >
-              전체 근무일 배치
-            </Button>
+            {canAssign && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => onAddStaff()}
+              >
+                전체 근무일 배치
+              </Button>
+            )}
 
             {/* 근무일이 여럿일 때만 뜻이 있다. 하루짜리 행사에서는 누를 이유가 없다. */}
             {visibleDays.length > 1 && (
@@ -358,7 +366,11 @@ const EventDailyPanel = ({
                               key={slot.role}
                               type="button"
                               onClick={() => onAddStaff(slot.role, [day.date])}
-                              title={`${formatDate(day.date)} ${roleLabel(slot.role)} 배치 (초과 배치도 가능합니다)`}
+                              title={`${formatDate(day.date)} ${roleLabel(slot.role)} 배치${
+                                slot.genderPreference !== "ANY"
+                                  ? ` · ${GENDER_PREFERENCE_LABEL[slot.genderPreference]} 발주`
+                                  : ""
+                              } (초과 배치도 가능합니다)`}
                               className={cn(
                                 "inline-flex items-center gap-2 rounded-field border px-3 py-1.5 text-[12px] transition hover:border-brand active:scale-[0.98]",
                                 FILL_STATE_CHIP_CLASS[slotState],
@@ -375,6 +387,18 @@ const EventDailyPanel = ({
                               >
                                 {slot.assignedCount}/{slot.requiredCount}
                               </span>
+
+                              {/*
+                                성별 조건은 있을 때만 적는다. '무관'까지 그리면
+                                모든 칩에 같은 글자가 붙어 조건이 걸린 자리가
+                                오히려 안 보인다. 강제하는 값이 아니라 안내다.
+                              */}
+                              {slot.genderPreference !== "ANY" && (
+                                <span className="text-font-2">
+                                  {GENDER_PREFERENCE_BADGE[slot.genderPreference]}
+                                </span>
+                              )}
+
                               <Plus size={13} className="text-font-disabled" />
                             </button>
                           );
@@ -387,14 +411,16 @@ const EventDailyPanel = ({
                       </Badge>
 
                       {/* 발주에 없던 직무(설치 · 철거 등)를 그날만 붙일 때 쓴다. */}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        leftIcon={<Plus size={14} />}
-                        onClick={() => onAddStaff(undefined, [day.date])}
-                      >
-                        이 날 배치
-                      </Button>
+                      {canAssign && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          leftIcon={<Plus size={14} />}
+                          onClick={() => onAddStaff(undefined, [day.date])}
+                        >
+                          이 날 배치
+                        </Button>
+                      )}
 
                       {/*
                         발주는 행사 폼에서 모든 날에 똑같이 깔린다.
@@ -402,15 +428,17 @@ const EventDailyPanel = ({
                         여기밖에 없다. 배치 옆에 두어 "몇 명 필요한가 → 누구를 넣는가"가
                         한자리에서 끝나게 한다.
                       */}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        leftIcon={<Sliders size={14} />}
-                        onClick={() => setRoleEditDay(day)}
-                        title="이 날에만 적용되는 발주 인원을 고칩니다."
-                      >
-                        발주 수정
-                      </Button>
+                      {canWriteEvent && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          leftIcon={<Sliders size={14} />}
+                          onClick={() => setRoleEditDay(day)}
+                          title="이 날에만 적용되는 발주 인원을 고칩니다."
+                        >
+                          발주 수정
+                        </Button>
+                      )}
                     </div>
 
                     {/*
@@ -420,12 +448,20 @@ const EventDailyPanel = ({
                     */}
                     <div className="collapsible" data-folded={isFolded}>
                       <div>
+                    {/*
+                      명단은 카드의 **좌우를 다 쓴다.**
+
+                      예전에는 날짜 칸(128px) 아래로 들여쓰기를 맞춰 뒀는데,
+                      그만큼 오른쪽 끝이 남고 이름 · 금액 · 단추가 가운데로
+                      몰려 한쪽이 비어 보였다. 날짜와 세로선을 맞추는 것보다
+                      한 줄에 담기는 정보가 넉넉한 쪽이 낫다.
+                    */}
                     {assignments.length === 0 ? (
-                      <p className="text-[13px] text-font-disabled sm:pl-36">
+                      <p className="text-[13px] text-font-disabled">
                         배치된 인력이 없습니다.
                       </p>
                     ) : (
-                      <ul className="flex flex-col gap-1 sm:pl-36">
+                      <ul className="flex flex-col gap-1">
                         {assignments.map((assignment) => (
                           <li
                             key={assignment.assignmentId}
@@ -441,6 +477,10 @@ const EventDailyPanel = ({
                               <StaffCell
                                 name={assignment.staffName}
                                 phoneNumber={assignment.staffPhone}
+                                profileImageUrl={
+                                  assignment.staffProfileImageUrl
+                                }
+                                gender={assignment.staffGender}
                                 badge={
                                   <Badge tone="neutral">
                                     {roleLabel(assignment.role)}
@@ -449,54 +489,43 @@ const EventDailyPanel = ({
                               />
                             </button>
 
-                            <Badge
-                              tone={ASSIGNMENT_STATUS_TONE[assignment.status]}
-                            >
-                              {ASSIGNMENT_STATUS_LABEL[assignment.status]}
-                            </Badge>
-
-                            {/* 계약서는 현장 투입 전에 반드시 끝나야 하는 조건이다. */}
-                            {assignment.status === "CONFIRMED" && (
-                              <Badge
-                                tone={
-                                  assignment.isContractSigned
-                                    ? "success"
-                                    : "danger"
-                                }
-                              >
-                                계약서{" "}
-                                {assignment.isContractSigned
-                                  ? "완료"
-                                  : "미완료"}
-                              </Badge>
-                            )}
-
                             {/*
                               이 사람을 이 날 얼마에 쓰는가.
                               배치를 결정하는 조건이므로 여기서 바로 고친다.
                               기준 설정의 시급은 초기값일 뿐이고, 사람마다 · 날마다
                               다르게 주기로 하는 일이 현장에서는 오히려 흔하다.
                             */}
-                            <button
-                              type="button"
-                              onClick={() => setWageTarget(assignment)}
-                              title="적용 금액을 변경합니다."
-                              className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
-                            >
-                              <WageText
-                                wageType={assignment.wageType}
-                                wage={assignment.wage}
-                              />
-                            </button>
+                            {canAssign ? (
+                              <button
+                                type="button"
+                                onClick={() => setWageTarget(assignment)}
+                                title="적용 금액을 변경합니다."
+                                className="shrink-0 rounded-field px-1.5 py-0.5 transition hover:bg-surface-hover active:scale-[0.98] sm:ml-auto"
+                              >
+                                <WageText
+                                  wageType={assignment.wageType}
+                                  wage={assignment.wage}
+                                />
+                              </button>
+                            ) : (
+                              <span className="shrink-0 px-1.5 py-0.5 sm:ml-auto">
+                                <WageText
+                                  wageType={assignment.wageType}
+                                  wage={assignment.wage}
+                                />
+                              </span>
+                            )}
 
-                            <Button
-                              size="sm"
-                              variant="dangerGhost"
-                              leftIcon={<Trash size={14} />}
-                              onClick={() => handleRemove(assignment)}
-                            >
-                              해제
-                            </Button>
+                            {canUnassign && (
+                              <Button
+                                size="sm"
+                                variant="dangerGhost"
+                                leftIcon={<Trash size={14} />}
+                                onClick={() => handleRemove(assignment)}
+                              >
+                                해제
+                              </Button>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -513,14 +542,14 @@ const EventDailyPanel = ({
       </Card>
 
       <WageEditModal
-        assignment={wageTarget}
+        assignment={canAssign ? wageTarget : null}
         event={event}
         onClose={() => setWageTarget(null)}
       />
 
       <DayRoleEditModal
         event={event}
-        day={roleEditDay}
+        day={canWriteEvent ? roleEditDay : null}
         onClose={() => setRoleEditDay(null)}
       />
     </>

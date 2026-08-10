@@ -2,49 +2,65 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
-import type {
-  AmendReasonType,
-  Contract,
-  ContractStatus,
-} from "@/type/contract";
-import type { JobRole } from "@/type/staff";
+import type { AmendReasonType, Contract } from "@/type/contract";
 
-export interface GenerateContractRequest {
-  eventId: number;
-  templateId: number;
-  /** 지정하지 않으면 계약서가 없는 확정 배치 전부를 대상으로 합니다. */
-  assignmentIds?: number[];
+/**
+ * 서명받은 계약서를 등록한다.
+ *
+ * 서버가 없는 동안 이 요청 하나가 계약을 성립시킨다.
+ * 문서를 내려받아 배부하고 종이에 서명받아 다시 올리는 것이 절차 전부이고,
+ * **이 요청이 성공한 시점에** 계약번호가 붙고 서명완료가 된다.
+ *
+ * 최초 등록이면 계약서 기록이 이때 처음 만들어지므로 `contractId`가 없다.
+ * 재작성으로 다음 차수가 이미 만들어져 있으면 그 차수에 파일만 붙인다.
+ */
+export interface RegisterContractRequest {
+  /** 이어 붙일 기존 계약서. 재작성한 차수에 서명본을 올릴 때만 보낸다. */
+  contractId?: number;
+  /** 처음 등록할 때 필요한 값들 */
+  eventId?: number;
+  staffId?: number;
+  templateId?: number;
+  /** 업로드한 서명본 */
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
   /**
-   * 이 직무만 발급합니다. 비우면 전체.
+   * 결과를 토스트로 알리지 않는다. **일괄 등록에서만 켠다.**
    *
-   * 직무마다 계약 조건이 달라 템플릿을 나눠 쓰는 경우가 많습니다.
-   * (팀장은 책임 범위, 설치는 일급과 안전 조항) 전체 발급만 있으면
-   * 첫 직무 템플릿으로 전원이 묶여 나갑니다.
+   * 서른 장을 올리면 성공 토스트가 서른 개 쌓여 결과 화면을 덮는다.
+   * 일괄은 자기 화면에 성공 · 실패를 나란히 세워 보여 주므로 토스트가 필요 없다.
    */
-  role?: JobRole;
+  isSilent?: boolean;
 }
 
-export const generateContracts = async (body: GenerateContractRequest) => {
-  const response = await adminAxios.post<{ created: Contract[] }>(
-    "/admin/contracts/generate",
+export const registerContract = async ({
+  isSilent,
+  ...body
+}: RegisterContractRequest) => {
+  void isSilent;
+
+  const response = await adminAxios.post<Contract>(
+    "/admin/contracts/register",
     body,
   );
 
   return response.data;
 };
 
-export interface UpdateContractStatusRequest {
-  contractIds: number[];
-  status: ContractStatus;
-  rejectedReason?: string;
-}
-
-export const updateContractStatus = async (
-  body: UpdateContractStatusRequest,
-) => {
-  const response = await adminAxios.patch<{ updated: Contract[] }>(
-    "/admin/contracts/status",
-    body,
+/**
+ * 등록을 되돌린다.
+ *
+ * 남의 서명본을 잘못 올리는 일이 실제로 생긴다. (파일명이 비슷하다)
+ * 그때 고칠 방법이 없으면 담당자는 계약서를 통째로 지우고 처음부터 다시 하게 되고,
+ * 재작성 차수라면 이력까지 함께 사라진다.
+ *
+ * 최초 계약(1차)은 기록 자체를 지워 '발급 전'으로 돌아가고,
+ * 재작성 차수는 파일만 떼어 '등록 대기'로 돌아간다. (번호와 이력은 남는다)
+ */
+export const cancelContractRegistration = async (contractId: number) => {
+  const response = await adminAxios.delete<{ contract: Contract | null }>(
+    `/admin/contracts/${contractId}/registration`,
   );
 
   return response.data;
@@ -101,83 +117,63 @@ export const amendContract = async ({
   return response.data;
 };
 
-export interface SignContractRequest {
-  contractId: number;
-  /** 서명자가 직접 입력한 성명 */
-  signedName: string;
-  /** 캔버스에서 받은 서명 이미지 (data URL) */
-  imageDataUrl: string;
-  /** 서명 시점의 문서 평문. 서버가 해시로 만들어 보관한다. */
-  documentText: string;
-}
-
-export const signContract = async ({
-  contractId,
-  ...body
-}: SignContractRequest) => {
-  const response = await adminAxios.post<Contract>(
-    `/admin/contracts/${contractId}/sign`,
-    body,
-  );
-
-  return response.data;
-};
-
-/** 계약서 생성 · 발송 · 서명 처리 후 목록과 배치 현황을 함께 갱신합니다. */
+/** 계약서 등록 · 재작성 후 목록과 배치 현황을 함께 갱신합니다. */
 export const useContractMutation = () => {
   const queryClient = useQueryClient();
 
   const invalidateContract = () => {
     queryClient.invalidateQueries({ queryKey: ["get-contract-list"] });
+    queryClient.invalidateQueries({ queryKey: ["get-contract-roster"] });
+    queryClient.invalidateQueries({ queryKey: ["get-contract-preview"] });
+    queryClient.invalidateQueries({ queryKey: ["get-contract-draft"] });
     queryClient.invalidateQueries({ queryKey: ["get-event-detail"] });
     queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
     queryClient.invalidateQueries({ queryKey: ["get-dashboard-summary"] });
   };
 
-  const generateMutation = useMutation<
-    { created: Contract[] },
+  const registerMutation = useMutation<
+    Contract,
     AppError,
-    GenerateContractRequest
+    RegisterContractRequest
   >({
-    mutationFn: generateContracts,
-    onSuccess: ({ created }) => {
+    mutationFn: registerContract,
+    onSuccess: (contract, variables) => {
+      /*
+        일괄 등록에서는 토스트를 띄우지 않는다.
+
+        서른 장을 올리면 토스트가 서른 개 쌓여 화면을 덮고, 정작 결과를
+        읽어야 하는 모달이 그 뒤로 가려진다. 게다가 성공만 알리므로
+        실패한 두 장은 그 더미 속에서 아예 보이지 않는다.
+        일괄은 자기 화면에 성공 · 실패를 나란히 세워 보여 준다.
+      */
+      if (variables.isSilent) {
+        invalidateContract();
+        return;
+      }
+
       showAppToast(
-        created.length > 0 ? "success" : "info",
-        created.length > 0
-          ? `계약서 ${created.length}건을 만들었습니다.`
-          : "새로 만들 계약서가 없습니다. 확정 배치를 먼저 확인해 주세요.",
+        "success",
+        `${contract.staffName}님의 근로계약서를 등록했습니다.`,
+        { description: `계약번호 ${contract.contractNumber}` },
       );
       invalidateContract();
     },
   });
 
-  const statusMutation = useMutation<
-    { updated: Contract[] },
+  const cancelRegistrationMutation = useMutation<
+    { contract: Contract | null },
     AppError,
-    UpdateContractStatusRequest
+    number
   >({
-    mutationFn: updateContractStatus,
-    onSuccess: ({ updated }, variables) => {
-      const message =
-        variables.status === "SENT"
-          ? `${updated.length}건을 발송했습니다.`
-          : variables.status === "SIGNED"
-            ? `${updated.length}건을 서명 완료 처리했습니다.`
-            : "계약서 상태를 변경했습니다.";
-
-      showAppToast("success", message);
+    mutationFn: cancelContractRegistration,
+    onSuccess: ({ contract }) => {
+      showAppToast(
+        "success",
+        contract
+          ? "등록을 취소했습니다. 서명본을 다시 올려 주세요."
+          : "등록을 취소했습니다. 이 사람은 다시 '발급 전'이 됩니다.",
+      );
       invalidateContract();
-    },
-  });
-
-  const signMutation = useMutation<Contract, AppError, SignContractRequest>({
-    mutationFn: signContract,
-    onSuccess: (contract) => {
-      showAppToast("success", `${contract.staffName}님의 서명을 접수했습니다.`, {
-        description: `계약번호 ${contract.contractNumber}`,
-      });
-      invalidateContract();
-      queryClient.invalidateQueries({ queryKey: ["get-contract-preview"] });
     },
   });
 
@@ -209,12 +205,11 @@ export const useContractMutation = () => {
         {
           description:
             canceledCount > 0
-              ? `근무일 ${created.workDates.length}일 기준 · 배치 ${canceledCount}건 취소 · 정산 금액이 함께 다시 계산됩니다.`
-              : `근무일 ${created.workDates.length}일 기준으로 정산 금액이 함께 다시 계산됩니다.`,
+              ? `근무일 ${created.workDates.length}일 기준 · 배치 ${canceledCount}건 취소 · 서명본을 다시 받아 등록해 주세요.`
+              : `근무일 ${created.workDates.length}일 기준 · 서명본을 다시 받아 등록해 주세요.`,
         },
       );
       invalidateContract();
-      queryClient.invalidateQueries({ queryKey: ["get-contract-preview"] });
       queryClient.invalidateQueries({ queryKey: ["get-event-calendar"] });
       queryClient.invalidateQueries({ queryKey: ["get-payroll-list"] });
       queryClient.invalidateQueries({ queryKey: ["get-payroll-summary"] });
@@ -224,9 +219,8 @@ export const useContractMutation = () => {
   });
 
   return {
-    generateMutation,
-    statusMutation,
-    signMutation,
+    registerMutation,
+    cancelRegistrationMutation,
     amendMutation,
     deleteMutation,
   };

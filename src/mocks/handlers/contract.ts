@@ -6,13 +6,15 @@ import type {
   ContractTemplateFormValues,
 } from "@/type/contract";
 import {
-  buildDocumentHash,
+  CONTRACT_ROSTER_STATE_ORDER,
+  buildContractRoster,
   summarizeContractWork,
   type AmendReasonType,
 } from "@/type/contract";
 import {
   calculateScheduledWorkHours,
-  groupAssignmentsByStaff,
+  type Assignment,
+  type EventDetail,
 } from "@/type/event";
 import {
   buildContractNumber,
@@ -21,8 +23,11 @@ import {
   findContract,
   findContractTemplate,
 } from "../db/contract";
-import { findEvent, recalculateEventCounts } from "../db/event";
-import { syncPayrollWithAssignment } from "../db/payroll";
+import { events, findEvent, recalculateEventCounts } from "../db/event";
+import {
+  syncPayrollWithAssignment,
+  syncPayrollWithContract,
+} from "../db/payroll";
 import { findStaff } from "../db/staff";
 import {
   BASE_URI,
@@ -36,8 +41,122 @@ import {
 } from "../utils";
 import type { JobRole } from "@/type/staff";
 
+/**
+ * 배치에서 계약서 한 장을 조립한다.
+ *
+ * 미리보기와 등록이 같은 함수를 쓴다. 두 곳에서 따로 조립하면
+ * 담당자가 내려받아 서명받은 문서와, 등록 뒤에 화면에 뜨는 문서의
+ * 금액이나 근무일이 어긋날 수 있다. 그러면 서명은 무엇에 대한 것인지 알 수 없다.
+ *
+ * 저장하지 않은 상태를 그대로 돌려주므로 `contractId`와 번호는 비어 있다.
+ * 둘 다 **등록되는 순간에** 붙는다.
+ */
+const buildContractFrom = (
+  event: EventDetail,
+  assignments: Assignment[],
+  template: ContractTemplate,
+): Contract => {
+  const [first] = assignments;
+  const staff = findStaff(first.staffId);
+  const workHours = calculateScheduledWorkHours(event);
+
+  /*
+    금액은 배치가 날짜별로 들고 있는 값을 그대로 옮긴다.
+    같은 사람도 첫날만 설치 일급, 이후는 시급인 경우가 있어
+    대표 금액 하나에 일수를 곱하면 총액이 실제와 어긋난다.
+  */
+  const work = summarizeContractWork(
+    assignments.map((item) => ({
+      workDate: item.workDate,
+      wageType: item.wageType,
+      wage: item.wage,
+    })),
+    workHours,
+  );
+
+  return {
+    contractId: 0,
+    contractNumber: "",
+    staffId: first.staffId,
+    staffName: first.staffName,
+    staffPhone: first.staffPhone,
+    staffBirthDate: staff?.birthDate ?? "",
+    staffAddress: staff?.address ?? "",
+    eventId: event.eventId,
+    eventTitle: event.title,
+    clientName: event.clientName,
+    venue: event.venue,
+    role: first.role,
+    templateId: template.templateId,
+    templateName: template.name,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    endDayOffset: event.endDayOffset,
+    breakMinutes: event.breakMinutes,
+    workHours,
+    ...work,
+    status: "DRAFT",
+    revision: 1,
+    createdAt: new Date().toISOString(),
+  };
+};
+
+/**
+ * 계약서가 덮는 근무일의 배치를 서명 완료로 표시한다.
+ *
+ * 계약서 한 장이 여러 근무일을 덮으므로 해당 날짜의 배치를 전부 처리한다.
+ * 이 표시가 곧 "이 사람을 현장에 넣어도 되는가"의 근거다.
+ */
+const markAssignmentsSigned = (contract: Contract) => {
+  const event = findEvent(contract.eventId);
+
+  if (!event) return;
+
+  event.assignments
+    .filter(
+      (item) =>
+        item.staffId === contract.staffId &&
+        contract.workDates.includes(item.workDate),
+    )
+    .forEach((item) => {
+      item.isContractSigned = true;
+    });
+
+  /*
+    정산까지 여기서 이어 준다.
+
+    계약서가 완료되는 것이 **정산에 오르는 두 조건 중 하나**다.
+    (`isSettlementReady`) 여기서 이어 주지 않으면 계약서를 다 받아 놓고도
+    정산 화면에는 그 사람이 없고, 담당자는 어디를 더 눌러야 하는지 모른다.
+  */
+  syncPayrollWithContract(event, contract.staffId);
+};
+
+/** 서명을 되돌린다. 정산에 올라 있던 건은 근거를 잃으므로 함께 내려간다. */
+const unmarkAssignmentsSigned = (contract: Contract) => {
+  const event = findEvent(contract.eventId);
+
+  if (!event) return;
+
+  event.assignments
+    .filter(
+      (item) =>
+        item.staffId === contract.staffId &&
+        contract.workDates.includes(item.workDate),
+    )
+    .forEach((item) => {
+      item.isContractSigned = false;
+    });
+
+  syncPayrollWithContract(event, contract.staffId);
+};
+
 export const contractHandlers = [
   http.get(`${BASE_URI}/admin/contracts`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as ContractStatus | null;
@@ -71,7 +190,11 @@ export const contractHandlers = [
     return HttpResponse.json(paginate(sorted, url));
   }),
 
-  http.get(`${BASE_URI}/admin/contracts/:contractId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/contracts/:contractId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "contract:read");
+
+    if (denied) return denied;
+
     const contract = findContract(Number(params.contractId));
 
     await delay(MOCK_DELAY_MS);
@@ -82,132 +205,364 @@ export const contractHandlers = [
   }),
 
   /**
-   * 행사 배치에서 계약서를 일괄 생성한다.
+   * 계약 명단. **행사를 가로질러** 계약해야 할 사람을 전부 센다.
    *
-   * 한 명씩 손으로 만들던 작업을 없애는 것이 목적이므로,
-   * 이미 계약서가 있는 배치는 건너뛰고 없는 것만 만든다.
+   * 계약서 목록에서 세면 안 된다. 서명본을 올려야 기록이 생기므로
+   * 아직 아무것도 안 한 사람은 목록에 아예 없는데, 그 사람이 제일 급하다.
+   * 그래서 **확정 배치**에서 세고, 등록된 계약서를 그 위에 붙인다.
    */
-  http.post(`${BASE_URI}/admin/contracts/generate`, async ({ request }) => {
+  http.get(`${BASE_URI}/admin/contract-roster`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:read");
+
+    if (denied) return denied;
+
+    const url = new URL(request.url);
+    const keyword = url.searchParams.get("keyword") ?? "";
+    const state = url.searchParams.get("state") ?? "";
+    const eventId = url.searchParams.get("eventId") ?? "";
+    const role = url.searchParams.get("role") ?? "";
+    const startDate = url.searchParams.get("startDate") ?? "";
+    const endDate = url.searchParams.get("endDate") ?? "";
+
+    /*
+      취소 · 작성중 행사는 세지 않는다.
+      아직 나갈지 모르는 행사의 계약서까지 '못 받은 것'으로 세면,
+      정작 이번 주에 나가는 행사의 미등록이 그 숫자에 묻힌다.
+    */
+    const rows = events
+      .filter((event) => event.status !== "DRAFT" && event.status !== "CANCELED")
+      .flatMap((event) =>
+        buildContractRoster(
+          event,
+          event.assignments,
+          contracts,
+          calculateScheduledWorkHours(event),
+        ),
+      );
+
+    /* 상태별 인원은 **거른 뒤가 아니라 전체 기준**이다. 상단 지표로 쓴다. */
+    const stateCounts = rows.reduce(
+      (counts, row) => ({ ...counts, [row.state]: counts[row.state] + 1 }),
+      { NONE: 0, DRAFT: 0, SIGNED: 0, SUPERSEDED: 0 },
+    );
+
+    const filtered = rows.filter((row) => {
+      if (state && row.state !== state) return false;
+      if (eventId && String(row.eventId) !== eventId) return false;
+      if (role && !row.roles.includes(role as JobRole)) return false;
+      if (startDate && row.workDate < startDate) return false;
+      if (endDate && row.workDate > endDate) return false;
+
+      return matchesKeyword(
+        keyword,
+        row.staffName,
+        row.eventTitle,
+        row.staffPhone,
+        row.clientName,
+        row.contract?.contractNumber ?? "",
+      );
+    });
+
+    /*
+      아직 못 받은 사람이 맨 위다. 그 줄이 이 화면의 존재 이유다.
+      같은 상태 안에서는 근무일이 빠른 것부터. 시간이 없는 쪽이 급하다.
+    */
+    const sorted = [...filtered].sort(
+      (a, b) =>
+        CONTRACT_ROSTER_STATE_ORDER.indexOf(a.state) -
+          CONTRACT_ROSTER_STATE_ORDER.indexOf(b.state) ||
+        a.workDate.localeCompare(b.workDate) ||
+        a.staffName.localeCompare(b.staffName),
+    );
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ ...paginate(sorted, url), stateCounts });
+  }),
+
+  /**
+   * 아직 등록되지 않은 사람의 계약서 미리보기.
+   *
+   * 서명본을 받기 전에는 계약서 기록이 없다. 그런데 담당자는 그 전에
+   * 문서를 보고 내려받아야 한다. 배부할 종이가 바로 그것이기 때문이다.
+   * 그래서 **저장하지 않고 조립만 해서** 돌려준다. 번호는 아직 없다.
+   */
+  http.get(
+    `${BASE_URI}/admin/events/:eventId/contract-draft`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:read");
+
+      if (denied) return denied;
+
+      const url = new URL(request.url);
+      const staffId = Number(url.searchParams.get("staffId"));
+      const templateId = Number(url.searchParams.get("templateId"));
+
+      const event = findEvent(Number(params.eventId));
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const template =
+        findContractTemplate(templateId) ??
+        contractTemplates.find((item) => item.isDefault && item.isActive) ??
+        contractTemplates.find((item) => item.isActive);
+
+      if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+
+      const assignments = event.assignments
+        .filter(
+          (assignment) =>
+            assignment.staffId === staffId && assignment.status === "CONFIRMED",
+        )
+        .sort((a, b) => a.workDate.localeCompare(b.workDate));
+
+      if (assignments.length === 0) {
+        return badRequest(
+          "확정된 배치가 없습니다. 배치를 확정한 뒤 계약서를 만들어 주세요.",
+        );
+      }
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json({
+        contract: buildContractFrom(event, assignments, template),
+        template,
+      });
+    },
+  ),
+
+  /**
+   * 여러 명분을 한 번에 조립한다. (명단에서 골라 일괄로 내려받을 때)
+   *
+   * 확정 배치가 없는 사람은 조용히 건너뛴다. 한 명 때문에 전체가 실패하면
+   * 스물아홉 장을 못 받는다. 담당자가 세어 보면 빠진 사람은 바로 보인다.
+   */
+  http.post(
+    `${BASE_URI}/admin/events/:eventId/contract-drafts`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:read");
+
+      if (denied) return denied;
+
+      const body = (await request.json()) as {
+        staffIds: number[];
+        templateId?: number;
+      };
+
+      const event = findEvent(Number(params.eventId));
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const template =
+        findContractTemplate(Number(body.templateId)) ??
+        contractTemplates.find((item) => item.isDefault && item.isActive) ??
+        contractTemplates.find((item) => item.isActive);
+
+      if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+
+      const items = body.staffIds
+        .map((staffId) =>
+          event.assignments
+            .filter(
+              (assignment) =>
+                assignment.staffId === staffId &&
+                assignment.status === "CONFIRMED",
+            )
+            .sort((a, b) => a.workDate.localeCompare(b.workDate)),
+        )
+        .filter((assignments) => assignments.length > 0)
+        .map((assignments) => ({
+          contract: buildContractFrom(event, assignments, template),
+          template,
+        }));
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json({ items });
+    },
+  ),
+
+  /**
+   * 서명받은 계약서를 등록한다.
+   *
+   * 서버가 없는 동안 계약을 성립시키는 요청은 이것 하나뿐이다.
+   * 서명본 파일이 올라온 이 시점에 **계약번호가 붙고 서명완료가 된다.**
+   * 파일 없이 완료로 바꿀 수 있는 길은 어디에도 두지 않는다.
+   * 그 길이 있으면 종이가 없는 사람도 화면에서는 완료로 보이게 되고,
+   * 정작 필요할 때 근거가 되는 종이가 없다.
+   */
+  http.post(`${BASE_URI}/admin/contracts/register`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:write");
+
+    if (denied) return denied;
+
+    const body = (await request.json()) as {
+      contractId?: number;
+      eventId?: number;
+      staffId?: number;
+      templateId?: number;
+      fileUrl: string;
+      fileName: string;
+      mimeType: string;
+    };
+
+    if (!body.fileUrl) {
+      return badRequest("서명받은 계약서 파일을 올려 주세요.");
+    }
+
+    const signedFile = {
+      url: body.fileUrl,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    /*
+      재작성으로 이미 다음 차수가 만들어져 있는 경우.
+      번호와 이력은 그대로 두고 파일만 붙인다. 새로 만들면 차수가 또 올라가
+      "2차 계약서가 두 장"이 된다.
+    */
+    if (body.contractId) {
+      const contract = findContract(body.contractId);
+
+      if (!contract) return notFound("존재하지 않는 계약서입니다.");
+
+      if (contract.status === "SUPERSEDED") {
+        return badRequest(
+          "재작성으로 대체된 계약서입니다. 가장 최근 차수에 등록해 주세요.",
+        );
+      }
+
+      contract.signedFile = signedFile;
+      contract.status = "SIGNED";
+      contract.registeredAt = signedFile.uploadedAt;
+
+      markAssignmentsSigned(contract);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(contract);
+    }
+
+    const event = findEvent(Number(body.eventId));
+
+    if (!event) return notFound("존재하지 않는 행사입니다.");
+
+    const template =
+      findContractTemplate(Number(body.templateId)) ??
+      contractTemplates.find((item) => item.isDefault && item.isActive);
+
+    if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+
+    const assignments = event.assignments
+      .filter(
+        (assignment) =>
+          assignment.staffId === Number(body.staffId) &&
+          assignment.status === "CONFIRMED",
+      )
+      .sort((a, b) => a.workDate.localeCompare(b.workDate));
+
+    if (assignments.length === 0) {
+      return badRequest("확정된 배치가 없습니다.");
+    }
+
+    // 같은 행사에 두 장이 등록되면 어느 쪽이 진짜인지 알 수 없다.
+    const existing = contracts.find(
+      (contract) =>
+        contract.eventId === event.eventId &&
+        contract.staffId === Number(body.staffId) &&
+        contract.status !== "SUPERSEDED",
+    );
+
+    if (existing) {
+      return badRequest(
+        "이미 등록된 계약서가 있습니다. 등록을 취소한 뒤 다시 올리거나, 내용이 달라졌다면 재작성해 주세요.",
+      );
+    }
+
+    /*
+      번호의 순번은 계약서 ID에서 딴다.
+      목록 길이로 매기면 등록을 취소해 기록이 빠졌을 때 순번이 되돌아가,
+      지운 문서와 같은 번호가 다른 사람에게 다시 붙는다.
+    */
+    const contractId = nextId(contracts, "contractId");
+
+    const created: Contract = {
+      ...buildContractFrom(event, assignments, template),
+      contractId,
+      contractNumber: buildContractNumber(assignments[0].workDate, contractId),
+      status: "SIGNED",
+      signedFile,
+      registeredAt: signedFile.uploadedAt,
+      createdAt: new Date().toISOString(),
+    };
+
+    contracts.unshift(created);
+    template.usageCount += 1;
+
+    markAssignmentsSigned(created);
+    recalculateEventCounts(event);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(created, { status: 201 });
+  }),
+
+  /**
+   * 등록 취소.
+   *
+   * 남의 서명본을 잘못 올리는 일이 실제로 생긴다. 파일명이 서로 비슷하기 때문이다.
+   * 되돌릴 방법이 없으면 담당자는 계약서를 통째로 지우게 되고,
+   * 재작성 차수라면 "왜 금액이 달라졌는가"의 근거까지 함께 사라진다.
+   *
+   * 그래서 1차는 기록째 지워 '발급 전'으로 돌리고,
+   * 재작성 차수는 파일만 떼어 '등록 대기'로 돌린다. (번호와 이력은 남는다)
+   */
+  http.delete(
+    `${BASE_URI}/admin/contracts/:contractId/registration`,
+    async ({ params, request }) => {
       const denied = requirePermission(request, "contract:write");
 
       if (denied) return denied;
 
-    const body = (await request.json()) as {
-      eventId: number;
-      templateId: number;
-      assignmentIds?: number[];
-      /**
-       * 이 직무만 발급한다. 비우면 전체.
-       *
-       * 한 행사 안에서도 직무마다 계약 조건이 다르다. 팀장은 책임 범위와 수당이,
-       * 설치는 일급과 안전 조항이 따로 붙는다. 그래서 템플릿을 직무별로 나눠 쓰는데,
-       * 발급이 '전체'뿐이면 첫 직무 템플릿으로 전원이 묶여 나가고
-       * 나머지 직무는 계약서를 손으로 다시 만들어야 한다.
-       */
-      role?: JobRole;
-    };
+      const contract = findContract(Number(params.contractId));
 
-    const event = findEvent(body.eventId);
-    const template = findContractTemplate(body.templateId);
+      if (!contract) return notFound("존재하지 않는 계약서입니다.");
+      if (!contract.signedFile) {
+        return badRequest("등록된 서명본이 없습니다.");
+      }
 
-    if (!event) return notFound("존재하지 않는 행사입니다.");
-    if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+      const event = findEvent(contract.eventId);
 
-    const workHours = calculateScheduledWorkHours(event);
+      unmarkAssignmentsSigned(contract);
 
-    /*
-      계약서는 사람 한 명당 한 장이다.
-      여러 날 나오는 사람에게 날짜 수만큼 계약서를 만들면 서명도 그만큼 받아야 한다.
-      현장에서 그렇게 하지 않으므로, 배치를 사람 단위로 묶고 근무일을 모두 적는다.
-    */
-    const byStaff = groupAssignmentsByStaff(
-      event.assignments.filter((assignment) => {
-        if (assignment.status !== "CONFIRMED") return false;
-        if (body.role && assignment.role !== body.role) return false;
-
-        return (
-          !body.assignmentIds ||
-          body.assignmentIds.includes(assignment.assignmentId)
-        );
-      }),
-    );
-
-    // 이미 계약서가 있는 사람은 건너뛴다. 같은 행사에 두 장이 나가면 안 된다.
-    const targets = byStaff.filter(
-      (assignments) =>
-        !contracts.some(
-          (contract) =>
-            contract.eventId === event.eventId &&
-            contract.staffId === assignments[0].staffId,
-        ),
-    );
-
-    if (targets.length === 0) {
-      return badRequest(
-        body.role
-          ? "이 직무에는 계약서를 만들 대상이 없습니다. (확정 배치가 없거나 이미 전원 발급됨)"
-          : "계약서를 만들 대상이 없습니다. (확정 배치가 없거나 이미 전원 발급됨)",
-        "NO_CONTRACT_TARGET",
-      );
-    }
-
-    const created: Contract[] = targets.map((assignments, index) => {
-      const [first] = assignments;
-      const staff = findStaff(first.staffId);
+      contract.signedFile = undefined;
+      contract.registeredAt = undefined;
+      contract.status = "DRAFT";
 
       /*
-        금액은 배치가 날짜별로 들고 있는 값을 그대로 옮긴다.
-        같은 사람도 첫날만 설치 일급, 이후는 시급인 경우가 있어
-        대표 금액 하나에 일수를 곱하면 총액이 실제와 어긋난다.
+        1차 계약서는 번호 자체가 등록으로 생긴 것이다.
+        파일만 떼고 번호를 남기면 "번호는 있는데 아무 종이도 없는" 문서가 되어,
+        명단에서 등록 대기와 발급 전이 뒤섞인다. 기록째 지운다.
       */
-      const work = summarizeContractWork(
-        assignments.map((item) => ({
-          workDate: item.workDate,
-          wageType: item.wageType,
-          wage: item.wage,
-        })),
-        workHours,
-      );
+      const shouldRemove = contract.revision === 1;
 
-      const contract: Contract = {
-        contractId: nextId(contracts, "contractId") + index,
-        contractNumber: buildContractNumber(
-          work.workDate,
-          contracts.length + index + 1,
-        ),
-        staffId: first.staffId,
-        staffName: first.staffName,
-        staffPhone: first.staffPhone,
-        staffBirthDate: staff?.birthDate ?? "",
-        staffAddress: staff?.address ?? "",
-        eventId: event.eventId,
-        eventTitle: event.title,
-        clientName: event.clientName,
-        venue: event.venue,
-        role: first.role,
-        templateId: template.templateId,
-        templateName: template.name,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        endDayOffset: event.endDayOffset,
-        breakMinutes: event.breakMinutes,
-        workHours,
-        ...work,
-        status: "DRAFT",
-        revision: 1,
-        createdAt: new Date().toISOString(),
-      };
+      if (shouldRemove) {
+        contracts.splice(
+          contracts.findIndex(
+            (item) => item.contractId === contract.contractId,
+          ),
+          1,
+        );
+      }
 
-      contracts.unshift(contract);
-      template.usageCount += 1;
+      if (event) recalculateEventCounts(event);
 
-      return contract;
-    });
+      await delay(MOCK_DELAY_MS);
 
-    await delay(MOCK_DELAY_MS);
-
-    return HttpResponse.json({ created }, { status: 201 });
-  }),
+      return HttpResponse.json({ contract: shouldRemove ? null : contract });
+    },
+  ),
 
   /**
    * 계약서 재작성 (중도 종료).
@@ -388,11 +743,12 @@ export const contractHandlers = [
         workHours,
         ...work,
         status: "DRAFT",
-        // 서명은 옛 문서에 대한 것이다. 새 차수는 처음부터 다시 받는다.
-        signature: undefined,
-        sentAt: undefined,
-        signedAt: undefined,
-        rejectedReason: undefined,
+        /*
+          서명은 옛 문서에 대한 것이다. 새 차수는 종이부터 다시 받는다.
+          그래서 등록 대기(`DRAFT`)로 시작하고, 서명본을 올려야 완료가 된다.
+        */
+        signedFile: undefined,
+        registeredAt: undefined,
         revision,
         supersededContractId: previous.contractId,
         supersededByContractId: undefined,
@@ -439,115 +795,11 @@ export const contractHandlers = [
     },
   ),
 
-  /** 상태 변경 (발송 · 서명 완료 · 반려) */
-  http.patch(`${BASE_URI}/admin/contracts/status`, async ({ request }) => {
-      const denied = requirePermission(request, "contract:send");
+  http.delete(`${BASE_URI}/admin/contracts/:contractId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "contract:delete");
 
-      if (denied) return denied;
+    if (denied) return denied;
 
-    const body = (await request.json()) as {
-      contractIds: number[];
-      status: ContractStatus;
-      rejectedReason?: string;
-    };
-
-    const updated = body.contractIds
-      .map((contractId) => findContract(contractId))
-      .filter((contract): contract is Contract => Boolean(contract));
-
-    updated.forEach((contract) => {
-      contract.status = body.status;
-
-      if (body.status === "SENT") contract.sentAt = new Date().toISOString();
-      if (body.status === "SIGNED") {
-        contract.signedAt = new Date().toISOString();
-
-        /*
-          계약서가 완료되면 배치의 서명 여부도 함께 바뀌어야 한다.
-          계약서 한 장이 여러 근무일을 덮으므로 해당 날짜의 배치를 전부 처리한다.
-        */
-        const event = findEvent(contract.eventId);
-
-        event?.assignments
-          .filter(
-            (item) =>
-              item.staffId === contract.staffId &&
-              contract.workDates.includes(item.workDate),
-          )
-          .forEach((item) => {
-            item.isContractSigned = true;
-          });
-      }
-      if (body.status === "REJECTED") {
-        contract.rejectedReason = body.rejectedReason;
-      }
-    });
-
-    await delay(MOCK_DELAY_MS);
-
-    return HttpResponse.json({ updated });
-  }),
-
-  /**
-   * 전자서명 접수.
-   *
-   * 문자로 "네"라고 받은 회신은 나중에 근거가 되지 않는다.
-   * 서명 이미지 · 성명 · 시각과 함께, 서명 당시 문서의 해시를 남긴다.
-   * 나중에 템플릿을 고쳐도 그 서명이 어떤 내용에 대한 것이었는지 알 수 있어야 한다.
-   */
-  http.post(
-    `${BASE_URI}/admin/contracts/:contractId/sign`,
-    async ({ params, request }) => {
-      const contract = findContract(Number(params.contractId));
-      const body = (await request.json()) as {
-        signedName: string;
-        imageDataUrl: string;
-        documentText: string;
-      };
-
-      if (!contract) return notFound("존재하지 않는 계약서입니다.");
-
-      if (contract.status === "SIGNED") {
-        return badRequest("이미 서명이 완료된 계약서입니다.");
-      }
-
-      if (contract.status === "EXPIRED") {
-        return badRequest(
-          "서명 기한이 지났습니다. 계약서를 다시 발송해 주세요.",
-          "CONTRACT_EXPIRED",
-        );
-      }
-
-      const signedAt = new Date().toISOString();
-
-      contract.signature = {
-        signedName: body.signedName,
-        imageDataUrl: body.imageDataUrl,
-        signedAt,
-        documentHash: buildDocumentHash(body.documentText),
-      };
-      contract.status = "SIGNED";
-      contract.signedAt = signedAt;
-
-      const event = findEvent(contract.eventId);
-
-      event?.assignments
-        .filter(
-          (item) =>
-            item.staffId === contract.staffId &&
-            contract.workDates.includes(item.workDate),
-        )
-        .forEach((item) => {
-          item.isContractSigned = true;
-        });
-
-      await delay(MOCK_DELAY_MS);
-
-      return HttpResponse.json(contract);
-    },
-  ),
-
-  http.delete(`${BASE_URI}/admin/contracts/:contractId`, async ({ params }) => {
     const index = contracts.findIndex(
       (contract) => contract.contractId === Number(params.contractId),
     );
@@ -563,7 +815,11 @@ export const contractHandlers = [
   /** 계약서 본문 미리보기. 변수 치환에 필요한 값을 함께 내려준다. */
   http.get(
     `${BASE_URI}/admin/contracts/:contractId/preview`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:read");
+
+      if (denied) return denied;
+
       const contract = findContract(Number(params.contractId));
 
       if (!contract) return notFound("존재하지 않는 계약서입니다.");
@@ -586,6 +842,10 @@ export const contractHandlers = [
   /* ---------------------------------- 템플릿 --------------------------------- */
 
   http.get(`${BASE_URI}/admin/contract-templates`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
 
@@ -604,6 +864,10 @@ export const contractHandlers = [
   }),
 
   http.post(`${BASE_URI}/admin/contract-templates`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as ContractTemplateFormValues;
 
     // 기본 템플릿은 하나만 유지한다.
@@ -630,6 +894,10 @@ export const contractHandlers = [
   http.put(
     `${BASE_URI}/admin/contract-templates/:templateId`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:write");
+
+      if (denied) return denied;
+
       const template = findContractTemplate(Number(params.templateId));
       const body = (await request.json()) as ContractTemplateFormValues;
 
@@ -650,7 +918,11 @@ export const contractHandlers = [
 
   http.delete(
     `${BASE_URI}/admin/contract-templates/:templateId`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:delete");
+
+      if (denied) return denied;
+
       const templateId = Number(params.templateId);
       const template = findContractTemplate(templateId);
 

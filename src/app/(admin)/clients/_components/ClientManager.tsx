@@ -41,9 +41,13 @@ const CLIENT_CSV_COLUMNS: CsvColumn<Client>[] = [
     value: (row) => calculateMarginRate(row.totalRevenue, row.totalLaborCost),
   },
   {
-    header: "스태프 청구 단가",
-    value: (row) =>
-      row.billingRates.find((rate) => rate.role === "STAFF")?.rate ?? 0,
+    /*
+      단가는 직무마다 다르고 직무 목록은 회사마다 다르다.
+      한 칸에 대표값 하나만 적으면 `STAFF`가 없는 회사에서 통째로 0이 됐다.
+      정한 직무 수만 적고, 실제 금액은 상세에서 본다.
+    */
+    header: "청구 단가 설정",
+    value: (row) => `${row.billingRates.length}개 직무`,
   },
   { header: "거래 상태", value: (row) => (row.isActive ? "거래 중" : "종료") },
 ];
@@ -115,13 +119,21 @@ const ClientManager = () => {
       render: (client) => `${client.eventCount}건`,
     },
     {
-      key: "staffRate",
-      header: "스태프 단가",
+      /*
+        직무별 단가는 회사마다 구성이 달라 목록의 한 칸에 담기지 않는다.
+        여기서는 **정해 뒀는지 여부**만 보여 주고, 금액은 수정 모달에서 본다.
+        (단가가 없는 거래처는 마진이 계산되지 않으므로 그 사실이 보여야 한다)
+      */
+      key: "billingRates",
+      header: "청구 단가",
       align: "right",
-      numeric: true,
       render: (client) =>
-        formatCurrency(
-          client.billingRates.find((rate) => rate.role === "STAFF")?.rate ?? 0,
+        client.billingRates.length > 0 ? (
+          <span className="text-[13px] text-font-1 tabular-nums">
+            {client.billingRates.length}개 직무
+          </span>
+        ) : (
+          <span className="text-[13px] text-font-disabled">미설정</span>
         ),
     },
     {
@@ -267,16 +279,18 @@ const ClientManager = () => {
           emptyTitle="등록된 거래처가 없습니다."
           emptyDescription="행사를 등록하려면 거래처가 먼저 필요합니다."
           emptyAction={
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => {
-                setFormClient(null);
-                setIsFormOpen(true);
-              }}
-            >
-              거래처 등록
-            </Button>
+            canWrite ? (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => {
+                  setFormClient(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                거래처 등록
+              </Button>
+            ) : undefined
           }
         />
 

@@ -1,7 +1,5 @@
 import { HttpResponse, delay, http } from "msw";
-import { MOCK_DELAY_MS } from "../utils";
-
-const BASE_URI = process.env.NEXT_PUBLIC_BASE_URI;
+import { BASE_URI, MOCK_DELAY_MS, requirePermission } from "../utils";
 
 /** 업로드된 파일에 붙일 다음 ID */
 let nextFileId = 1;
@@ -27,7 +25,33 @@ const toDataUrl = async (file: File) => {
 export const fileHandlers = [
   http.post(
     `${BASE_URI}/admin/files/upload/:fileType`,
-    async ({ request }) => {
+    async ({ params, request }) => {
+      /*
+        올리는 파일마다 요구하는 권한이 다르다.
+
+        신분증 · 통장사본은 개인정보라 따로 뗀 권한(`staffDocument:write`)이 있는데,
+        업로드 주소를 열어 두면 그 권한 없이도 파일만 올린 뒤
+        인력 수정으로 붙일 수 있다. 뒷문을 하나 남겨 두는 셈이다.
+        프로필 사진처럼 그 밖의 파일은 인력을 고칠 수 있으면 올릴 수 있다.
+      */
+      const isStaffDocument =
+        params.fileType === "STAFF_ID_CARD" ||
+        params.fileType === "STAFF_BANK_BOOK";
+
+      // 서명받은 계약서는 계약서를 다룰 수 있는 사람만 올린다.
+      const isContract = params.fileType === "CONTRACT_SIGNED";
+
+      const denied = requirePermission(
+        request,
+        isContract
+          ? "contract:write"
+          : isStaffDocument
+            ? "staffDocument:write"
+            : "staff:write",
+      );
+
+      if (denied) return denied;
+
       const formData = await request.formData();
       const file = formData.get("file");
 

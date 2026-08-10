@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { PayrollItem, PayrollStatus } from "@/type/payroll";
 import type { JobRole } from "@/type/staff";
 
@@ -26,7 +26,7 @@ export const getPayrollList = async (params: PayrollListParams) => {
 
 /** 정산 목록 화면에서 사용합니다. 계좌 정보가 포함되므로 권한을 확인해야 합니다. */
 export const usePayrollListQuery = (params: PayrollListParams) => {
-  return useQuery<PageResponse<PayrollItem>, AppError>({
+  return usePermittedQuery<PageResponse<PayrollItem>>("payroll:read", {
     queryKey: ["get-payroll-list", params],
     queryFn: () => getPayrollList(params),
   });

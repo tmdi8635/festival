@@ -2,6 +2,7 @@ import { auditLogHandlers } from "./auditLog";
 import { clientHandlers } from "./client";
 import { contractHandlers } from "./contract";
 import { dashboardHandlers } from "./dashboard";
+import { employeeHandlers } from "./employee";
 import { eventHandlers } from "./event";
 import { fileHandlers } from "./file";
 import { messageHandlers } from "./message";
@@ -24,6 +25,7 @@ export const handlers = [
   // eventHandlers 안에서 `/admin/events/calendar`를 `/admin/events/:eventId`보다 먼저 등록한다.
   ...eventHandlers,
   ...staffHandlers,
+  ...employeeHandlers,
   ...contractHandlers,
   ...payrollHandlers,
   ...recruitHandlers,

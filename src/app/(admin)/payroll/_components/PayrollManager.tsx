@@ -109,8 +109,20 @@ const PayrollManager = () => {
   const [role, setRole] = useState<JobRole | "">("");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
   const [adjustTarget, setAdjustTarget] = useState<PayrollItem | null>(null);
-  /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
-  const canViewAccount = useHasPermission("payroll:read");
+  /*
+    정산 화면에서 할 수 있는 일은 세 가지고, 필요한 권한도 셋으로 갈린다.
+
+    - 금액을 고친다 (조정 · 수당 적용)  → `payroll:write`
+    - 금액을 확정한다 (지급 승인)       → `payroll:approve`
+    - 돈이 나갔다고 찍는다 (지급 완료)  → `payroll:pay`
+
+    화면에 들어온 것만으로 셋을 다 할 수 있게 두면, 금액만 정리하기로 한 사람이
+    지급 완료까지 누를 수 있다. 지급 완료는 되돌리기 가장 어려운 행위다.
+    (조회 자체는 이 화면을 감싼 `PermissionGate`가 `payroll:read`로 이미 막는다)
+  */
+  const canWrite = useHasPermission("payroll:write");
+  const canApprove = useHasPermission("payroll:approve");
+  const canPay = useHasPermission("payroll:pay");
 
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   const roleLabel = useJobRoleLabel();
@@ -364,10 +376,9 @@ const PayrollManager = () => {
     {
       key: "account",
       header: "입금 계좌",
+      /* 이 화면 자체가 `payroll:read`로 막혀 있어, 여기까지 온 사람은 계좌를 볼 수 있다. */
       render: (item) =>
-        !canViewAccount ? (
-          <span className="text-[13px] text-font-disabled">***</span>
-        ) : item.accountNumber ? (
+        item.accountNumber ? (
           <TableCellStack
             primary={
               <span className="text-[13px]">
@@ -399,14 +410,16 @@ const PayrollManager = () => {
           className="flex justify-end"
           onClick={(event) => event.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={item.status === "PAID"}
-            onClick={() => setAdjustTarget(item)}
-          >
-            조정
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={item.status === "PAID"}
+              onClick={() => setAdjustTarget(item)}
+            >
+              조정
+            </Button>
+          )}
         </div>
       ),
     },
@@ -445,10 +458,12 @@ const PayrollManager = () => {
         />
       </div>
 
-      {!canViewAccount && (
-        <Alert tone="info" title="계좌 정보는 대표 권한에서만 보입니다.">
-          매니저 권한으로도 지급액 확인과 승인은 가능하지만, 계좌번호와 이체
-          파일은 열람할 수 없습니다.
+      {!canWrite && !canApprove && !canPay && (
+        <Alert tone="info" title="정산 내역을 보기만 할 수 있습니다.">
+          금액 조정 · 지급 승인 · 지급 완료는 각각 별도 권한입니다. 필요하면
+          최고관리자에게 &lsquo;정산 &gt; 등록 · 수정&rsquo;, &lsquo;정산 &gt;
+          승인&rsquo;, &lsquo;정산 &gt; 지급 완료&rsquo; 중 필요한 것을
+          요청하세요.
         </Alert>
       )}
 
@@ -471,16 +486,22 @@ const PayrollManager = () => {
               상세 CSV
             </Button>
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Download size={15} />}
-              onClick={handleDownloadTransfer}
-              disabled={rows.length === 0 || !canViewAccount}
-              title="은행 대량이체 양식으로 저장합니다."
-            >
-              은행 이체 파일
-            </Button>
+            {/*
+              이체 파일은 계좌번호를 통째로 내보내는 일이라 실제로 이체하는 사람만 받는다.
+              화면에서 한 건씩 보는 것과, 파일로 들고 나가는 것은 무게가 다르다.
+            */}
+            {canPay && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Download size={15} />}
+                onClick={handleDownloadTransfer}
+                disabled={rows.length === 0}
+                title="은행 대량이체 양식으로 저장합니다."
+              >
+                은행 이체 파일
+              </Button>
+            )}
 
             <Select
               aria-label="직무 필터"
@@ -513,6 +534,7 @@ const PayrollManager = () => {
               </span>
 
               {/* 수당은 강제하지 않는다. 고른 건에 대해 붙이거나 뗀다. */}
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">연장</span>
                 <Button
@@ -530,7 +552,9 @@ const PayrollManager = () => {
                   해제
                 </Button>
               </div>
+              )}
 
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">야간</span>
                 <Button
@@ -548,22 +572,27 @@ const PayrollManager = () => {
                   해제
                 </Button>
               </div>
+              )}
 
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => handleBulkStatus("APPROVED")}
-              >
-                지급 승인
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                leftIcon={<Check size={14} />}
-                onClick={() => handleBulkStatus("PAID")}
-              >
-                지급 완료
-              </Button>
+              {canApprove && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleBulkStatus("APPROVED")}
+                >
+                  지급 승인
+                </Button>
+              )}
+              {canPay && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  leftIcon={<Check size={14} />}
+                  onClick={() => handleBulkStatus("PAID")}
+                >
+                  지급 완료
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -586,7 +615,7 @@ const PayrollManager = () => {
       </Card>
 
       <PayrollAdjustModal
-        payroll={adjustTarget}
+        payroll={canWrite ? adjustTarget : null}
         onClose={() => setAdjustTarget(null)}
       />
     </>

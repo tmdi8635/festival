@@ -14,6 +14,7 @@ import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
 import StaffCell from "@/components/domain/StaffCell";
 import AttendanceRosterRow from "./AttendanceRosterRow";
+import { useHasPermission } from "@/store/useAdminStore";
 
 /**
  * 명부를 묶어 보는 단위.
@@ -66,6 +67,8 @@ const AttendanceRosterGroup = ({
   onEditAttendance,
   onEditReputation,
 }: AttendanceRosterGroupProps) => {
+  const canWrite = useHasPermission("assignment:write");
+
   const roleLabel = useJobRoleLabel();
 
   const [first] = assignments;
@@ -103,6 +106,8 @@ const AttendanceRosterGroup = ({
             <StaffCell
               name={first.staffName}
               phoneNumber={first.staffPhone}
+              profileImageUrl={first.staffProfileImageUrl}
+              gender={first.staffGender}
               badge={<Badge tone="neutral">{roleLabel(first.role)}</Badge>}
             />
           </button>
@@ -141,6 +146,7 @@ const AttendanceRosterGroup = ({
               (item) => item.status === "CONFIRMED" && !item.isContractSigned,
             ) && <Badge tone="danger">계약서 미완료</Badge>}
 
+          {canWrite && (
           <Button
             size="sm"
             variant="secondary"
@@ -154,6 +160,7 @@ const AttendanceRosterGroup = ({
           >
             일괄 기록
           </Button>
+          )}
         </div>
       </div>
 

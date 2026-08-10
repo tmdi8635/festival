@@ -7,6 +7,7 @@
 
 // 지급 기준은 행사 도메인이 원본이다. 타입만 빌려 쓰므로 순환 참조가 생기지 않는다.
 import type { WageType } from "./event";
+import type { EmploymentType } from "./employee";
 
 /**
  * 행사에 투입되는 직무.
@@ -29,10 +30,14 @@ export interface JobRoleDef {
    * 겹치지 않는 값은 `nextJobRoleCode()`가 만들어 준다.
    */
   code: string;
-  /** 화면에 그대로 나가는 이름 */
+  /**
+   * 화면에 그대로 나가는 이름.
+   *
+   * 짧은 이름을 따로 두지 않는다. 두 벌이면 어느 화면에 무엇이 나가는지
+   * 매번 확인해야 하고, 한쪽만 고친 이름이 캘린더에만 남는다.
+   * 좁은 자리는 자리를 넓히거나 잘라서 푼다.
+   */
   name: string;
-  /** 캘린더처럼 좁은 곳에서 쓰는 짧은 이름. 비우면 name을 그대로 쓴다. */
-  shortName: string;
   /**
    * 화면에 나열하는 순서. 작을수록 앞이다.
    *
@@ -64,7 +69,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "SUPERVISOR",
     name: "팀장",
-    shortName: "팀장",
     order: 1,
     defaultWageType: "HOURLY",
     defaultWage: 18000,
@@ -73,7 +77,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "STAFF",
     name: "스태프",
-    shortName: "스태프",
     order: 2,
     defaultWageType: "HOURLY",
     defaultWage: 12000,
@@ -82,7 +85,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "MC",
     name: "MC",
-    shortName: "MC",
     order: 3,
     defaultWageType: "HOURLY",
     defaultWage: 30000,
@@ -91,7 +93,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "MODEL",
     name: "모델",
-    shortName: "모델",
     order: 4,
     defaultWageType: "HOURLY",
     defaultWage: 22000,
@@ -100,7 +101,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "SOUND",
     name: "음향",
-    shortName: "음향",
     order: 5,
     defaultWageType: "HOURLY",
     defaultWage: 20000,
@@ -109,7 +109,6 @@ export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
   {
     code: "SETUP",
     name: "설치/철거",
-    shortName: "설치",
     order: 6,
     defaultWageType: "DAILY",
     defaultWage: 130000,
@@ -149,13 +148,60 @@ export const nextJobRoleCode = (jobRoles: JobRoleDef[]): string => {
 export const nextJobRoleOrder = (jobRoles: JobRoleDef[]): number =>
   jobRoles.reduce((max, role) => Math.max(max, role.order), 0) + 1;
 
-export type StaffStatus = "ACTIVE" | "DORMANT" | "BLACKLIST" | "RETIRED";
+/**
+ * 인력 상태. **셋뿐이다.**
+ *
+ * 예전에는 `활동중 · 휴면 · 블랙리스트 · 활동종료` 넷이었는데, 휴면과 활동종료는
+ * 담당자가 손으로 정하는 값이라 실제로는 아무도 갱신하지 않았다. 그래서 반년째
+ * 연락이 닿지 않는 사람이 계속 '활동중'으로 서 있었다.
+ *
+ * 지금은 **서류가 상태를 정한다.** (`resolveStaffStatus`)
+ * 신분증 · 통장사본이 없으면 애초에 확정 배치를 할 수 없으니
+ * (`canConfirmAssignment`) 그 사실이 곧 "지금 부를 수 있는 사람인가"의 답이다.
+ * 사람이 따로 관리해야 하는 값을 하나 줄이면 그만큼 틀릴 자리도 줄어든다.
+ *
+ * - `PENDING`   대기중. 새로 등록됐거나 서류를 뺐다. 활동할 수 없다
+ * - `ACTIVE`    활동중. 필요한 서류를 다 냈다
+ * - `BLACKLIST` 에이전시가 직접 지정한다. 서류와 무관하게 이 값이 이긴다
+ */
+export type StaffStatus = "PENDING" | "ACTIVE" | "BLACKLIST";
+
+/**
+ * 인력의 지금 상태를 구한다. **이 함수 하나가 단일 원본이다.**
+ *
+ * 화면·목업이 각자 판단하면 "서류를 지웠는데 목록에는 활동중"이 반드시 생긴다.
+ * 서류를 넣고 빼는 자리, 인력을 만드는 자리가 전부 여기를 거친다.
+ */
+export const resolveStaffStatus = (staff: {
+  isDocumentComplete: boolean;
+  employment?: EmploymentType;
+  status?: StaffStatus;
+}): StaffStatus => {
+  // 블랙리스트는 사람이 내린 판단이다. 서류를 다 냈다고 풀리면 안 된다.
+  if (staff.status === "BLACKLIST") return "BLACKLIST";
+
+  // 직원은 입사할 때 회사가 서류를 이미 받았다. 인력풀에 다시 낼 이유가 없다.
+  if (staff.employment === "EMPLOYEE") return "ACTIVE";
+
+  return staff.isDocumentComplete ? "ACTIVE" : "PENDING";
+};
 
 export type Gender = "MALE" | "FEMALE";
 
 export const GENDER_LABEL: Record<Gender, string> = {
   MALE: "남성",
   FEMALE: "여성",
+};
+
+/**
+ * 좁은 자리(표 · 배지 · 아이콘 라벨)에 쓰는 한 글자.
+ *
+ * 명단에서 성별은 이름 옆에 붙는 곁가지라 두 글자도 길다.
+ * 다만 **읽어 주는 라벨은 반드시 전체 이름**이어야 한다. (`GENDER_LABEL`)
+ */
+export const GENDER_SHORT_LABEL: Record<Gender, string> = {
+  MALE: "남",
+  FEMALE: "여",
 };
 
 /** 인력 목록에서 다루는 요약 정보 */
@@ -167,7 +213,20 @@ export interface Staff {
   birthDate: string;
   gender: Gender;
   status: StaffStatus;
-  /** 투입 가능한 직무. 배치 후보 추천의 1차 조건이다. */
+  /**
+   * 고용 형태.
+   *
+   * 직원은 인력풀에 함께 있되 **돈과 계약서에서 갈라진다.**
+   * (근로계약서를 쓰지 않고 시급 정산도 하지 않는다 — `type/employee.ts`)
+   * 배치 · 출퇴근은 프리랜서와 같은 길을 쓰므로 여기서만 구분한다.
+   */
+  employment: EmploymentType;
+  /**
+   * 투입 가능한 직무. 배치 후보 추천의 1차 조건이다.
+   *
+   * 직원은 이 목록과 무관하게 **모든 직무에 들어갈 수 있다.**
+   * 대행사가 주는 자리에 따라 팀장도 스태프도 맡기 때문이다.
+   */
   roles: JobRole[];
   /** 주 활동 지역 시/도. 새벽 집합 행사에서 이동 가능 여부를 가른다. */
   region: string;
@@ -180,9 +239,16 @@ export interface Staff {
   totalWorkHours: number;
   noShowCount: number;
   lateCount: number;
-  /** 받은 '좋아요' 수 */
+  /**
+   * 평판 점수. **누적값이다.** (`REPUTATION_BASE_SCORE`에서 시작)
+   *
+   * 평가 한 건이 항목마다 정해진 만큼 더하고 뺀다. 구간 안을 오가는 평균이
+   * 아니라 쌓이는 값이라, 오래 잘해 온 사람과 이제 막 시작한 사람이 구분된다.
+   */
+  reputationScore: number;
+  /** 받은 '좋아요' 항목 수. 점수가 왜 그 값인지 설명하는 근거다. */
   goodCount: number;
-  /** 받은 '별로예요' 수 */
+  /** 받은 '별로예요' 항목 수 */
   badCount: number;
   /**
    * 즐겨찾기.
@@ -215,6 +281,14 @@ export interface StaffDetail extends Staff {
   blacklistedAt?: string;
   totalPaidAmount: number;
   memos: StaffMemo[];
+
+  /* ------------------------------ 직원만 쓰는 값 ---------------------------- */
+
+  /** 회사 안에서의 자리. 직무(JobRole)가 아니다. */
+  position?: string;
+  hireDate?: string;
+  /** 이번 달에 채워야 하는 시간. 이 기준이 없으면 집계가 많은지 적은지 알 수 없다. */
+  baseMonthlyHours?: number;
 }
 
 /** 인력에 남기는 타임스탬프 메모 */
@@ -338,10 +412,22 @@ export interface StaffReputation {
   clientName: string;
   workDate: string;
   role: JobRole;
+  /**
+   * 이 평가가 어느 쪽이었나. **항목의 합에서 나온 값이다.**
+   *
+   * 한 평가에 좋아요 항목과 별로예요 항목이 함께 담기므로, 사람이 고르는 값이
+   * 아니라 결과다. 목록에서는 따로 세우지 않는다 — 항목 자체가 이미
+   * 좋아요/별로예요를 말하고 있어서, 옆에 요약 배지를 하나 더 두면
+   * 같은 말이 두 번 적힌 칸이 된다.
+   */
   verdict: ReputationVerdict;
-  /** 고른 평가 항목. 비워 둘 수 있다. */
+  /** 고른 평가 항목. 좋아요 · 별로예요가 **섞여 있을 수 있다.** */
   tags: string[];
+  /** 이 평가가 평판 점수를 움직인 크기 */
+  points: number;
   comment?: string;
+  /** 남긴 시각. 평가는 고칠 수 없으므로 이 값도 바뀌지 않는다. */
+  ratedAt?: string;
   /** 평가를 남긴 사람 */
   ratedBy: string;
   /**
@@ -392,10 +478,18 @@ export const REQUIRED_DOCUMENT_LABEL = "신분증 · 통장사본";
 export const DOCUMENT_BLOCK_MESSAGE =
   "신분증 또는 통장사본이 없어 확정 배치할 수 없습니다. 서류를 먼저 등록해 주세요.";
 
-/** 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다. */
+/**
+ * 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다.
+ *
+ * **직원은 이 검사를 받지 않는다.** 신분증 · 통장사본을 요구하는 이유가
+ * "이 사람에게 돈을 보낼 수 있는가"인데, 직원의 급여는 회사가 이미 다른 경로로
+ * 내보내고 있다. 입사할 때 받은 서류를 인력풀에 다시 올리게 하면,
+ * 직원을 현장에 넣을 때마다 아무 뜻 없는 벽에 막힌다.
+ */
 export const canConfirmAssignment = (staff: {
   isDocumentComplete: boolean;
-}): boolean => staff.isDocumentComplete;
+  employment?: EmploymentType;
+}): boolean => staff.employment === "EMPLOYEE" || staff.isDocumentComplete;
 
 export interface StaffFormValues {
   name: string;
@@ -473,118 +567,127 @@ export const RATER_TYPE_LABEL: Record<RaterType, string> = {
 };
 
 /**
- * 평가 항목.
+ * 항목 하나의 무게. **좋아요든 별로예요든 한 개는 2점이다.**
+ *
+ * 항목마다 다른 점수를 매겨 봤는데, 평가하는 사람에게 아무 도움이 안 됐다.
+ * 화면에는 항목 옆마다 `+5` `-8` 같은 숫자가 붙고, 남기는 사람은 고르기 전에
+ * 그 숫자를 견주게 된다. 정작 알고 싶은 것은 "무엇이 좋았고 무엇이 걸렸나"인데
+ * 점수표를 읽는 일이 되어 버린 것이다.
+ *
+ * 그래서 무게를 없앤다. 항목은 **몇 개를 받았나**로만 쌓인다.
+ * 좋아요 항목 2개면 +4, 별로예요 항목 1개면 −2, 합쳐서 +2다.
+ */
+export const REPUTATION_TAG_POINTS = 2;
+
+/**
+ * 평가 항목 하나.
  *
  * 코멘트만 받으면 대부분 비워 두고, 비워 둔 평가는 나중에 아무것도 설명하지 못한다.
  * 그렇다고 필수로 만들면 아무 말이나 적는다. 그래서 **고르기만 하면 되는 항목**을
- * 미리 깔아 두고 선택으로 남긴다. 모이면 그 자체로 통계가 된다.
+ * 미리 깔아 둔다.
  */
-export const REPUTATION_TAGS: Record<ReputationVerdict, string[]> = {
-  GOOD: [
-    "시간을 잘 지킴",
-    "지시 이해가 빠름",
-    "손님 응대가 좋음",
-    "동료와 협조적",
-    "먼저 찾아서 함",
-    "복장 · 용모 단정",
-  ],
-  BAD: [
-    "지각이 잦음",
-    "지시를 따르지 않음",
-    "손님 응대가 불친절",
-    "동료와 마찰",
-    "무단으로 자리를 비움",
-    "복장 규정 미준수",
-  ],
+export interface ReputationTagDef {
+  tag: string;
+  verdict: ReputationVerdict;
+}
+
+/**
+ * 평가 항목 목록. **하나의 배열로 둔다.**
+ *
+ * 한 평가에 좋아요 항목과 별로예요 항목이 **함께** 담길 수 있다.
+ * ("지시 이해는 빠른데 복장 규정은 안 지켰다"는 실제로 흔한 조합이다)
+ * verdict별 Record로 쪼개 두면 그 조합을 표현할 자리가 없어진다.
+ */
+export const REPUTATION_TAGS: ReputationTagDef[] = [
+  { tag: "먼저 찾아서 함", verdict: "GOOD" },
+  { tag: "지시 이해가 빠름", verdict: "GOOD" },
+  { tag: "손님 응대가 좋음", verdict: "GOOD" },
+  { tag: "시간을 잘 지킴", verdict: "GOOD" },
+  { tag: "동료와 협조적", verdict: "GOOD" },
+  { tag: "복장 · 용모 단정", verdict: "GOOD" },
+
+  { tag: "무단으로 자리를 비움", verdict: "BAD" },
+  { tag: "지시를 따르지 않음", verdict: "BAD" },
+  { tag: "손님 응대가 불친절", verdict: "BAD" },
+  { tag: "지각이 잦음", verdict: "BAD" },
+  { tag: "동료와 마찰", verdict: "BAD" },
+  { tag: "복장 규정 미준수", verdict: "BAD" },
+];
+
+/** 좋아요 · 별로예요별 항목. 평가 모달의 팔레트를 그릴 때 쓴다. */
+export const reputationTagsOf = (
+  verdict: ReputationVerdict,
+): ReputationTagDef[] => REPUTATION_TAGS.filter((item) => item.verdict === verdict);
+
+const findReputationTag = (tag: string): ReputationTagDef | undefined =>
+  REPUTATION_TAGS.find((item) => item.tag === tag);
+
+/** 항목 하나가 움직이는 점수. 없어진 항목(과거 평가)은 0으로 둔다. */
+export const resolveTagPoints = (tag: string): number => {
+  const verdict = findReputationTag(tag)?.verdict;
+
+  if (!verdict) return 0;
+
+  return verdict === "GOOD" ? REPUTATION_TAG_POINTS : -REPUTATION_TAG_POINTS;
 };
 
-/**
- * 평가가 하나도 없는 사람이 서는 자리 (좋아요 비율).
- *
- * 0에서 시작하면 처음 배치받는 사람은 영원히 최하위로 밀리고,
- * 1에서 시작하면 아무 근거 없이 최고 인력으로 보인다.
- * 그래서 '보통'에 해당하는 값에서 출발시킨다.
- */
-export const BASE_GOOD_RATIO = 0.72;
-
-/** 점수는 5점 만점으로 환산해 보여 준다. 사람이 읽기에 익숙한 눈금이다. */
-export const REPUTATION_SCORE_MAX = 5;
-
-/** 평가가 없는 사람의 점수 = 3.6 */
-export const BASE_REPUTATION_SCORE = BASE_GOOD_RATIO * REPUTATION_SCORE_MAX;
+/** 항목이 좋아요 쪽인지 별로예요 쪽인지. 배지 색을 여기서 정한다. */
+export const resolveTagVerdict = (tag: string): ReputationVerdict | undefined =>
+  findReputationTag(tag)?.verdict;
 
 /**
- * 기본 점수에 실리는 무게. 이만큼의 '보통 평가'가 미리 깔려 있다고 본다.
+ * 평가 한 건이 점수를 얼마나 움직이는지.
  *
- * 이 값이 크면 점수가 느리게 움직이고, 작으면 한두 건에 출렁인다.
- * 10건 정도는 쌓여야 그 사람의 평가로 인정한다는 뜻이다.
+ * 항목 하나당 2점이고, 좋아요는 더하고 별로예요는 뺀다.
+ * 항목을 하나도 안 골랐으면 방향만 남은 것이므로 한 개 몫으로 센다.
+ * **화면·목업이 같은 함수를 쓴다.** 따로 세면 모달에 적힌 점수와
+ * 저장 뒤 실제로 오른 점수가 달라진다.
  */
-export const REPUTATION_PRIOR_COUNT = 10;
-
-/**
- * 평판 점수를 구한다.
- *
- * 좋아요 비율을 그대로 쓰면 표본 수를 버린다. 1건 전부 좋아요(100%)와
- * 200건 중 190건 좋아요(95%)가 같은 잣대로 나란히 서면, 목록을 점수순으로
- * 정렬했을 때 딱 한 번 칭찬받은 신입이 맨 위에 온다.
- * 실제로 배치하고 싶은 사람은 200건 쪽이다.
- *
- * 그래서 기본 비율에서 출발해, 평가가 쌓이는 만큼만 그쪽으로 끌려가게 한다.
- * 좋은 평가가 이어지면 천천히 오르고, 나쁜 평가가 이어지면 천천히 내려간다.
- *
- * 예) 좋아요 1건 → 3.7 / 좋아요 18 · 별로예요 2 → 4.0 / 좋아요 190 · 별로예요 10 → 4.7
- */
-export const calculateReputationScore = (
-  goodCount: number,
-  badCount: number,
+export const calculateReputationDelta = (
+  tags: readonly string[],
+  verdict?: ReputationVerdict,
 ): number => {
-  const total = goodCount + badCount;
-  const ratio =
-    (goodCount + BASE_GOOD_RATIO * REPUTATION_PRIOR_COUNT) /
-    (total + REPUTATION_PRIOR_COUNT);
+  if (tags.length > 0) {
+    return tags.reduce((sum, tag) => sum + resolveTagPoints(tag), 0);
+  }
 
-  return Math.round(ratio * REPUTATION_SCORE_MAX * 100) / 100;
+  if (!verdict) return 0;
+
+  return verdict === "GOOD" ? REPUTATION_TAG_POINTS : -REPUTATION_TAG_POINTS;
 };
 
-/** 평판 점수 한 건을 함께 다룰 때 쓰는 묶음 */
-export type ReputationSource = Pick<Staff, "goodCount" | "badCount">;
+/**
+ * 아무 평가도 받지 않은 사람이 서는 자리.
+ *
+ * 0에서 시작하면 첫 별로예요 한 건에 곧바로 음수가 되어 "빚진 사람"처럼 보이고,
+ * 신입과 오래 잘해 온 사람의 거리도 좁다. 게임 레이팅처럼 가운데 기준점을
+ * 두면 오르내림이 양쪽으로 읽힌다.
+ */
+export const REPUTATION_BASE_SCORE = 1000;
 
-/** 인력 객체에서 바로 평판 점수를 뽑는다. */
-export const resolveReputationScore = (staff: ReputationSource): number =>
-  calculateReputationScore(staff.goodCount, staff.badCount);
+/** 평가 항목들을 누적 점수로 바꾼다. (기준점 + 합) */
+export const buildReputationScore = (delta: number): number =>
+  REPUTATION_BASE_SCORE + delta;
 
-/** 받은 평가 총 건수 */
+/*
+  등급 이름(우수 · 양호 · 보통 · 주의 · 위험)은 두지 않는다.
+
+  '양호'가 몇 점부터인지는 아무도 외우지 못하고, 구간을 나눈 사람 말고는
+  1010점과 1029점이 같은 이름으로 묶인다는 사실도 모른다. 그 이름 때문에
+  숫자를 읽는 대신 이름을 읽게 되고, 정작 두 사람 중 누가 위인지가 가려졌다.
+  **점수 하나면 충분하다.** 높으면 높은 것이고, 낮으면 낮은 것이다.
+*/
+
+/** 기준점에서 얼마나 움직였는지. `+24` · `-31`처럼 부호를 붙여 적는다. */
+export const formatReputationDelta = (delta: number): string =>
+  `${delta > 0 ? "+" : ""}${delta}`;
+
+/** 평판을 함께 다룰 때 쓰는 최소 묶음 */
+export type ReputationSource = Pick<
+  Staff,
+  "reputationScore" | "goodCount" | "badCount"
+>;
+
+/** 받은 평가 항목 총 개수 */
 export const resolveReputationCount = (staff: ReputationSource): number =>
   staff.goodCount + staff.badCount;
-
-/**
- * 점수를 얼마나 믿을 수 있는지 알려 준다.
- *
- * 좋아요 100%인데 1건이면 95%에 200건보다 못 미덥다.
- * 점수만 크게 띄우고 건수를 숨기면 판단을 그르치므로 항상 함께 쓴다.
- */
-export const resolveRatingConfidence = (
-  count: number,
-): "NONE" | "LOW" | "MEDIUM" | "HIGH" => {
-  if (count === 0) return "NONE";
-  if (count < 3) return "LOW";
-  if (count < 10) return "MEDIUM";
-
-  return "HIGH";
-};
-
-/**
- * 평판 점수가 기본선에서 어느 쪽으로 얼마나 움직였는지.
- *
- * 4.1이라는 숫자만으로는 좋은 것인지 알기 어렵다.
- * "기본 3.6에서 +0.5 올라온 사람"으로 읽혀야 뜻이 통한다.
- */
-export const resolveReputationTrend = (
-  score: number,
-): { direction: "UP" | "DOWN" | "FLAT"; delta: number } => {
-  const delta = Math.round((score - BASE_REPUTATION_SCORE) * 100) / 100;
-
-  if (Math.abs(delta) < 0.05) return { direction: "FLAT", delta: 0 };
-
-  return { direction: delta > 0 ? "UP" : "DOWN", delta };
-};

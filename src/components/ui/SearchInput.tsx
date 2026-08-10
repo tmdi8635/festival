@@ -62,6 +62,15 @@ const SearchInput = ({
         }
         className={className}
         {...props}
+        /*
+          여기서의 Enter는 **검색**이다.
+          모달 안에 있으면 창의 확인 동작(`Modal`의 onSubmit)까지 함께 도는데,
+          검색어를 치다 말고 배치가 확정되는 식이라 새어 나가게 두면 안 된다.
+        */
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.stopPropagation();
+          props.onKeyDown?.(event);
+        }}
       />
     </form>
   );

@@ -1,12 +1,18 @@
 import type { PermissionKey } from "./permission";
 import type { JobRoleDef } from "./staff";
 
-/** 운영 도메인 타입. 내부 담당자 · 로그 · 기준 설정을 다룬다. */
+/**
+ * 운영 도메인 타입. 직책(권한 묶음) · 로그 · 기준 설정을 다룬다.
+ *
+ * 사람 자체는 여기 없다. 직원은 `type/employee.ts`가 갖는다.
+ * (예전에는 '담당자'가 여기 따로 있었는데, 담당자와 직원이 같은 사람이라
+ * 이름을 두 곳에서 고쳐야 했다)
+ */
 
 /**
  * 직책.
  *
- * 권한은 사람이 아니라 **직책**이 갖는다. 담당자는 직책에 들어갈 뿐이다.
+ * 권한은 사람이 아니라 **직책**이 갖는다. 직원은 직책에 들어갈 뿐이다.
  * 사람이 바뀌어도 직책은 남고, 규칙이 바뀌면 직책 하나만 고치면 된다.
  */
 export interface AdminRole {
@@ -21,7 +27,7 @@ export interface AdminRole {
    * "권한을 되돌릴 수 있는 사람이 아무도 없는" 상태가 만들어진다.
    */
   isSuperAdmin: boolean;
-  /** 이 직책에 속한 담당자 수. 지우기 전에 옮길 사람이 있는지 보여 준다. */
+  /** 이 직책에 속한 직원 수. 지우기 전에 옮길 사람이 있는지 보여 준다. */
   memberCount: number;
   createdAt: string;
 }
@@ -30,30 +36,6 @@ export interface AdminRoleFormValues {
   name: string;
   description: string;
   permissions: PermissionKey[];
-}
-
-export interface Manager {
-  managerId: number;
-  name: string;
-  email: string;
-  phoneNumber: string;
-  roleId: number;
-  /** 목록에서 바로 보여 주기 위한 직책 이름 */
-  roleName: string;
-  isSuperAdmin: boolean;
-  isActive: boolean;
-  /** 담당 중인 행사 수 */
-  eventCount: number;
-  lastLoginAt?: string;
-  createdAt: string;
-}
-
-export interface ManagerFormValues {
-  name: string;
-  email: string;
-  phoneNumber: string;
-  roleId: number;
-  isActive: boolean;
 }
 
 export type LogLevel = "INFO" | "WARN" | "ERROR";
@@ -112,12 +94,13 @@ export const FEATURE_MODE_DESCRIPTION: Record<FeatureMode, string> = {
 };
 
 /** 모드를 지정할 수 있는 기능 단위 */
-export type FeatureKey = "RECRUIT" | "MESSAGE" | "CLIENT";
+export type FeatureKey = "RECRUIT" | "MESSAGE" | "CLIENT" | "HR_POLICY";
 
 export const FEATURE_LABEL: Record<FeatureKey, string> = {
   RECRUIT: "모집 (공고 · 지원자)",
   MESSAGE: "공지 · 문자 발송",
   CLIENT: "거래처 관리",
+  HR_POLICY: "인사 · 운영 기준 자동화",
 };
 
 export const FEATURE_HINT: Record<FeatureKey, string> = {
@@ -125,6 +108,14 @@ export const FEATURE_HINT: Record<FeatureKey, string> = {
     "앱 출시 전까지는 공고를 띄울 곳이 없습니다. 인력은 인력풀에서 직접 등록하세요.",
   MESSAGE: "문자 API 연동 전입니다. 문구만 만들어 기존 방식으로 보내야 합니다.",
   CLIENT: "발주처를 따로 관리하지 않는다면 꺼 두세요.",
+  /*
+    블랙리스트 자동 후보 · 출근 안내 자동 발송 · 계약서 기한 알림은
+    전부 "때가 되면 시스템이 먼저 알려 준다"는 기능인데, 그 알림을 내보낼
+    곳(문자 · 푸시)이 아직 없다. 숫자만 저장되고 아무 일도 일어나지 않으므로
+    켜 두면 "설정했으니 돌아가고 있겠지"라고 믿게 된다.
+  */
+  HR_POLICY:
+    "알림을 내보낼 곳이 아직 없어 기준값만 저장됩니다. 블랙리스트 후보 · 출근 안내 · 계약서 기한은 지금은 담당자가 직접 확인해야 합니다.",
 };
 
 /**
@@ -167,8 +158,13 @@ export interface OperationSettings {
   blacklistNoShowThreshold: number;
   /** 행사 시작 며칠 전에 출근 안내를 보낼지 */
   reminderDaysBefore: number;
-  /** 계약서 서명 요청 링크 유효 기간(일) */
-  contractExpireDays: number;
+  /**
+   * 근무 시작 며칠 전까지 서명본이 등록돼야 하는지.
+   *
+   * 서명 요청 링크의 유효 기간이 아니다. 지금은 링크가 나가지 않는다.
+   * 담당자가 종이를 배부하고 받아 오는 데 걸리는 시간을 앞에 두는 값이다.
+   */
+  contractRegisterDeadlineDays: number;
 
   /*
     행사 등록 폼의 시간 · 휴게시간 기본값은 두지 않는다.

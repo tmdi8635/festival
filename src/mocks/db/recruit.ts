@@ -73,7 +73,7 @@ export const buildPostingContent = (params: {
     `👕 복장: ${params.dressCode}`,
     `🎒 준비물: ${params.belongings}`,
     "",
-    "※ 근로계약서는 확정 후 문자로 발송됩니다. 근무 전까지 서명 부탁드립니다.",
+    "※ 근로계약서는 확정 후 현장에서 작성합니다. 신분증을 지참해 주세요.",
     "※ 첫 근무이신 분은 신분증 · 통장사본을 함께 보내주세요.",
     "",
     `지원: 성함 / 나이 / 경력 / 연락처를 담당자(${params.managerName})에게 보내주세요.`,

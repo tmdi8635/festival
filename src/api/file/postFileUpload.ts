@@ -14,7 +14,9 @@ export type FileUploadType =
   | "STAFF_PROFILE"
   | "STAFF_ID_CARD"
   | "STAFF_BANK_BOOK"
-  | "EVENT_PHOTO";
+  | "EVENT_PHOTO"
+  /** 서명받은 근로계약서. 종이를 스캔한 PDF이거나 찍은 사진이다. */
+  | "CONTRACT_SIGNED";
 
 export interface FileUploadResponse {
   originalFileId: FileUploadId;

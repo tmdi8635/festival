@@ -20,9 +20,19 @@ import type {
   JobRole,
   ReputationVerdict,
 } from "@/type/staff";
-import { REPUTATION_TAGS } from "@/type/staff";
+import {
+  buildReputationScore,
+  calculateReputationDelta,
+  reputationTagsOf,
+  resolveTagVerdict,
+} from "@/type/staff";
 import { clients } from "./client";
-import { assignableStaff, everWorkedStaff, staffList } from "./staff";
+import {
+  EVENT_MANAGER_POOL,
+  assignableStaff,
+  everWorkedStaff,
+  staffList,
+} from "./staff";
 import { dateFromToday, randomInt, toIsoDateTime } from "../utils";
 
 /** 행사 제목은 거래처 성격과 맞아야 화면이 실제처럼 읽힌다. */
@@ -52,7 +62,13 @@ const VENUES = [
   { venue: "일산 킨텍스 3홀", address: "경기 고양시 일산서구 킨텍스로 217" },
 ];
 
-const MANAGERS = ["김도윤", "박서진", "이가온"];
+/**
+ * 담당 매니저.
+ *
+ * 직원 명부에서 그대로 가져온다. 여기에 이름 · 번호를 따로 적어 두면
+ * 문자의 `{{담당자연락처}}`와 직원 명부의 번호가 서로 다른 값이 된다.
+ */
+const MANAGERS = EVENT_MANAGER_POOL;
 
 const DRESS_CODES = [
   "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",
@@ -123,6 +139,26 @@ export const defaultWageOf = (
   role: JobRole,
 ): { wageType: WageType; wage: number } =>
   DEFAULT_ROLE_WAGE[role] ?? { wageType: "HOURLY", wage: 12000 };
+
+/**
+ * 발주에 걸린 성별 조건. **대부분은 무관이다.**
+ *
+ * 조건이 붙는 자리는 현장에서 정해져 있다 — 몸을 쓰는 설치 · 철거는 남성만,
+ * 안내 · 응대가 중심인 모델 자리는 여성만으로 발주가 오는 일이 흔하다.
+ * 다만 늘 그런 것은 아니라서 일부만 조건을 달아 둔다.
+ * 조건이 전부 붙어 있으면 화면에서 '조건이 걸린 자리'가 눈에 띄지 않는다.
+ *
+ * 이 값은 표시일 뿐 배치를 막지 않는다.
+ */
+const resolveSeedGenderPreference = (
+  role: JobRole,
+  seed: number,
+): "ANY" | "MALE" | "FEMALE" => {
+  if (role === "SETUP" && seed % 3 !== 0) return "MALE";
+  if (role === "MODEL" && seed % 3 !== 1) return "FEMALE";
+
+  return "ANY";
+};
 
 /**
  * 행사 반복 패턴 목업.
@@ -258,13 +294,23 @@ const buildReputation = (
     seed % 11 === 0;
 
   const verdict: ReputationVerdict = isBad ? "BAD" : "GOOD";
-  const pool = REPUTATION_TAGS[verdict];
+  const pool = reputationTagsOf(verdict);
 
-  return {
-    reputationVerdict: verdict,
-    // 항목은 선택이라 절반 정도만 골라 둔 상태로 만든다.
-    reputationTags: seed % 2 === 0 ? [pool[seed % pool.length]] : [],
-  };
+  // 항목은 선택이라 절반 정도만 골라 둔 상태로 만든다.
+  const tags = seed % 2 === 0 ? [pool[seed % pool.length].tag] : [];
+
+  /*
+    가끔은 좋아요와 별로예요가 **한 평가에 함께** 담긴다.
+    ("지시 이해는 빠른데 복장 규정은 안 지켰다")
+    실제로 흔한 조합이라 화면이 그걸 그릴 수 있는지 목업에서 보여야 한다.
+  */
+  if (tags.length > 0 && seed % 7 === 0) {
+    const opposite = reputationTagsOf(isBad ? "GOOD" : "BAD");
+
+    tags.push(opposite[seed % opposite.length].tag);
+  }
+
+  return { reputationVerdict: verdict, reputationTags: tags };
 };
 
 /**
@@ -449,8 +495,14 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
         블랙리스트 화면이 무엇을 근거로 걸러 냈는지 설명할 수 있다.
         앞으로의 행사에는 당연히 부르지 않는다.
       */
+      /*
+        직원은 직무 조건을 보지 않는다.
+        대행사가 주는 자리에 따라 팀장도 스태프도 맡기 때문에
+        "가능 직무"라는 조건 자체가 뜻을 갖지 못한다.
+      */
       const pool = (dayOffset < 0 ? everWorkedStaff() : assignableStaff()).filter(
-        (staff) => staff.roles.includes(role),
+        (staff) =>
+          staff.employment === "EMPLOYEE" || staff.roles.includes(role),
       );
       const assignedSet = takeAssignedSet(date);
 
@@ -489,6 +541,9 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
           staffId: candidate.staffId,
           staffName: candidate.name,
           staffPhone: candidate.phoneNumber,
+          staffProfileImageUrl: candidate.profileImageUrl,
+          staffGender: candidate.gender,
+          isEmployee: candidate.employment === "EMPLOYEE",
           role,
           status: assignmentStatus,
           wageType,
@@ -530,8 +585,13 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
                 seed * 11 + assignedCount,
               )
             : {}),
-          // 가까운 미래 행사 일부는 일부러 계약서 미서명으로 둔다. (대시보드 할 일 확인용)
-          isContractSigned: isDone ? true : assignedCount % 3 !== 0,
+          /*
+            가까운 미래 행사 일부는 일부러 계약서 미서명으로 둔다. (대시보드 할 일 확인용)
+            직원은 계약 대상이 아니라 언제나 완료로 둔다.
+          */
+          isContractSigned:
+            candidate.employment === "EMPLOYEE" ||
+            (isDone ? true : assignedCount % 3 !== 0),
           isPaid: dayOffset < -10,
           createdAt: toIsoDateTime(date, "09:00"),
         });
@@ -543,6 +603,15 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
         assignedCount,
         wageType,
         wage,
+        /*
+          성별 조건.
+
+          대부분은 무관이다. 몸을 쓰는 설치 · 철거에 남성만, 안내 · 응대가
+          중심인 모델 자리에 여성만을 적어 둔 발주가 실제로 들어오므로
+          화면에서 그 표시가 어떻게 보이는지 확인할 수 있게 섞어 둔다.
+          어디까지나 **표시**이고 배치를 막지 않는다.
+        */
+        genderPreference: resolveSeedGenderPreference(role, seed),
       };
     });
 
@@ -553,8 +622,8 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
   const totalRequired = roles.reduce((sum, slot) => sum + slot.requiredCount, 0);
   const totalAssigned = roles.reduce((sum, slot) => sum + slot.assignedCount, 0);
 
-  const billingRate =
-    client.billingRates.find((rate) => rate.role === "STAFF")?.rate ?? 17000;
+  /* 행사는 거래처 단가를 그대로 물려받고, 이후 행사마다 따로 고친다. */
+  const billingRates = client.billingRates;
 
   return {
     eventId,
@@ -572,7 +641,8 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     endDayOffset: time.endDayOffset as DayOffset,
     venue: place.venue,
     address: place.address,
-    managerName: MANAGERS[index % MANAGERS.length],
+    managerName: MANAGERS[index % MANAGERS.length].name,
+    managerPhone: MANAGERS[index % MANAGERS.length].phoneNumber,
     days,
     roles,
     totalRequired,
@@ -582,7 +652,7 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     dressCode: DRESS_CODES[index % DRESS_CODES.length],
     belongings: BELONGINGS[index % BELONGINGS.length],
     breakMinutes: time.breakMinutes,
-    clientBillingRate: billingRate,
+    billingRates,
     memo:
       seed % 4 === 0
         ? "거래처에서 지난 행사와 동일한 슈퍼바이저를 요청했습니다."
@@ -637,6 +707,8 @@ export const recalculateEventCounts = (event: EventDetail) => {
           assignedCount: 0,
           wageType: sample.wageType,
           wage: sample.wage,
+          /* 발주에 없던 직무라 조건도 없다. */
+          genderPreference: "ANY" as const,
         };
       }),
     ];
@@ -740,16 +812,46 @@ export const findConflictEvent = (
  * 실제 서버라면 집계 컬럼을 두거나 조회 시점에 세면 된다.
  */
 export const syncStaffReputationCounts = () => {
-  const counts = new Map<number, { good: number; bad: number }>();
+  const counts = new Map<
+    number,
+    { good: number; bad: number; delta: number }
+  >();
 
   events.forEach((event) =>
     event.assignments.forEach((assignment) => {
       if (!assignment.reputationVerdict) return;
 
-      const current = counts.get(assignment.staffId) ?? { good: 0, bad: 0 };
+      const current = counts.get(assignment.staffId) ?? {
+        good: 0,
+        bad: 0,
+        delta: 0,
+      };
 
-      if (assignment.reputationVerdict === "GOOD") current.good += 1;
-      else current.bad += 1;
+      const tags = assignment.reputationTags ?? [];
+
+      /*
+        건수는 **항목 단위**로 센다. 한 평가에 좋아요와 별로예요가 함께
+        담기므로 평가 하나를 한쪽으로만 세면 "좋아요 5 · 별로 0"이라 적혀
+        있는데 목록에는 별로예요 항목이 보이는 상태가 된다.
+
+        항목을 하나도 안 고른 평가는 방향만 한 건으로 센다.
+      */
+      if (tags.length > 0) {
+        tags.forEach((tag) => {
+          if (resolveTagVerdict(tag) === "BAD") current.bad += 1;
+          else current.good += 1;
+        });
+      } else if (assignment.reputationVerdict === "GOOD") {
+        current.good += 1;
+      } else {
+        current.bad += 1;
+      }
+
+      // 점수 계산은 화면과 같은 함수를 쓴다. 따로 세면 모달의 예고와 어긋난다.
+      current.delta += calculateReputationDelta(
+        tags,
+        assignment.reputationVerdict,
+      );
 
       counts.set(assignment.staffId, current);
     }),
@@ -760,6 +862,7 @@ export const syncStaffReputationCounts = () => {
 
     staff.goodCount = current?.good ?? 0;
     staff.badCount = current?.bad ?? 0;
+    staff.reputationScore = buildReputationScore(current?.delta ?? 0);
   });
 };
 

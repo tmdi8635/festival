@@ -15,6 +15,7 @@ import {
   type StaffSchema,
   type StaffSchemaInput,
 } from "@/schema/staff.schema";
+import { useHasPermission } from "@/store/useAdminStore";
 import { useActiveJobRoles } from "@/store/useOrgStore";
 import { type Gender, type StaffDetail } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
@@ -73,6 +74,8 @@ const toFormValues = (staff: StaffDetail): StaffSchemaInput => ({
  * 대신 서류 관리 화면에서 미제출 인력을 따로 추적한다.
  */
 const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
+  const canWriteDocument = useHasPermission("staffDocument:write");
+
   const { createMutation, updateMutation } = useStaffMutation();
   const jobRoles = useActiveJobRoles();
 
@@ -119,6 +122,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
       title={staff ? "인력 정보 수정" : "인력 등록"}
       description="휴대폰번호로 중복 등록을 막습니다. 이미 등록된 번호는 기존 인력을 수정해 주세요."
       size="lg"
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -305,9 +309,15 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
           </FormField>
         </div>
 
+        {/*
+          계좌 · 서류는 '인력 서류' 권한을 가진 사람만 손댄다.
+          권한이 없으면 칸을 감추고, 서버도 이 칸들만 무시하고 나머지를 저장한다.
+          (칸을 남겨 두면 가려진 빈 값이 그대로 올라가 계좌번호가 지워진다)
+        */}
+        {canWriteDocument && (
+        <>
         <Alert tone="info" title="계좌 · 서류는 정산에만 사용합니다.">
-          담당자 권한으로는 계좌 정보가 보이지 않습니다. 신분증 사본은 주민번호
-          뒷자리를 가린 상태로 받아 주세요.
+          신분증 사본은 주민번호 뒷자리를 가린 상태로 받아 주세요.
         </Alert>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -372,6 +382,8 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
             />
           </FormField>
         </div>
+        </>
+        )}
       </form>
     </Modal>
   );

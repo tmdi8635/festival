@@ -23,6 +23,11 @@ export const eventRoleSlotSchema = z
       .number()
       .int("정수로 입력해 주세요.")
       .min(1, "금액을 입력해 주세요."),
+    /*
+      성별 조건. 검증하지 않는다 — 어떤 값이든 배치를 막지 않는 표시일 뿐이다.
+      기본값을 둬서 예전 데이터나 빠뜨린 요청도 '무관'으로 떨어지게 한다.
+    */
+    genderPreference: z.enum(["ANY", "MALE", "FEMALE"]).default("ANY"),
   })
   .superRefine((slot, ctx) => {
     /*
@@ -72,15 +77,37 @@ export const eventSchema = z
     venue: z.string().min(1, "장소명을 입력해 주세요."),
     address: z.string().min(1, "주소를 입력해 주세요."),
     managerName: z.string().min(1, "담당 매니저를 입력해 주세요."),
+    /*
+      담당 매니저 연락처.
+
+      공지 문자에 담당자를 적어 보내 놓고 번호를 안 적으면, 현장에서 문제가 생긴
+      사람은 결국 아무 데도 연락하지 못한다. 그래서 필수로 받는다.
+    */
+    managerPhone: z
+      .string()
+      .min(1, "담당 매니저 연락처를 입력해 주세요.")
+      .regex(/^01[016789][0-9]{7,8}$/, "'-' 없이 숫자만 입력해 주세요."),
     description: z.string().max(500, "500자 이내로 입력해 주세요."),
     meetingPoint: z.string().min(1, "집합 장소와 시간을 입력해 주세요."),
     dressCode: z.string().min(1, "복장 규정을 입력해 주세요."),
     belongings: z.string().max(200, "200자 이내로 입력해 주세요."),
     breakMinutes: z.coerce.number().int().min(0).max(240),
-    clientBillingRate: z.coerce
-      .number()
-      .int("정수로 입력해 주세요.")
-      .min(0, "0 이상이어야 합니다."),
+    /*
+      직무별 거래처 청구 단가. **선택이다.**
+
+      거래처에 등록해 둔 단가를 기본으로 깔아 주되, 발주는 늘 그때그때
+      다르게 들어오므로 행사마다 자유롭게 고친다. 비워 두면 그 직무가
+      마진 계산에서 빠질 뿐 저장은 그대로 된다.
+    */
+    billingRates: z.array(
+      z.object({
+        role: z.string().min(1),
+        rate: z.coerce
+          .number()
+          .int("정수로 입력해 주세요.")
+          .min(0, "0 이상이어야 합니다."),
+      }),
+    ),
     memo: z.string().max(500, "500자 이내로 입력해 주세요."),
     roles: z
       .array(eventRoleSlotSchema)
@@ -160,12 +187,14 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
   venue: "",
   address: "",
   managerName: "",
+  managerPhone: "",
   description: "",
   meetingPoint: "",
   dressCode: "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",
   belongings: "신분증",
   breakMinutes: 0,
-  clientBillingRate: 17000,
+  // 거래처를 고르면 화면이 그 거래처의 단가로 채운다.
+  billingRates: [],
   memo: "",
   roles: [
     {
@@ -174,6 +203,7 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
       assignedCount: 0,
       wageType: "HOURLY" as const,
       wage: 18000,
+      genderPreference: "ANY" as const,
     },
     {
       role: "STAFF",
@@ -181,6 +211,7 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
       assignedCount: 0,
       wageType: "HOURLY" as const,
       wage: 12000,
+      genderPreference: "ANY" as const,
     },
   ],
 };

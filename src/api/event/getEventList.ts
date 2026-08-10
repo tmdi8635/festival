@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { EventStatus, EventSummary } from "@/type/event";
 
 export interface EventListParams {
@@ -34,7 +34,7 @@ export const useEventListQuery = (
   params: EventListParams,
   enabled = true,
 ) => {
-  return useQuery<PageResponse<EventSummary>, AppError>({
+  return usePermittedQuery<PageResponse<EventSummary>>("event:read", {
     queryKey: ["get-event-list", params],
     queryFn: () => getEventList(params),
     enabled,

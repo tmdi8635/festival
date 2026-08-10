@@ -28,6 +28,7 @@ const DEFAULT_FEATURE_MODES: Record<FeatureKey, FeatureMode> = {
   RECRUIT: "MOCK",
   MESSAGE: "MOCK",
   CLIENT: "ENABLED",
+  HR_POLICY: "MOCK",
 };
 
 export const useOrgStore = create<OrgState>((set) => ({
@@ -69,13 +70,6 @@ const findJobRole = (code: JobRole): JobRoleDef | undefined =>
  */
 export const jobRoleLabel = (code: JobRole): string =>
   findJobRole(code)?.name ?? code;
-
-/** 캘린더처럼 좁은 곳에서 쓰는 짧은 이름 */
-export const jobRoleShortLabel = (code: JobRole): string => {
-  const role = findJobRole(code);
-
-  return role?.shortName || role?.name || code;
-};
 
 /* ------------------------------------------------------------------ */
 /* 나열 순서                                                            */
@@ -198,17 +192,6 @@ export const useJobRoleLabel = () => {
       jobRoles.find((role) => role.code === code)?.name ?? code,
     [jobRoles],
   );
-};
-
-/** 좁은 곳에 쓰는 짧은 이름 변환 함수 */
-export const useJobRoleShortLabel = () => {
-  const jobRoles = useJobRoles();
-
-  return useCallback((code: JobRole) => {
-    const role = jobRoles.find((item) => item.code === code);
-
-    return role?.shortName || role?.name || code;
-  }, [jobRoles]);
 };
 
 /**

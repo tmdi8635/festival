@@ -8,14 +8,12 @@ import {
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
 import { useListSearch } from "@/hooks/useListSearch";
-import { FileText, Upload, Wallet } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import { formatPhoneNumber, type Staff, type StaffDetail } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
-import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import CsvExportButton from "@/components/ui/CsvExportButton";
 import Pagination from "@/components/ui/Pagination";
@@ -25,7 +23,6 @@ import Table, { type TableColumn } from "@/components/ui/Table";
 import StaffCell from "@/components/domain/StaffCell";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
 import StaffFormModal from "@/components/domain/StaffFormModal";
-import StatTile from "@/components/domain/StatTile";
 
 const DOCUMENT_CSV_COLUMNS: CsvColumn<Staff>[] = [
   { header: "이름", value: (row) => row.name },
@@ -61,12 +58,13 @@ const DocumentManager = () => {
     status: "ACTIVE",
   });
 
-  /** 전체 대비 미제출 비율을 보려면 두 번째 조회가 필요하다. */
-  const { data: totalData } = useStaffListQuery({
-    page: 1,
-    size: 1,
-    status: "ACTIVE",
-  });
+  /**
+   * 미제출 인원.
+   *
+   * 목록이 '전체'로 걸려 있어도 미제출이 남아 있으면 안내를 띄워야 해서
+   * 한 건만 따로 센다. (제출률은 세지 않는다 — 여기서 할 일은 비율이 아니라
+   * 남은 사람의 서류를 받는 것이다)
+   */
   const { data: incompleteData } = useStaffListQuery({
     page: 1,
     size: 1,
@@ -74,12 +72,7 @@ const DocumentManager = () => {
     documentState: "INCOMPLETE",
   });
 
-  const totalCount = totalData?.totalCount ?? 0;
   const incompleteCount = incompleteData?.totalCount ?? 0;
-  const completeRate =
-    totalCount > 0
-      ? Math.round(((totalCount - incompleteCount) / totalCount) * 100)
-      : 0;
 
   const columns: TableColumn<Staff>[] = [
     {
@@ -90,6 +83,7 @@ const DocumentManager = () => {
           name={staff.name}
           phoneNumber={staff.phoneNumber}
           profileImageUrl={staff.profileImageUrl}
+          gender={staff.gender}
           isFavorite={staff.isFavorite}
         />
       ),
@@ -141,51 +135,18 @@ const DocumentManager = () => {
         </span>
       ),
     },
-    {
-      key: "actions",
-      header: "",
-      width: "120px",
-      align: "right",
-      render: (staff) => (
-        <div
-          className="flex justify-end"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Button
-            size="sm"
-            variant="secondary"
-            leftIcon={<Upload size={14} />}
-            onClick={() => setDetailStaffId(staff.staffId)}
-          >
-            서류 확인
-          </Button>
-        </div>
-      ),
-    },
   ];
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatTile
-          label="활동 인력"
-          value={`${totalCount}명`}
-          icon={<FileText size={18} />}
-        />
-        <StatTile
-          label="서류 미제출"
-          value={`${incompleteCount}명`}
-          description="정산 계좌를 확정할 수 없는 인력입니다."
-          tone={incompleteCount > 0 ? "danger" : "default"}
-          icon={<Wallet size={18} />}
-        />
-        <StatTile
-          label="서류 제출률"
-          value={`${completeRate}%`}
-          description="신분증 · 통장사본 모두 제출 기준"
-        />
-      </div>
+      {/*
+        요약 타일을 두지 않는다.
 
+        '활동 인력 84명 · 미제출 6명 · 제출률 93%'는 세 칸이 전부 같은 것을
+        말하고, 그중 무엇도 여기서 할 일을 알려 주지 않는다. 이 화면에서 하는
+        일은 **미제출인 사람의 서류를 받는 것** 하나이고, 그건 아래 목록이
+        답한다. 목록이 첫 화면에 들어와야 그 일이 시작된다.
+      */}
       <Card noPadding>
         <div className="flex flex-col gap-2.5 border-b border-border-main px-4 py-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-3 lg:px-5 lg:py-3.5">
           <SearchInput

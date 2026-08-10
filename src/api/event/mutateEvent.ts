@@ -60,6 +60,14 @@ export const useEventMutation = () => {
     queryClient.invalidateQueries({ queryKey: ["get-event-calendar"] });
     queryClient.invalidateQueries({ queryKey: ["get-event-detail"] });
     queryClient.invalidateQueries({ queryKey: ["get-dashboard-summary"] });
+    /*
+      정산 건은 **행사 상태가 넘어가는 순간** 배치에서 만들어진다.
+      (`ensurePayrollForEvent`) 여기서 함께 무효화하지 않으면 담당자가
+      '정산대기로 넘기기'를 눌러도 정산 탭이 계속 비어 있고, 새로고침을
+      해야 나타난다. 그 사이에 "정산이 왜 안 나오냐"가 된다.
+    */
+    queryClient.invalidateQueries({ queryKey: ["get-payroll-list"] });
+    queryClient.invalidateQueries({ queryKey: ["get-payroll-summary"] });
   };
 
   const createMutation = useMutation<EventDetail, AppError, EventFormValues>({

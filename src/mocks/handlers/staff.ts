@@ -10,8 +10,11 @@ import type {
   StaffWorkHistory,
 } from "@/type/staff";
 import {
+  REPUTATION_BASE_SCORE,
+  calculateReputationDelta,
   resolveReputationCount,
-  resolveReputationScore,
+  resolveTagVerdict,
+  resolveStaffStatus,
 } from "@/type/staff";
 import {
   calculateBasePay,
@@ -32,6 +35,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requesterCan,
   requirePermission,
 } from "../utils";
 
@@ -71,8 +75,88 @@ const toStaffSummary = (staff: StaffDetail) => {
   return summary;
 };
 
+/**
+ * 상세 응답에서 **볼 권한이 없는 값만** 덜어 낸다.
+ *
+ * 인력 상세 한 장에 세 가지 성격의 값이 섞여 있다.
+ * 이름 · 연락처(인력), 신분증 · 통장사본(인력 서류), 계좌번호(정산)다.
+ * 화면에서 계좌 칸을 감추는 것만으로는 값이 이미 응답에 실려 온 뒤라
+ * 개발자도구만 열면 그대로 보인다. 실제로 지우는 곳은 여기다.
+ *
+ * 상세를 통째로 막지 않는 이유는, 배치하려면 이름과 연락처는 봐야 하기 때문이다.
+ * 자료마다 권한을 나눠 놓고 화면 단위로 막으면 나눈 의미가 없어진다.
+ */
+const maskStaffDetail = (staff: StaffDetail, request: Request): StaffDetail => {
+  const masked = { ...staff };
+
+  if (!requesterCan(request, "staffDocument:read")) {
+    masked.idCardImageUrl = "";
+    masked.bankBookImageUrl = "";
+  }
+
+  /*
+    계좌는 두 갈래로 열린다.
+    이체하려면 정산 담당이 봐야 하고(`payroll:read`),
+    통장사본을 받아 옮겨 적는 사람도 봐야 한다(`staffDocument:read`).
+    뒤쪽을 빼면 서류 담당이 자기가 입력한 계좌를 못 보게 되고,
+    그 상태로 인력 폼을 저장하면 빈 값이 올라가 계좌번호가 지워진다.
+  */
+  if (
+    !requesterCan(request, "payroll:read") &&
+    !requesterCan(request, "staffDocument:read")
+  ) {
+    masked.bankName = "";
+    masked.accountNumber = "";
+    masked.accountHolder = "";
+  }
+
+  if (!requesterCan(request, "payroll:read")) {
+    masked.totalPaidAmount = 0;
+  }
+
+  if (!requesterCan(request, "blacklist:read")) {
+    masked.blacklistReason = undefined;
+  }
+
+  return masked;
+};
+
+/**
+ * 인력 등록 · 수정 요청에서 **서류 칸을 손댈 수 있는지** 본다.
+ *
+ * 인력 폼 한 장에 인적사항과 서류(신분증 · 통장사본 · 계좌)가 함께 들어 있다.
+ * 폼 전체를 `staff:write` 하나로 받으면, 서류 권한이 없는 사람이
+ * 인력 수정 화면을 통해 서류를 올릴 수 있다. 따로 뗀 권한이 뜻을 잃는다.
+ *
+ * 값을 무시할 뿐 요청을 거부하지는 않는다. 상세 조회에서 이미 가려 둔 값이라
+ * 폼을 열어 저장하면 빈 값이 그대로 올라오는데, 이때 거부하면
+ * 이름 하나 고치려던 사람이 막히고, 그대로 반영하면 **계좌번호가 지워진다.**
+ * 그래서 서류 칸은 건드리지 않고 나머지만 반영한다.
+ */
+const DOCUMENT_FIELDS = [
+  "bankName",
+  "accountNumber",
+  "accountHolder",
+  "idCardImageUrl",
+  "bankBookImageUrl",
+] as const;
+
+const omitDocumentFields = (body: StaffFormValues): StaffFormValues => {
+  const next = { ...body };
+
+  DOCUMENT_FIELDS.forEach((field) => {
+    delete next[field];
+  });
+
+  return next;
+};
+
 export const staffHandlers = [
   http.get(`${BASE_URI}/admin/staff`, async ({ request }) => {
+    const denied = requirePermission(request, "staff:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as StaffStatus | null;
@@ -83,6 +167,15 @@ export const staffHandlers = [
     const sort = url.searchParams.get("sort") ?? "RECENT";
 
     const filtered = sortedStaff().filter((staff) => {
+      /*
+        직원은 인력풀 목록에 세우지 않는다.
+
+        인력풀은 "이번 행사에 누구를 부를까"를 고르는 자리이고, 그 판단의 축은
+        서류 · 평판 · 지급 이력이다. 직원은 그 축 어디에도 해당하지 않아서
+        섞여 있으면 서류 미제출 · 정산 없음으로만 읽힌다.
+        직원 명부는 운영 > 직원 관리다. (배치 후보에는 당연히 함께 나온다)
+      */
+      if (staff.employment === "EMPLOYEE") return false;
       if (status && staff.status !== status) return false;
       if (role && !staff.roles.includes(role)) return false;
       if (region && staff.region !== region) return false;
@@ -104,16 +197,24 @@ export const staffHandlers = [
       );
     });
 
-    // 배치할 사람을 고를 때와 관리 대상을 볼 때의 정렬 기준이 다르다.
+    /*
+      **즐겨찾기가 언제나 맨 위다.**
+
+      에이전시는 결국 부르던 사람을 또 부른다. 검색을 하든 정렬을 바꾸든
+      그 사람들이 먼저 보여야 하고, 그러지 않으면 담당자는 스크롤을 내리다가
+      결국 이름으로 다시 검색한다. 고른 정렬 기준은 **그다음**에 적용된다.
+
+      화면이 아니라 여기서 정렬한다. 화면에서 다시 세우면 페이지가 넘어갈 때
+      "2페이지 맨 위에 또 즐겨찾기"가 되어 순서가 통째로 어긋난다.
+    */
     const sorted = [...filtered].sort((a, b) => {
+      const byFavorite = Number(b.isFavorite) - Number(a.isFavorite);
+
+      if (byFavorite !== 0) return byFavorite;
+
       if (sort === "WORK_COUNT") return b.workCount - a.workCount;
-      /*
-        평판순은 평판 점수로 정렬한다.
-        단순 평균으로 줄 세우면 "딱 한 번 5.0을 받은 신입"이 목록 맨 위에 온다.
-      */
-      if (sort === "RATING") {
-        return resolveReputationScore(b) - resolveReputationScore(a);
-      }
+      /* 평판순은 누적 점수 그대로다. 오래 잘해 온 사람이 위로 온다. */
+      if (sort === "RATING") return b.reputationScore - a.reputationScore;
       if (sort === "RATING_COUNT") {
         return (
           resolveReputationCount(b) - resolveReputationCount(a)
@@ -131,20 +232,28 @@ export const staffHandlers = [
     return HttpResponse.json(paginate(sorted.map(toStaffSummary), url));
   }),
 
-  http.get(`${BASE_URI}/admin/staff/:staffId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "staff:read");
+
+    if (denied) return denied;
+
     const staff = findStaff(Number(params.staffId));
 
     await delay(MOCK_DELAY_MS);
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
-    return HttpResponse.json(staff);
+    return HttpResponse.json(maskStaffDetail(staff, request));
   }),
 
   /** 인력이 참여한 행사 이력. 블랙리스트 판단의 근거 화면이다. */
   http.get(
     `${BASE_URI}/admin/staff/:staffId/histories`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:read");
+
+      if (denied) return denied;
+
       const staffId = Number(params.staffId);
       const staff = findStaff(staffId);
 
@@ -243,7 +352,11 @@ export const staffHandlers = [
    */
   http.get(
     `${BASE_URI}/admin/staff/:staffId/reputations`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:read");
+
+      if (denied) return denied;
+
       const staffId = Number(params.staffId);
       const staff = findStaff(staffId);
 
@@ -266,7 +379,13 @@ export const staffHandlers = [
               role: assignment.role,
               verdict: assignment.reputationVerdict!,
               tags: assignment.reputationTags ?? [],
+              /* 점수 계산은 화면 · 집계와 같은 함수를 쓴다. */
+              points: calculateReputationDelta(
+                assignment.reputationTags ?? [],
+                assignment.reputationVerdict,
+              ),
               comment: assignment.reputationComment,
+              ratedAt: assignment.reputationRatedAt,
               ratedBy: event.managerName,
               /*
                 지금은 에이전시(담당 매니저)가 남기는 평가뿐이다.
@@ -290,7 +409,14 @@ export const staffHandlers = [
             return;
           }
 
-          tagMap.set(tag, { count: 1, verdict: item.verdict });
+          /*
+            방향은 **항목 자체**에서 온다. 평가의 방향(`item.verdict`)을 쓰면,
+            좋아요와 별로예요가 섞인 평가에서 항목 색이 통째로 한쪽으로 칠해진다.
+          */
+          tagMap.set(tag, {
+            count: 1,
+            verdict: resolveTagVerdict(tag) ?? item.verdict,
+          });
         }),
       );
 
@@ -312,7 +438,10 @@ export const staffHandlers = [
 
       if (denied) return denied;
 
-    const body = (await request.json()) as StaffFormValues;
+    const raw = (await request.json()) as StaffFormValues;
+    const body = requesterCan(request, "staffDocument:write")
+      ? raw
+      : omitDocumentFields(raw);
 
     const isDuplicated = staffList.some(
       (staff) => staff.phoneNumber === body.phoneNumber,
@@ -328,15 +457,30 @@ export const staffHandlers = [
       );
     }
 
+    const isDocumentComplete = Boolean(
+      body.idCardImageUrl && body.bankBookImageUrl,
+    );
+
     const created: StaffDetail = {
       ...body,
       staffId: nextId(staffList, "staffId"),
-      status: "ACTIVE",
-      isDocumentComplete: Boolean(body.idCardImageUrl && body.bankBookImageUrl),
+      /*
+        새로 등록한 사람은 서류가 갖춰졌는지에 따라 갈린다.
+        서류를 함께 올렸으면 곧바로 활동중, 아니면 대기중이다.
+        (`resolveStaffStatus` — 화면·시드와 같은 함수)
+      */
+      status: resolveStaffStatus({
+        isDocumentComplete,
+        employment: "FREELANCER",
+      }),
+      /* 인력풀에서 만드는 사람은 프리랜서다. 직원은 운영 > 직원 관리에서 등록한다. */
+      employment: "FREELANCER",
+      isDocumentComplete,
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,
       lateCount: 0,
+      reputationScore: REPUTATION_BASE_SCORE,
       goodCount: 0,
       badCount: 0,
       isFavorite: false,
@@ -357,7 +501,10 @@ export const staffHandlers = [
       if (denied) return denied;
 
     const staff = findStaff(Number(params.staffId));
-    const body = (await request.json()) as StaffFormValues;
+    const raw = (await request.json()) as StaffFormValues;
+    const body = requesterCan(request, "staffDocument:write")
+      ? raw
+      : omitDocumentFields(raw);
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
@@ -365,6 +512,8 @@ export const staffHandlers = [
     staff.isDocumentComplete = Boolean(
       staff.idCardImageUrl && staff.bankBookImageUrl,
     );
+    // 서류가 바뀌면 상태도 따라 움직인다. 판단은 한 함수에서만 한다.
+    staff.status = resolveStaffStatus(staff);
 
     await delay(MOCK_DELAY_MS);
 
@@ -376,9 +525,13 @@ export const staffHandlers = [
    *
    * 지금은 등록도 수정도 전부 손으로 하는 단계라, 잘못 넣은 사람을 지울 방법이 필요하다.
    * 다만 근무 이력이 있는 사람을 지우면 정산·계약서가 주인 없는 데이터가 되므로 막는다.
-   * (그런 경우는 '활동종료'로 상태만 바꾸는 것이 맞다)
+   * (그런 경우는 서류를 지워 '대기중'으로 내리거나 블랙리스트로 지정한다)
    */
-  http.delete(`${BASE_URI}/admin/staff/:staffId`, async ({ params }) => {
+  http.delete(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "staff:delete");
+
+    if (denied) return denied;
+
     const staffId = Number(params.staffId);
     const index = staffList.findIndex((staff) => staff.staffId === staffId);
 
@@ -411,11 +564,31 @@ export const staffHandlers = [
         reason?: string;
       };
 
+      /*
+        이 주소로 오는 일은 사실상 **블랙리스트 지정과 해제** 둘뿐이다.
+        대기중 ↔ 활동중은 서류가 정하므로(`resolveStaffStatus`) 사람이 고를 값이 아니다.
+
+        블랙리스트는 그 사람을 다시 부르지 못하게 하는 일이라 따로 뗀
+        권한(`blacklist:write`)이 있어야 한다. 해제도 마찬가지다 —
+        지정만 막고 해제를 열어 두면 막은 뜻이 없다.
+
+        **없는 대상이라도 권한부터 본다.** 404를 먼저 돌려주면
+        권한이 없는 사람이 아무 번호나 넣어 보며 "몇 번이 존재하는지"를 알아낼 수 있다.
+      */
+      const touchesBlacklist =
+        body.status === "BLACKLIST" || staff?.status === "BLACKLIST";
+
+      const denied = requirePermission(
+        request,
+        touchesBlacklist ? "blacklist:write" : "staff:write",
+      );
+
+      if (denied) return denied;
+
       if (!staff) return notFound("존재하지 않는 인력입니다.");
 
-      staff.status = body.status;
-
       if (body.status === "BLACKLIST") {
+        staff.status = "BLACKLIST";
         staff.blacklistReason = body.reason;
         staff.blacklistedAt = new Date().toISOString();
         staff.isFavorite = false;
@@ -423,6 +596,12 @@ export const staffHandlers = [
         // 해제하면 사유를 남겨 두지 않는다. 이력은 메모로 관리한다.
         staff.blacklistReason = undefined;
         staff.blacklistedAt = undefined;
+        /*
+          해제한 뒤의 상태는 **요청 값이 아니라 서류가 정한다.**
+          '활동중'으로 되돌려 달라는 요청을 그대로 반영하면, 서류가 없는
+          사람이 활동중으로 올라가 확정 배치에서 막히는 상태가 만들어진다.
+        */
+        staff.status = resolveStaffStatus({ ...staff, status: undefined });
       }
 
       await delay(MOCK_DELAY_MS);
@@ -436,6 +615,10 @@ export const staffHandlers = [
   http.patch(
     `${BASE_URI}/admin/staff/:staffId/favorite`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const { isFavorite } = (await request.json()) as { isFavorite: boolean };
 
@@ -452,6 +635,10 @@ export const staffHandlers = [
   http.patch(
     `${BASE_URI}/admin/staff/:staffId/documents`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staffDocument:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const body = (await request.json()) as {
         idCardImageUrl?: string;
@@ -467,6 +654,12 @@ export const staffHandlers = [
       staff.isDocumentComplete = Boolean(
         staff.idCardImageUrl && staff.bankBookImageUrl,
       );
+      /*
+        상태는 서류가 정한다. 서류를 채우면 활동중, 지우면 대기중이다.
+        여기서 따라 움직이지 않으면 "서류를 지웠는데 목록은 활동중"이 남고,
+        그 사람을 배치하려다 확정 단계에서야 막힌다.
+      */
+      staff.status = resolveStaffStatus(staff);
 
       await delay(MOCK_DELAY_MS);
 
@@ -477,6 +670,10 @@ export const staffHandlers = [
   http.post(
     `${BASE_URI}/admin/staff/:staffId/memos`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
       const body = (await request.json()) as {
         content: string;
@@ -509,7 +706,11 @@ export const staffHandlers = [
 
   http.delete(
     `${BASE_URI}/admin/staff/:staffId/memos/:memoId`,
-    async ({ params }) => {
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staff:write");
+
+      if (denied) return denied;
+
       const staff = findStaff(Number(params.staffId));
 
       if (!staff) return notFound("존재하지 않는 인력입니다.");

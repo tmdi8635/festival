@@ -33,6 +33,7 @@ import {
   nextId,
   notFound,
   paginate,
+  requirePermission,
 } from "../utils";
 
 /**
@@ -52,6 +53,10 @@ const resolveConfirmedWage = (
 
 export const recruitHandlers = [
   http.get(`${BASE_URI}/admin/postings`, async ({ request }) => {
+    const denied = requirePermission(request, "recruit:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as PostingStatus | null;
@@ -80,7 +85,11 @@ export const recruitHandlers = [
     return HttpResponse.json(paginate(sorted, url));
   }),
 
-  http.get(`${BASE_URI}/admin/postings/:postingId`, async ({ params }) => {
+  http.get(`${BASE_URI}/admin/postings/:postingId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "recruit:read");
+
+    if (denied) return denied;
+
     const posting = findPosting(Number(params.postingId));
 
     await delay(MOCK_DELAY_MS);
@@ -95,6 +104,10 @@ export const recruitHandlers = [
    * 행사 정보에서 공고문을 자동으로 만들어 준다. 필수 항목 누락을 막기 위해서다.
    */
   http.post(`${BASE_URI}/admin/postings`, async ({ request }) => {
+    const denied = requirePermission(request, "recruit:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as PostingFormValues;
     const event = findEvent(body.eventId);
 
@@ -149,6 +162,10 @@ export const recruitHandlers = [
   http.put(
     `${BASE_URI}/admin/postings/:postingId`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "recruit:write");
+
+      if (denied) return denied;
+
       const posting = findPosting(Number(params.postingId));
       const body = (await request.json()) as PostingFormValues;
 
@@ -172,6 +189,10 @@ export const recruitHandlers = [
   http.patch(
     `${BASE_URI}/admin/postings/:postingId/status`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "recruit:write");
+
+      if (denied) return denied;
+
       const posting = findPosting(Number(params.postingId));
       const { status } = (await request.json()) as { status: PostingStatus };
 
@@ -196,6 +217,10 @@ export const recruitHandlers = [
   /* ---------------------------------- 지원 ---------------------------------- */
 
   http.get(`${BASE_URI}/admin/applications`, async ({ request }) => {
+    const denied = requirePermission(request, "recruit:read");
+
+    if (denied) return denied;
+
     const url = new URL(request.url);
     const keyword = url.searchParams.get("keyword") ?? "";
     const status = url.searchParams.get("status") as ApplicationStatus | null;
@@ -233,10 +258,25 @@ export const recruitHandlers = [
   http.patch(
     `${BASE_URI}/admin/applications/:applicationId`,
     async ({ params, request }) => {
-      const application = findApplication(Number(params.applicationId));
+      /*
+        지원 확정은 그 자리에서 행사 배치까지 만든다.
+        그래서 모집 권한만으로는 부족하고 배치 권한도 함께 있어야 한다.
+        한쪽만 보고 통과시키면 `assignment:write`가 없는 사람이
+        모집 화면을 통해 배치를 만들 수 있다.
+      */
       const { status } = (await request.json()) as {
         status: ApplicationStatus;
       };
+
+      const denied =
+        requirePermission(request, "recruit:write") ??
+        (status === "ACCEPTED"
+          ? requirePermission(request, "assignment:write")
+          : null);
+
+      if (denied) return denied;
+
+      const application = findApplication(Number(params.applicationId));
 
       if (!application) return notFound("존재하지 않는 지원 건입니다.");
 
@@ -284,12 +324,15 @@ export const recruitHandlers = [
           staffId: staff.staffId,
           staffName: staff.name,
           staffPhone: staff.phoneNumber,
+          staffProfileImageUrl: staff.profileImageUrl,
+          staffGender: staff.gender,
+          isEmployee: staff.employment === "EMPLOYEE",
           role: application.role,
           status: "CONFIRMED",
           ...resolveConfirmedWage(event, application.role),
           attendance: "PENDING",
           lateMinutes: 0,
-          isContractSigned: false,
+          isContractSigned: staff.employment === "EMPLOYEE",
           isPaid: false,
           createdAt: new Date().toISOString(),
         });
@@ -309,6 +352,10 @@ export const recruitHandlers = [
 
   /** 문자로 받은 지원을 손으로 등록한다. (앱이 붙기 전까지의 창구) */
   http.post(`${BASE_URI}/admin/applications`, async ({ request }) => {
+    const denied = requirePermission(request, "recruit:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as {
       postingId: number;
       applicantName: string;

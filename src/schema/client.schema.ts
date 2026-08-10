@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { DEFAULT_JOB_ROLES } from "@/type/staff";
 
 /** 거래처 등록 · 수정 폼 스키마 */
 export const clientSchema = z.object({
@@ -20,6 +19,13 @@ export const clientSchema = z.object({
       (value) => value === "" || z.string().email().safeParse(value).success,
       "올바른 이메일 형식이 아닙니다.",
     ),
+  /*
+    직무별 청구 단가. **필수가 아니다.**
+
+    아직 단가를 협의하지 않은 거래처가 대부분인데, 여기서 막으면 거래처를
+    만들 수 없고 그러면 행사도 못 만든다. 비워 두면 0으로 들어오고,
+    저장할 때 0인 줄은 아예 떨어져 나간다. (`compactBillingRates`)
+  */
   billingRates: z.array(
     z.object({
       role: z.string().min(1, "직무를 선택해 주세요."),
@@ -39,8 +45,12 @@ export const EMPTY_CLIENT_VALUES: ClientSchemaInput = {
   managerName: "",
   managerPhone: "",
   managerEmail: "",
-  // 실제 직무 목록은 기준 설정에서 오므로, 폼이 열릴 때 화면이 다시 채운다.
-  billingRates: DEFAULT_JOB_ROLES.map((role) => ({ role: role.code, rate: 0 })),
+  /*
+    직무 목록은 **기준 설정이 원본**이다. 여기에 고정 목록을 깔아 두면
+    직무를 갈아엎은 에이전시의 거래처 폼에 없는 직무가 뜨고, 새로 만든
+    직무는 영영 안 뜬다. 폼이 열릴 때 화면이 현재 직무로 채운다.
+  */
+  billingRates: [],
   isActive: true,
   memo: "",
 };

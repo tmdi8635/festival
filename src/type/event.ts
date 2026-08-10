@@ -1,4 +1,11 @@
-import type { AttendanceStatus, JobRole, ReputationVerdict } from "./staff";
+import type { ClientBillingRate } from "./client";
+import { resolveBillingRate } from "./client";
+import type {
+  AttendanceStatus,
+  Gender,
+  JobRole,
+  ReputationVerdict,
+} from "./staff";
 
 /**
  * 행사 · 인력 배치 도메인 타입.
@@ -141,8 +148,19 @@ export const buildRecurrenceFromPreset = (
   };
 
   switch (preset) {
+    /*
+      하루짜리로 되돌리면 제외일을 버린다.
+      하나뿐인 근무일을 제외하면 근무일이 0일인 행사가 되는데,
+      "하루만"에는 제외를 되돌릴 자리가 없어서 손쓸 방법이 없어진다.
+    */
     case "SINGLE":
-      return { ...common, type: "SINGLE", weekdays: [], intervalWeeks: 1 };
+      return {
+        ...common,
+        type: "SINGLE",
+        weekdays: [],
+        intervalWeeks: 1,
+        excludeDates: [],
+      };
     case "CONSECUTIVE":
       return { ...common, type: "CONSECUTIVE", weekdays: [] };
     case "WEEKEND":
@@ -233,6 +251,36 @@ export const WAGE_TYPE_UNIT: Record<WageType, string> = {
   DAILY: "원 / 일",
 };
 
+/**
+ * 발주에 걸린 성별 조건.
+ *
+ * 컨퍼런스 안내는 여성만, 설치 · 철거는 남성만 뽑는 일이 실제로 있다.
+ * 보통은 무관이지만, 조건이 있는 날 그것을 모르고 사람을 넣으면
+ * 현장에서 되돌려야 한다. 그래서 발주에 미리 적어 둔다.
+ *
+ * **이 값은 아무것도 막지 않는다.** 현장은 유동적이라 '남성만'으로 받은 자리에
+ * 여성을 넣는 일도, 그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는
+ * 조건을 아예 안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
+ * 반드시 지켜야 하는 조건이라면 **내부 메모로 따로** 남긴다.
+ *
+ * 지금은 화면에 표시하고 배치 후보 필터의 초기값으로만 쓴다.
+ * 나중에 공고를 띄우게 되면 그때 공고문에 실린다.
+ */
+export type GenderPreference = "ANY" | "MALE" | "FEMALE";
+
+export const GENDER_PREFERENCE_LABEL: Record<GenderPreference, string> = {
+  ANY: "성별 무관",
+  MALE: "남성만",
+  FEMALE: "여성만",
+};
+
+/** 발주 슬롯에 배지로 붙일 짧은 말. '무관'은 붙이지 않으므로 없다. */
+export const GENDER_PREFERENCE_BADGE: Record<GenderPreference, string> = {
+  ANY: "",
+  MALE: "남성",
+  FEMALE: "여성",
+};
+
 /** 직무별 발주 · 확정 현황 */
 export interface EventRoleSlot {
   role: JobRole;
@@ -247,6 +295,8 @@ export interface EventRoleSlot {
    * 시급이면 시간당, 일급이면 하루치다. 등급 가산액은 시급일 때만 더해진다.
    */
   wage: number;
+  /** 성별 조건. 표시 · 추천용이고 **배치를 막지 않는다.** */
+  genderPreference: GenderPreference;
 }
 
 /**
@@ -296,6 +346,22 @@ export interface EventSummary {
   venue: string;
   address: string;
   managerName: string;
+  /**
+   * 담당 매니저 연락처.
+   *
+   * 이름만으로는 현장에서 아무것도 할 수 없다. 문자에 담당자를 적어 보내 놓고
+   * 번호를 안 적으면, 현장에서 문제가 생긴 사람은 결국 아무 데도 연락하지 못한다.
+   */
+  managerPhone: string;
+  /*
+    '메인팀장'은 두지 않는다.
+
+    직무와 별개로 "팀장 중 이 행사를 끌고 가는 한 사람"을 따로 지정하게 했는데,
+    직무 목록에 이미 팀장이 있으니 **같은 것을 두 곳에서 정하는 일**이 됐다.
+    배치에서 팀장을 넣고 상세에서 메인팀장을 또 고르지 않으면 명단 · 문자 ·
+    캘린더 곳곳에 '지정 전'만 남았고, 그 빈칸이 무엇을 뜻하는지 아무도 몰랐다.
+    현장에서 누구에게 연락하는지는 직무(팀장)와 담당 매니저로 충분하다.
+  */
   /** 전체 일자를 합산한 직무별 현황 */
   roles: EventRoleSlot[];
   totalRequired: number;
@@ -311,8 +377,18 @@ export interface EventDetail extends EventSummary {
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  /** 거래처에 청구하는 시급. 인건비와 비교해 마진을 계산한다. */
-  clientBillingRate: number;
+  /**
+   * 거래처에 청구하는 **직무별** 시급. 인건비와 비교해 마진을 계산한다.
+   *
+   * 예전에는 행사 하나에 시급 하나였다. 그런데 팀장 · 스태프 · 설치는
+   * 지급도 청구도 단가가 다르다. 하나로 묶어 두면 팀장이 많은 행사의 매출이
+   * 통째로 낮게 잡히고, 그 숫자를 보고 다음 발주 단가를 정하게 된다.
+   *
+   * 거래처에 등록된 단가를 기본으로 가져오되(`Client.billingRates`)
+   * 행사마다 자유롭게 고친다. 발주는 늘 그때그때 다르게 들어온다.
+   * 비어 있어도 된다 — 그 직무가 마진 계산에서 빠질 뿐이다.
+   */
+  billingRates: ClientBillingRate[];
   memo: string;
   assignments: Assignment[];
   createdAt: string;
@@ -348,6 +424,30 @@ export interface Assignment {
   staffId: number;
   staffName: string;
   staffPhone: string;
+  /**
+   * 얼굴 사진.
+   *
+   * 명부를 보는 사람은 이름보다 얼굴로 사람을 기억한다. 특히 동명이인이 있는
+   * 현장에서는 사진 한 장이 이름 두 줄보다 빠르다. 배치마다 인력을 다시 조회하면
+   * 명부 한 장에 서른 번 요청이 나가므로 여기에 함께 담는다.
+   */
+  staffProfileImageUrl?: string;
+  /**
+   * 성별.
+   *
+   * 발주에 성별 조건이 걸리는 자리가 있어(컨퍼런스 안내 · 설치 철거)
+   * 명단에서도 보여야 한다. 사진과 같은 이유로 배치에 함께 담는다 —
+   * 명단 한 장에 서른 번 인력 조회가 나가면 안 된다.
+   */
+  staffGender?: Gender;
+  /**
+   * 이 사람이 우리 직원인가.
+   *
+   * 인력 쪽을 다시 조회하지 않고도 계약 · 정산에서 갈라낼 수 있어야 한다.
+   * 계약 명단(`buildContractRoster`)과 정산 시드는 배치만 보고 도는데,
+   * 여기 값이 없으면 직원에게도 계약서를 받으라고 하고 시급을 계산해 버린다.
+   */
+  isEmployee: boolean;
   role: JobRole;
   status: AssignmentStatus;
   /** 이 배치에 적용된 지급 기준 (행사 직무에서 그대로 내려온다) */
@@ -368,16 +468,26 @@ export interface Assignment {
   actualBreakMinutes?: number;
   lateMinutes: number;
   /**
-   * 행사 종료 후 평가.
+   * 행사 종료 후 평가. **한 번 남기면 고칠 수 없다.**
    *
-   * 별점이 아니라 **좋아요 / 별로예요** 한 번이다.
-   * 5단계는 남기는 사람마다 기준이 달라 모아 놓으면 뜻이 사라진다.
+   * 값이 있다는 것 자체가 "이 배치는 평가가 끝났다"는 뜻이다.
+   * 고칠 수 있게 두면 나중에 이해관계가 생겼을 때 지난 평가를 손보게 되고,
+   * 그 순간 쌓아 온 점수 전체가 근거를 잃는다. 잘못 남긴 평가는
+   * **최고관리자가 지우고 다시 남긴다.** 지운 사실도 로그에 남는다.
    */
   reputationVerdict?: ReputationVerdict;
-  /** 고른 평가 항목 (선택) */
+  /** 고른 평가 항목. 좋아요 · 별로예요가 **섞여 있을 수 있다.** */
   reputationTags?: string[];
   reputationComment?: string;
-  /** 근로계약서 서명 완료 여부. 미완료면 현장 투입 전에 처리해야 한다. */
+  /** 평가를 남긴 시각. 고칠 수 없으므로 이 값도 바뀌지 않는다. */
+  reputationRatedAt?: string;
+  /**
+   * 근로계약서 서명 완료 여부. 미완료면 현장 투입 전에 처리해야 한다.
+   *
+   * **직원은 항상 `true`다.** 회사와 이미 근로계약이 되어 있어 행사마다 다시 쓰지 않는다.
+   * 이 값을 `false`로 두면 명부 · 명단 · 대시보드 곳곳에서 영원히 처리되지 않는
+   * '계약 미완'이 뜨고, 그 옆에 있는 진짜 미완이 묻힌다.
+   */
   isContractSigned: boolean;
   isPaid: boolean;
   createdAt: string;
@@ -471,6 +581,10 @@ export interface AssignmentCandidate {
   roles: JobRole[];
   region: string;
   district: string;
+  /** 발주에 성별 조건이 걸릴 수 있어 후보 목록에서도 보여야 한다. */
+  gender: Gender;
+  /** 누적 평판 점수 */
+  reputationScore: number;
   goodCount: number;
   badCount: number;
   workCount: number;
@@ -478,6 +592,16 @@ export interface AssignmentCandidate {
   lateCount: number;
   isFavorite: boolean;
   isDocumentComplete: boolean;
+  /**
+   * 우리 직원인가.
+   *
+   * 직원은 **직무 조건에 걸리지 않고** 후보로 올라온다. 대행사가 주는 자리에 따라
+   * 팀장도 스태프도 맡기 때문이다. 화면에서도 그 사실이 보여야
+   * 담당자가 "왜 이 사람이 설치 후보에 있지"에서 멈추지 않는다.
+   */
+  isEmployee: boolean;
+  /** 직원의 직책. 후보 목록에서 누가 우리 사람인지 바로 읽힌다. */
+  position?: string;
   /** 이 거래처 행사에 참여한 횟수. 많을수록 현장 적응이 빠르다. */
   clientWorkCount: number;
   /**
@@ -514,12 +638,13 @@ export interface EventFormValues {
   venue: string;
   address: string;
   managerName: string;
+  managerPhone: string;
   description: string;
   meetingPoint: string;
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  clientBillingRate: number;
+  billingRates: ClientBillingRate[];
   memo: string;
   roles: EventRoleSlot[];
 }
@@ -652,8 +777,13 @@ export const resolveEventDates = (
     date >= startDate && (!endDate || date <= endDate);
 
   switch (recurrence.type) {
+    /*
+      하루짜리는 제외를 보지 않는다.
+      뺄 날이 하나뿐이라 제외하는 순간 근무일 0일짜리 행사가 되고,
+      그건 담당자가 뜻한 것일 수 없다. 지우려면 행사를 지우는 것이 맞다.
+    */
     case "SINGLE":
-      return excluded.has(startDate) ? [] : [startDate];
+      return [startDate];
 
     case "CONSECUTIVE":
       return buildDateRange(startDate, endDate || startDate).filter(
@@ -752,6 +882,16 @@ export const aggregateDayPlans = (days: EventDayPlan[]): EventRoleSlot[] => {
       current.requiredCount += slot.requiredCount;
       current.assignedCount += slot.assignedCount;
       // 같은 직무의 시급은 날마다 같다고 보고 첫 값을 유지한다.
+
+      /*
+        성별 조건이 날마다 다르면 합계에는 '무관'으로 적는다.
+        (설치는 첫날만 남성, 나머지 날은 무관인 식)
+        한쪽 값을 대표로 세우면 행사 요약이 실제 발주보다 좁게 읽혀,
+        조건이 없는 날까지 못 넣는 자리처럼 보인다.
+      */
+      if (current.genderPreference !== slot.genderPreference) {
+        current.genderPreference = "ANY";
+      }
     });
   });
 
@@ -1064,8 +1204,24 @@ export const summarizeEventCost = (event: EventDetail) => {
       0,
     );
 
+  /*
+    매출은 **직무마다** 다르게 잡힌다.
+
+    예전에는 `확정 인원 × 시간 × 시급 하나`였는데, 팀장과 스태프의 청구
+    단가가 다른 것이 현실이라 팀장이 많은 행사의 매출이 통째로 낮게 잡혔다.
+    단가를 안 정한 직무는 0으로 빠진다. (마진이 실제보다 작게 보일 뿐,
+    없는 매출을 지어내지는 않는다)
+  */
   const revenue = Math.round(
-    event.totalAssigned * dailyWorkHours * event.clientBillingRate,
+    event.assignments
+      .filter((assignment) => assignment.status === "CONFIRMED")
+      .reduce(
+        (sum, assignment) =>
+          sum +
+          dailyWorkHours *
+            resolveBillingRate(event.billingRates, assignment.role),
+        0,
+      ),
   );
 
   return { dailyWorkHours, laborCost, revenue, margin: revenue - laborCost };
@@ -1086,7 +1242,16 @@ export const summarizeEventProgress = (assignments: Assignment[]) => {
     (assignment) => assignment.status === "CONFIRMED",
   );
 
-  const contractSignedCount = confirmed.filter(
+  /*
+    계약서는 **직원을 빼고** 센다.
+    직원은 회사와 이미 근로계약이 되어 있어 행사마다 계약서를 쓰지 않는다.
+    함께 세면 아무리 처리해도 '미완료 2건'이 영원히 남아, 정작 진짜 미완료가
+    그 숫자에 묻힌다.
+  */
+  const contractTarget = confirmed.filter(
+    (assignment) => !assignment.isEmployee,
+  );
+  const contractSignedCount = contractTarget.filter(
     (assignment) => assignment.isContractSigned,
   ).length;
   const attendanceCheckedCount = confirmed.filter(
@@ -1107,7 +1272,9 @@ export const summarizeEventProgress = (assignments: Assignment[]) => {
       (assignment) => assignment.status === "WAITLIST",
     ).length,
     contractSignedCount,
-    contractMissingCount: confirmed.length - contractSignedCount,
+    /** 계약서를 받아야 하는 건수. 직원은 대상이 아니다. */
+    contractTargetCount: contractTarget.length,
+    contractMissingCount: contractTarget.length - contractSignedCount,
     attendanceCheckedCount,
     attendancePendingCount: confirmed.length - attendanceCheckedCount,
     checkTimeRecordedCount,

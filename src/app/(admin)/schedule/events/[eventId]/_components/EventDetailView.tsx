@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useContractListQuery } from "@/api/contract/getContractList";
 import { useEventDetailQuery } from "@/api/event/getEventDetail";
 import { useEventMutation } from "@/api/event/mutateEvent";
+import { useHasPermission } from "@/store/useAdminStore";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import {
   EVENT_STATUS_OPTIONS,
@@ -43,6 +44,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import PageHeader from "@/components/layout/PageHeader";
 import EventFormModal from "@/components/domain/EventFormModal";
+import MessageComposer from "@/components/domain/MessageComposer";
 import RoleSlotChips from "@/components/domain/RoleSlotChips";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
 import StaffPickerModal from "@/components/domain/StaffPickerModal";
@@ -59,6 +61,7 @@ export type EventTab =
   | "ATTENDANCE"
   | "CONTRACT"
   | "PAYROLL"
+  | "MESSAGE"
   | "NOTICE";
 
 const EVENT_TABS: EventTab[] = [
@@ -67,6 +70,7 @@ const EVENT_TABS: EventTab[] = [
   "ATTENDANCE",
   "CONTRACT",
   "PAYROLL",
+  "MESSAGE",
   "NOTICE",
 ];
 
@@ -148,9 +152,23 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const [detailStaffId, setDetailStaffId] = useState<number | null>(null);
 
   const { data: event, isLoading, isError } = useEventDetailQuery(eventId);
+  /*
+    행사 상세는 행사 자체와 배치를 함께 다룬다.
+    상태 변경 · 수정은 `event:write`, 삭제는 `event:delete`,
+    사람을 붙이는 것은 `assignment:write`다.
+  */
+  const canWriteEvent = useHasPermission("event:write");
+  const canDeleteEvent = useHasPermission("event:delete");
+  const canAssign = useHasPermission("assignment:write");
+  const canReadContract = useHasPermission("contract:read");
+  const canReadPayroll = useHasPermission("payroll:read");
+  const canReadAssignment = useHasPermission("assignment:read");
+  const canReadMessage = useHasPermission("message:read");
+
   const { statusMutation, deleteMutation } = useEventMutation();
 
   /* 상단 요약과 탭 개수에 쓸 값. 목록 자체는 각 탭이 같은 쿼리키로 다시 받는다. */
+  /* 권한이 없으면 조회 자체가 나가지 않는다. (`usePermittedQuery`) */
   const { data: contractData } = useContractListQuery({
     page: 1,
     size: 1,
@@ -240,37 +258,85 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
     summarizeEventCost(event);
 
   const rowActions: DropdownItem[] = [
-    {
-      label: "행사 취소",
-      icon: <Ban size={15} />,
-      tone: "danger",
-      disabled: event.status === "CANCELED" || event.status === "DONE",
-      onSelect: handleCancelEvent,
-    },
-    {
-      label: "삭제",
-      icon: <Trash size={15} />,
-      tone: "danger",
-      onSelect: handleDeleteEvent,
-    },
+    ...(canWriteEvent
+      ? [
+          {
+            label: "행사 취소",
+            icon: <Ban size={15} />,
+            tone: "danger" as const,
+            disabled: event.status === "CANCELED" || event.status === "DONE",
+            onSelect: handleCancelEvent,
+          },
+        ]
+      : []),
+    ...(canDeleteEvent
+      ? [
+          {
+            label: "삭제",
+            icon: <Trash size={15} />,
+            tone: "danger" as const,
+            onSelect: handleDeleteEvent,
+          },
+        ]
+      : []),
   ];
 
+  /*
+    탭도 메뉴와 같은 규칙으로 감춘다.
+    행사 상세는 계약서 · 정산까지 한자리에 모아 두는 화면이라,
+    권한이 없는 탭을 남겨 두면 눌러 보고 거부당하기를 반복하게 된다.
+  */
   const tabs: TabItem<EventTab>[] = [
     { label: "개요", value: "OVERVIEW" },
     { label: "일별 근무자", value: "DAILY", count: event.dayCount },
-    { label: "출퇴근 명부", value: "ATTENDANCE", count: progress.totalCount },
-    {
-      label: "근로계약서",
-      value: "CONTRACT",
-      count: contractData?.totalCount ?? 0,
-    },
-    {
-      label: "정산",
-      value: "PAYROLL",
-      count: payrollSummary?.totalCount ?? 0,
-    },
+    ...(canReadAssignment
+      ? [
+          {
+            label: "출퇴근 명부",
+            value: "ATTENDANCE" as const,
+            count: progress.totalCount,
+          },
+        ]
+      : []),
+    ...(canReadContract
+      ? [
+          {
+            label: "근로계약서",
+            value: "CONTRACT" as const,
+            count: contractData?.totalCount ?? 0,
+          },
+        ]
+      : []),
+    ...(canReadPayroll
+      ? [
+          {
+            label: "정산",
+            value: "PAYROLL" as const,
+            count: payrollSummary?.totalCount ?? 0,
+          },
+        ]
+      : []),
+    /*
+      문자 발송.
+
+      메뉴의 문자 발송은 **행사를 골라서** 보내는 자리이고, 이 탭은
+      **지금 보고 있는 행사에** 바로 보내는 자리다. 행사를 다시 고르는 단계가
+      없어야 잘못된 행사 인원에게 나가는 사고가 생기지 않는다.
+    */
+    /*
+      숫자를 달지 않는다.
+      다른 탭의 숫자는 "처리해야 할 건수"인데(계약서 3건 남음), 문자는 처리할
+      건수가 아니라 그냥 대상 인원이다. 같은 자리에 있는 숫자가 서로 다른 뜻을
+      가지면 전부 신뢰를 잃는다.
+    */
+    ...(canReadMessage
+      ? [{ label: "문자 발송", value: "MESSAGE" as const }]
+      : []),
     { label: "안내 · 명단", value: "NOTICE" },
   ];
+
+  /* 주소로 직접 들어온 탭이 감춰진 탭이면 개요로 되돌린다. */
+  const visibleTab = tabs.some((item) => item.value === tab) ? tab : "OVERVIEW";
 
   return (
     <>
@@ -288,36 +354,42 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
         description={`${event.clientName} · 담당 ${event.managerName}`}
         action={
           <>
-            <Select
-              aria-label="행사 상태 변경"
-              options={EVENT_STATUS_OPTIONS}
-              value={event.status}
-              onChange={(changeEvent) =>
-                statusMutation.mutate({
-                  eventId: event.eventId,
-                  status: changeEvent.target.value as EventStatus,
-                })
-              }
-              selectBoxClassName="w-36"
-            />
+            {canWriteEvent && (
+              <>
+                <Select
+                  aria-label="행사 상태 변경"
+                  options={EVENT_STATUS_OPTIONS}
+                  value={event.status}
+                  onChange={(changeEvent) =>
+                    statusMutation.mutate({
+                      eventId: event.eventId,
+                      status: changeEvent.target.value as EventStatus,
+                    })
+                  }
+                  selectBoxClassName="w-36"
+                />
 
-            <Button
-              variant="secondary"
-              leftIcon={<Edit size={15} />}
-              onClick={() => setIsFormOpen(true)}
-            >
-              행사 수정
-            </Button>
+                <Button
+                  variant="secondary"
+                  leftIcon={<Edit size={15} />}
+                  onClick={() => setIsFormOpen(true)}
+                >
+                  행사 수정
+                </Button>
+              </>
+            )}
 
-            <Button
-              variant="primary"
-              leftIcon={<Plus size={15} />}
-              onClick={() => handleOpenPicker()}
-            >
-              인력 배치
-            </Button>
+            {canAssign && (
+              <Button
+                variant="primary"
+                leftIcon={<Plus size={15} />}
+                onClick={() => handleOpenPicker()}
+              >
+                인력 배치
+              </Button>
+            )}
 
-            <Dropdown items={rowActions} />
+            {rowActions.length > 0 && <Dropdown items={rowActions} />}
           </>
         }
       />
@@ -380,7 +452,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
           />
           <SummaryCell
             label="근로계약서"
-            value={`${progress.contractSignedCount} / ${progress.confirmedCount}건`}
+            /* 분모는 계약 대상만이다. 직원은 회사와 이미 계약이 되어 있어 빠진다. */
+            value={`${progress.contractSignedCount} / ${progress.contractTargetCount}건`}
             hint={
               progress.contractMissingCount > 0
                 ? `미완료 ${progress.contractMissingCount}건`
@@ -423,13 +496,13 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
         </div>
       </Card>
 
-      <Tabs items={tabs} value={tab} onChange={handleChangeTab} />
+      <Tabs items={tabs} value={visibleTab} onChange={handleChangeTab} />
 
-      {tab === "OVERVIEW" && (
+      {visibleTab === "OVERVIEW" && (
         <EventOverviewPanel event={event} onFillRole={handleOpenPicker} />
       )}
 
-      {tab === "DAILY" && (
+      {visibleTab === "DAILY" && (
         <EventDailyPanel
           event={event}
           onAddStaff={handleOpenPicker}
@@ -437,15 +510,17 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
         />
       )}
 
-      {tab === "ATTENDANCE" && (
+      {visibleTab === "ATTENDANCE" && (
         <EventAttendancePanel event={event} onOpenStaff={setDetailStaffId} />
       )}
 
-      {tab === "CONTRACT" && <EventContractPanel event={event} />}
+      {visibleTab === "CONTRACT" && <EventContractPanel event={event} />}
 
-      {tab === "PAYROLL" && <EventPayrollPanel event={event} />}
+      {visibleTab === "PAYROLL" && <EventPayrollPanel event={event} />}
 
-      {tab === "NOTICE" && <EventNoticePanel event={event} />}
+      {visibleTab === "MESSAGE" && <MessageComposer fixedEvent={event} />}
+
+      {visibleTab === "NOTICE" && <EventNoticePanel event={event} />}
 
       <StaffPickerModal
         event={isPickerOpen ? event : null}

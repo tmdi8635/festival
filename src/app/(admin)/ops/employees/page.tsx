@@ -2,19 +2,19 @@ import { Suspense } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import PermissionGate from "@/components/domain/PermissionGate";
 import Skeleton from "@/components/ui/Skeleton";
-import ManagerBoard from "./_components/ManagerBoard";
+import EmployeeBoard from "./_components/EmployeeBoard";
 
-export default function ManagerPage() {
+export default function EmployeePage() {
   return (
     <>
       <PageHeader
-        title="담당자 관리"
-        description="내부 계정과 권한을 관리합니다. 업무를 나누려면 매니저 계정부터 만들어야 합니다."
+        title="직원 관리"
+        description="회사에 소속된 사람의 인적사항과 권한을 관리합니다. 이번 달 근무시간은 '직원 근무'에서 봅니다."
       />
 
-      <PermissionGate required="admin:read">
+      <PermissionGate required="employee:read">
         <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
-          <ManagerBoard />
+          <EmployeeBoard />
         </Suspense>
       </PermissionGate>
     </>

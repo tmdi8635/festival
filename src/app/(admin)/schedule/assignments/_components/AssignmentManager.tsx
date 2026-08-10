@@ -19,6 +19,7 @@ import {
   useJobRoleLabel,
 } from "@/store/useOrgStore";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
   ASSIGNMENT_ATTENDANCE_COLUMNS,
   ASSIGNMENT_CONTRACT_COLUMNS,
@@ -106,6 +107,9 @@ const AssignmentManager = () => {
 
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   const roleLabel = useJobRoleLabel();
+  /* 근태 · 평가는 배치를 고치는 일이다. (`assignment:write`) */
+  const canWrite = useHasPermission("assignment:write");
+
   const { bulkAttendanceMutation } = useAssignmentMutation();
 
   const { data, isLoading } = useAssignmentListQuery({
@@ -319,22 +323,26 @@ const AssignmentManager = () => {
           className="flex justify-end gap-1"
           onClick={(clickEvent) => clickEvent.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon={<UserCheck size={14} />}
-            onClick={() => setAttendanceTarget(assignment)}
-          >
-            근태
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon={<Star size={14} />}
-            onClick={() => setReputationTarget(assignment)}
-          >
-            평가
-          </Button>
+          {canWrite && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                leftIcon={<UserCheck size={14} />}
+                onClick={() => setAttendanceTarget(assignment)}
+              >
+                근태
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                leftIcon={<Star size={14} />}
+                onClick={() => setReputationTarget(assignment)}
+              >
+                평가
+              </Button>
+            </>
+          )}
         </div>
       ),
     },
@@ -411,7 +419,7 @@ const AssignmentManager = () => {
           />
 
           {/* 일괄 근태 처리. 대부분이 '정상 출근'이라 한 번에 찍고 예외만 고친다. */}
-          {selectedIds.length > 0 && (
+          {canWrite && selectedIds.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-font-2 tabular-nums">
                 {selectedIds.length}건 선택
@@ -465,10 +473,13 @@ const AssignmentManager = () => {
         onClose={() => setReputationTarget(null)}
       />
 
+      {/*
+        인력 상세 안의 행사 링크는 스스로 새 탭으로 연다.
+        모달 안에서 같은 탭으로 넘어가면 보고 있던 이력이 통째로 사라진다.
+      */}
       <StaffDetailModal
         staffId={detailStaffId}
         onClose={() => setDetailStaffId(null)}
-        onOpenEvent={openEventDetail}
       />
     </>
   );

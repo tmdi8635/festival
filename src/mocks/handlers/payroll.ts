@@ -102,15 +102,26 @@ export const payrollHandlers = [
 
   /** 상태 일괄 변경. 정산은 건별이 아니라 행사 단위로 처리하는 일이 많다. */
   http.patch(`${BASE_URI}/admin/payrolls/status`, async ({ request }) => {
-      const denied = requirePermission(request, "payroll:approve");
-
-      if (denied) return denied;
-
     const body = (await request.json()) as {
       payrollIds: number[];
       status: PayrollStatus;
       holdReason?: string;
     };
+
+    /*
+      승인과 지급 완료는 다른 권한이다.
+
+      '승인'은 금액을 확정하는 일이고, '지급 완료'는 돈이 나갔다고 장부에 찍는 일이다.
+      찍히는 순간 미지급 금액에서 빠지고 배치에도 정산 완료로 반영되므로,
+      실제로 이체를 확인한 사람만 눌러야 한다.
+      한 주소로 들어오지만 요구하는 권한은 상태값에 따라 갈린다.
+    */
+    const denied = requirePermission(
+      request,
+      body.status === "PAID" ? "payroll:pay" : "payroll:approve",
+    );
+
+    if (denied) return denied;
 
     const updated = body.payrollIds
       .map((payrollId) => findPayroll(payrollId))
@@ -152,6 +163,10 @@ export const payrollHandlers = [
    * `PATCH /admin/payrolls/allowances`가 `payrollId = "allowances"`로 잡혀 404가 난다.
    */
   http.patch(`${BASE_URI}/admin/payrolls/allowances`, async ({ request }) => {
+    const denied = requirePermission(request, "payroll:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as {
       payrollIds: number[];
       isOvertimeApplied?: boolean;
@@ -185,30 +200,37 @@ export const payrollHandlers = [
   http.patch(
     `${BASE_URI}/admin/payrolls/:payrollId`,
     async ({ params, request }) => {
+      const denied = requirePermission(request, "payroll:write");
+
+      if (denied) return denied;
+
       const item = findPayroll(Number(params.payrollId));
       const body = (await request.json()) as {
         allowance: number;
         deduction: number;
         isOvertimeApplied?: boolean;
         isNightPayApplied?: boolean;
+        isBreakDeducted?: boolean;
       };
 
       if (!item) return notFound("존재하지 않는 정산 항목입니다.");
 
-      item.allowance = body.allowance;
-      item.deduction = body.deduction;
       item.isOvertimeApplied =
         body.isOvertimeApplied ?? item.isOvertimeApplied;
       item.isNightPayApplied =
         body.isNightPayApplied ?? item.isNightPayApplied;
+      item.isBreakDeducted = body.isBreakDeducted ?? item.isBreakDeducted;
 
       /*
-        기타수당 · 차감액은 사람이 정한 값이므로 그대로 두고,
-        나머지는 근무일 내역에서 다시 계산한다.
-        (recalculatePayroll이 식대 · 지각 공제를 근무일에서 다시 만든다)
+        먼저 근무일 내역에서 통째로 다시 계산한다.
+        (`recalculatePayroll`이 휴게 공제 · 식대 · 근무시간을 다시 만든다)
       */
       recalculatePayroll(item);
 
+      /*
+        기타수당 · 차감액만 사람이 정한 값으로 덮어쓰고 금액을 한 번 더 맞춘다.
+        계산식은 `calculatePayroll` 한 곳이라 화면 미리보기와 결과가 갈리지 않는다.
+      */
       item.allowance = body.allowance;
       item.deduction = body.deduction;
 
@@ -216,10 +238,11 @@ export const payrollHandlers = [
         item,
         calculatePayroll({
           days: item.days.map((day) => ({
-            workHours: day.workHours,
+            workHours: day.paidWorkHours,
             nightHours: day.nightHours,
             wageType: day.wageType,
             wage: day.wage,
+            isPayable: day.isPayable,
           })),
           allowance: item.allowance,
           deduction: item.deduction,

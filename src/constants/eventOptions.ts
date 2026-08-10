@@ -3,6 +3,7 @@ import {
   ASSIGNMENT_STATUS_LABEL,
   EVENT_STATUS_FLOW,
   EVENT_STATUS_LABEL,
+  GENDER_PREFERENCE_LABEL,
   RECURRENCE_PRESET_HINT,
   RECURRENCE_PRESET_LABEL,
   WAGE_TYPE_LABEL,
@@ -92,12 +93,21 @@ export const FILL_STATE_CHIP_CLASS: Record<FillState, string> = {
 };
 
 /** 휴게 시간 선택지 */
+/**
+ * 휴게시간 선택지. **30분 단위, 최대 3시간.**
+ *
+ * 숫자를 자유롭게 받을 이유가 없다. 휴게는 현장에서 한 사람씩 재는 값이 아니라
+ * 전원에게 같은 양을 주고 교대로 쓰게 하는 값이고, 실제로 정하는 단위도
+ * 30분 · 1시간이다. 열어 두면 `45`, `50`처럼 근거 없는 숫자가 들어와
+ * 나중에 그 건만 왜 다른지 아무도 설명하지 못한다.
+ */
 export const BREAK_MINUTE_OPTIONS: SelectOption[] = [
   { label: "없음", value: "0" },
-  { label: "30분", value: "30" },
-  { label: "60분", value: "60" },
-  { label: "90분", value: "90" },
-  { label: "120분", value: "120" },
+  ...Array.from({ length: 6 }, (_, index) => {
+    const minutes = (index + 1) * 30;
+
+    return { label: `${minutes}분`, value: String(minutes) };
+  }),
 ];
 
 /**
@@ -137,3 +147,16 @@ export const RECURRENCE_BADGE_TONE: BadgeTone = "info";
 export const WAGE_TYPE_OPTIONS: SelectOption[] = (
   ["HOURLY", "DAILY"] as const
 ).map((wageType) => ({ label: WAGE_TYPE_LABEL[wageType], value: wageType }));
+
+/**
+ * 발주의 성별 조건 선택지.
+ *
+ * '무관'이 맨 앞이자 기본값이다. 대부분의 발주에 조건이 없고,
+ * 조건을 고르는 것이 예외라는 사실이 목록 순서에서도 읽혀야 한다.
+ */
+export const GENDER_PREFERENCE_OPTIONS: SelectOption[] = (
+  ["ANY", "MALE", "FEMALE"] as const
+).map((preference) => ({
+  label: GENDER_PREFERENCE_LABEL[preference],
+  value: preference,
+}));

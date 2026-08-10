@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useApplicationListQuery } from "@/api/recruit/getApplicationList";
 import { useApplicationMutation } from "@/api/recruit/mutateApplication";
+import { useHasPermission } from "@/store/useAdminStore";
 import {
   APPLICATION_STATUS_FILTER_OPTIONS,
   APPLICATION_STATUS_TONE,
@@ -56,6 +57,13 @@ const ApplicationManager = () => {
     status: status || undefined,
     onlyNewApplicant: onlyNewApplicant || undefined,
   });
+
+  /*
+    확정은 그 자리에서 행사 배치까지 만든다. 그래서 모집 권한만으로는 부족하고
+    배치 권한이 함께 있어야 한다. (서버도 같은 기준으로 두 번 본다)
+  */
+  const canWrite = useHasPermission("recruit:write");
+  const canAssign = useHasPermission("assignment:write");
 
   const { statusMutation } = useApplicationMutation();
 
@@ -186,24 +194,28 @@ const ApplicationManager = () => {
           className="flex justify-end gap-1"
           onClick={(event) => event.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="secondary"
-            leftIcon={<Check size={14} />}
-            disabled={application.status !== "PENDING"}
-            onClick={() => handleAccept(application)}
-          >
-            확정
-          </Button>
-          <Button
-            size="sm"
-            variant="dangerGhost"
-            leftIcon={<Ban size={14} />}
-            disabled={application.status !== "PENDING"}
-            onClick={() => handleReject(application)}
-          >
-            반려
-          </Button>
+          {canWrite && canAssign && (
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<Check size={14} />}
+              disabled={application.status !== "PENDING"}
+              onClick={() => handleAccept(application)}
+            >
+              확정
+            </Button>
+          )}
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="dangerGhost"
+              leftIcon={<Ban size={14} />}
+              disabled={application.status !== "PENDING"}
+              onClick={() => handleReject(application)}
+            >
+              반려
+            </Button>
+          )}
         </div>
       ),
     },
@@ -246,14 +258,16 @@ const ApplicationManager = () => {
               selectBoxClassName="w-32"
             />
 
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Plus size={15} />}
-              onClick={() => setIsFormOpen(true)}
-            >
-              지원 등록
-            </Button>
+            {canWrite && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={15} />}
+                onClick={() => setIsFormOpen(true)}
+              >
+                지원 등록
+              </Button>
+            )}
           </div>
         </div>
 

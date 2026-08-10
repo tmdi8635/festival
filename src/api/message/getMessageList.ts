@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError, PageResponse } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
+import type { PageResponse } from "@/type/api";
 import type { MessageLog, MessagePurpose } from "@/type/message";
 
 export interface MessageListParams {
@@ -21,7 +21,7 @@ export const getMessageList = async (params: MessageListParams) => {
 
 /** 발송 이력 화면에서 사용합니다. */
 export const useMessageListQuery = (params: MessageListParams) => {
-  return useQuery<PageResponse<MessageLog>, AppError>({
+  return usePermittedQuery<PageResponse<MessageLog>>("message:read", {
     queryKey: ["get-message-list", params],
     queryFn: () => getMessageList(params),
   });

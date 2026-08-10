@@ -67,6 +67,10 @@ export const clientHandlers = [
   }),
 
   http.post(`${BASE_URI}/admin/clients`, async ({ request }) => {
+    const denied = requirePermission(request, "client:write");
+
+    if (denied) return denied;
+
     const body = (await request.json()) as ClientFormValues;
 
     const created: Client = {
@@ -85,6 +89,10 @@ export const clientHandlers = [
   }),
 
   http.put(`${BASE_URI}/admin/clients/:clientId`, async ({ params, request }) => {
+    const denied = requirePermission(request, "client:write");
+
+    if (denied) return denied;
+
     const client = clients.find(
       (item) => item.clientId === Number(params.clientId),
     );

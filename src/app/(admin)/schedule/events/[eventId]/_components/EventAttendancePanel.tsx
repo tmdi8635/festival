@@ -39,6 +39,7 @@ import AttendanceModal from "@/components/domain/AttendanceModal";
 import BulkAttendanceModal from "@/components/domain/BulkAttendanceModal";
 import ReputationModal from "@/components/domain/ReputationModal";
 import WageEditModal from "@/components/domain/WageEditModal";
+import { useHasPermission } from "@/store/useAdminStore";
 import AttendanceRosterGroup, {
   type GroupMode,
 } from "./AttendanceRosterGroup";
@@ -84,6 +85,9 @@ const EventAttendancePanel = ({
   event,
   onOpenStaff,
 }: EventAttendancePanelProps) => {
+  /* 근태 기록은 정산 금액을 바꾼다. 조회만 있는 직책은 명부를 보기만 한다. */
+  const canWrite = useHasPermission("assignment:write");
+
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   // 직무 순서는 기준 설정이 정한다. 코드 알파벳순으로 늘어놓으면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
@@ -147,7 +151,7 @@ const EventAttendancePanel = ({
       key: assignments[0].workDate,
       assignments: [...assignments].sort(
         (a, b) =>
-          compareRoles(a.role, b.role) ||
+            compareRoles(a.role, b.role) ||
           a.staffName.localeCompare(b.staffName),
       ),
     }))
@@ -317,16 +321,18 @@ const EventAttendancePanel = ({
             )}
           </div>
 
-          <Button
-            size="sm"
-            variant="primary"
-            leftIcon={<UserCheck size={14} />}
-            disabled={selectedIds.length === 0}
-            onClick={() => setIsBulkOpen(true)}
-            title="선택한 배치에 근태와 실제 출퇴근 시각을 한 번에 기록합니다."
-          >
-            근태 일괄 기록
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="primary"
+              leftIcon={<UserCheck size={14} />}
+              disabled={selectedIds.length === 0}
+              onClick={() => setIsBulkOpen(true)}
+              title="선택한 배치에 근태와 실제 출퇴근 시각을 한 번에 기록합니다."
+            >
+              근태 일괄 기록
+            </Button>
+          )}
         </div>
 
         {groups.length === 0 ? (

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import PageHeader from "@/components/layout/PageHeader";
+import PermissionGate from "@/components/domain/PermissionGate";
 import Skeleton from "@/components/ui/Skeleton";
 import MessageHistory from "./_components/MessageHistory";
 
@@ -11,9 +12,11 @@ export default function MessageHistoryPage() {
         description="언제 누구에게 무엇을 보냈는지 기록으로 남깁니다."
       />
 
-      <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
-        <MessageHistory />
-      </Suspense>
+      <PermissionGate required="message:read">
+        <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
+          <MessageHistory />
+        </Suspense>
+      </PermissionGate>
     </>
   );
 }

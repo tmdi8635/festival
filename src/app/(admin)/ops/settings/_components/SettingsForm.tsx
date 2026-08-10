@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSettingsQuery } from "@/api/ops/getSettings";
 import { WAGE_TYPE_OPTIONS } from "@/constants/eventOptions";
 import { useSettingsMutation } from "@/api/ops/mutateSettings";
+import { useHasPermission } from "@/store/useAdminStore";
 import { ArrowDown, ArrowUp, Plus, Refresh, Trash, Warning } from "@/icons";
 import { formatDateTime } from "@/lib/dayjs";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -32,10 +33,18 @@ import Card from "@/components/ui/Card";
 import FormField from "@/components/ui/FormField";
 import IconButton from "@/components/ui/IconButton";
 import Input from "@/components/ui/Input";
+import TimeInput from "@/components/ui/TimeInput";
 import Select from "@/components/ui/Select";
 import Skeleton from "@/components/ui/Skeleton";
 import Switch from "@/components/ui/Switch";
 
+/**
+ * '기능 사용 범위' 카드에 세우는 기능들.
+ *
+ * `HR_POLICY`는 여기 없다. 그건 메뉴가 아니라 이 화면 안의 카드 하나라,
+ * 잠금 · 체험 · 사용중 3단계를 줄 자리가 없다. 자기 카드 위의 스위치로 켜고 끈다.
+ * 두 곳에서 같은 값을 고칠 수 있게 두면 어느 쪽이 지금 값인지 알 수 없다.
+ */
 const FEATURE_KEYS: FeatureKey[] = ["RECRUIT", "MESSAGE", "CLIENT"];
 const FEATURE_MODES: FeatureMode[] = ["ENABLED", "MOCK", "LOCKED"];
 
@@ -46,7 +55,7 @@ const FEATURE_MODES: FeatureMode[] = ["ENABLED", "MOCK", "LOCKED"];
  * 표 전체가 밀린다. (실제로 그렇게 깨져 있었다) 한 상수를 둘 다 쓴다.
  */
 const JOB_ROLE_GRID =
-  "grid grid-cols-[84px_minmax(0,1fr)_150px_110px_190px_64px_40px] gap-3";
+  "grid grid-cols-[84px_minmax(0,1fr)_110px_190px_64px_40px] gap-3";
 
 /**
  * 새 직무의 초기값.
@@ -57,7 +66,6 @@ const JOB_ROLE_GRID =
 const buildNewJobRole = (jobRoles: JobRoleDef[]): JobRoleDef => ({
   code: nextJobRoleCode(jobRoles),
   name: "",
-  shortName: "",
   order: nextJobRoleOrder(jobRoles),
   defaultWageType: "HOURLY",
   defaultWage: 12000,
@@ -74,6 +82,14 @@ const buildNewJobRole = (jobRoles: JobRoleDef[]): JobRoleDef => ({
 const SettingsForm = () => {
   const { data, isLoading } = useSettingsQuery();
   const { updateMutation } = useSettingsMutation();
+
+  /*
+    기준 설정은 화면 전체가 하나의 긴 폼이라, 저장 버튼만 감추면
+    담당자는 직무를 지우고 수당을 바꾼 뒤에야 저장할 수 없다는 것을 안다.
+    그래서 `fieldset disabled`로 입력 칸을 통째로 잠근다.
+    (조회는 `settings:read`, 수정은 `settings:write` — 이 화면은 둘을 모두 쓴다)
+  */
+  const canWrite = useHasPermission("settings:write");
 
   // 편집 전에는 서버 값을 그대로 쓰고, 편집이 시작되면 draft가 화면을 담당한다.
   const [draft, setDraft] = useState<OperationSettings | null>(null);
@@ -166,6 +182,15 @@ const SettingsForm = () => {
       featureModes: { ...settings.featureModes, [key]: mode },
     });
 
+  /*
+    인사 · 운영 기준은 켜고 끄기만 한다.
+
+    다른 기능처럼 3단계를 다 열 필요가 없다. 이건 메뉴가 아니라 카드 하나라
+    '잠금'과 '안 씀'이 화면에서 같은 모습이다. 그래서 스위치 하나로 두고,
+    켠 상태는 아직 실제로 돌지 않으므로 항상 MOCK이다.
+  */
+  const isHrPolicyOn = settings.featureModes.HR_POLICY !== "LOCKED";
+
   /**
    * 이름이 비면 화면 어디에도 그릴 수 없고, 같은 이름이 둘이면
    * 배치 · 정산 표에서 어느 직무인지 구분되지 않는다.
@@ -178,7 +203,14 @@ const SettingsForm = () => {
   );
 
   return (
-    <>
+    <fieldset disabled={!canWrite} className="contents">
+      {!canWrite && (
+        <Alert tone="warning" title="기준 설정을 볼 수만 있습니다.">
+          직무 · 수당 기준 · 기능 잠금을 바꾸려면 &lsquo;기준 설정 &gt; 등록 ·
+          수정&rsquo; 권한이 필요합니다.
+        </Alert>
+      )}
+
       <Alert tone="info" title="여기서 정한 값이 자동 계산의 기준이 됩니다.">
         직무 기본 시급은 행사 등록 시 초기값으로, 수당 기준은 정산 계산에
         쓰입니다. 여기서 정한 시급은 어디까지나 <b>기준값</b>이라 행사 안에서
@@ -250,7 +282,6 @@ const SettingsForm = () => {
               <div className={cn(JOB_ROLE_GRID, "bg-subtle px-5 py-2.5 text-[12px] font-medium text-font-2")}>
                 <span className="text-center">순서</span>
                 <span>이름</span>
-                <span>짧은 이름</span>
                 <span>지급 기준</span>
                 <span>기본 금액</span>
                 <span className="text-center">사용</span>
@@ -290,15 +321,6 @@ const SettingsForm = () => {
                       hasError={!role.name.trim() || isDuplicated}
                       onChange={(event) =>
                         updateJobRole(index, { name: event.target.value })
-                      }
-                    />
-
-                    <Input
-                      aria-label="짧은 이름"
-                      value={role.shortName}
-                      placeholder="캘린더용"
-                      onChange={(event) =>
-                        updateJobRole(index, { shortName: event.target.value })
                       }
                     />
 
@@ -456,24 +478,18 @@ const SettingsForm = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-4 py-3">
               <FormField label="야간 시작">
-                <Input
-                  type="time"
+                <TimeInput
                   disabled={!settings.isNightPayEnabled}
                   value={settings.nightStartTime}
-                  onChange={(event) =>
-                    update("nightStartTime", event.target.value)
-                  }
+                  onChange={(nextTime) => update("nightStartTime", nextTime)}
                 />
               </FormField>
 
               <FormField label="야간 종료">
-                <Input
-                  type="time"
+                <TimeInput
                   disabled={!settings.isNightPayEnabled}
                   value={settings.nightEndTime}
-                  onChange={(event) =>
-                    update("nightEndTime", event.target.value)
-                  }
+                  onChange={(nextTime) => update("nightEndTime", nextTime)}
                 />
               </FormField>
 
@@ -539,6 +555,53 @@ const SettingsForm = () => {
         title="인사 · 운영 기준"
         description="사람이 매번 판단하지 않아도 되도록 기준을 숫자로 고정합니다."
       >
+        {/*
+          아직 쓸 수 없는 기능이다.
+
+          세 값 모두 "때가 되면 시스템이 먼저 알려 준다"를 전제로 하는데,
+          알림을 내보낼 곳(문자 · 푸시)이 없어서 숫자만 저장되고 아무 일도
+          일어나지 않는다. 그대로 열어 두면 담당자는 설정을 해 놓고
+          "돌아가고 있겠지"라고 믿는다 — 그게 가장 위험하다.
+
+          그렇다고 화면에서 지우지는 않는다. 지우면 나중에 무엇이 있었는지
+          알 수 없다. 켜고 끌 수 있게 두고, 켜도 체험이라는 것을 배너로 밝힌다.
+        */}
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3 rounded-field border border-border-main px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[14px] text-font-1">인사 · 운영 기준 사용</p>
+              <p className="mt-0.5 text-[12px] text-font-2">
+                끄면 아래 기준값을 쓰지 않습니다. 블랙리스트 후보 · 출근 안내 ·
+                계약서 기한을 담당자가 직접 챙기는 방식입니다.
+              </p>
+            </div>
+            <Switch
+              label="인사 · 운영 기준 사용 여부"
+              checked={isHrPolicyOn}
+              onChange={(checked) =>
+                updateFeature("HR_POLICY", checked ? "MOCK" : "LOCKED")
+              }
+            />
+          </div>
+
+          {/*
+            배너는 `FeatureNotice`가 아니라 여기서 직접 그린다.
+            그 컴포넌트는 **저장된** 설정(스토어)을 보는데, 이 화면은 아직
+            저장 전인 draft를 들고 있다. 방금 켠 스위치와 배너가 어긋나면
+            무엇이 지금 값인지 알 수 없게 된다.
+          */}
+          {isHrPolicyOn && (
+            <Alert tone="warning" title="체험(MOCK) 모드입니다.">
+              {FEATURE_HINT.HR_POLICY}
+            </Alert>
+          )}
+        </div>
+
+        {!isHrPolicyOn ? (
+          <p className="rounded-field border border-dashed border-border-strong px-4 py-6 text-center text-[13px] text-font-2">
+            지금은 쓰지 않는 기준입니다. 필요해지면 위에서 다시 켤 수 있습니다.
+          </p>
+        ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <FormField label="블랙리스트 후보 기준" hint="노쇼 누적 횟수">
             <Input
@@ -566,19 +629,26 @@ const SettingsForm = () => {
             />
           </FormField>
 
-          <FormField label="계약서 서명 기한" hint="발송 후 유효 기간">
+          <FormField
+            label="계약서 등록 기한"
+            hint="근무 시작 며칠 전까지 서명본을 받아야 하는지"
+          >
             <Input
               type="number"
               min={1}
               max={30}
-              value={settings.contractExpireDays}
+              value={settings.contractRegisterDeadlineDays}
               onChange={(event) =>
-                update("contractExpireDays", Number(event.target.value))
+                update(
+                  "contractRegisterDeadlineDays",
+                  Number(event.target.value),
+                )
               }
               rightSlot={<span className="text-[13px] text-font-2">일</span>}
             />
           </FormField>
         </div>
+        )}
       </Card>
 
       {/* --------------------------- 기능 사용 범위 -------------------------- */}
@@ -644,7 +714,7 @@ const SettingsForm = () => {
           ))}
         </div>
       </Card>
-    </>
+    </fieldset>
   );
 };
 

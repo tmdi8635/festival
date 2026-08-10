@@ -4,7 +4,7 @@ import {
   permissionLabel,
   type PermissionKey,
 } from "@/type/permission";
-import { adminRoles, managers } from "./db/ops";
+import { adminRoles, employees } from "./db/ops";
 import { DEFAULT_PAGE_SIZE, PageResponse } from "@/type/api";
 
 /**
@@ -115,30 +115,42 @@ export const pickOne = <T>(seed: number, items: readonly T[]): T =>
 /* ------------------------------------------------------------------ */
 
 /**
- * 이 요청을 보낸 담당자가 권한을 갖고 있는지 본다.
+ * 요청을 보낸 직원을 찾는다. 퇴사자는 없는 사람으로 본다.
+ *
+ * 서버 인증이 붙기 전까지는 헤더에 실린 직원 ID를 그대로 믿는다.
+ * 붙는 날 이 함수 하나만 토큰 해석으로 바꾸면 된다.
+ */
+export const findRequester = (request: Request) => {
+  const employeeId = Number(request.headers.get("X-Admin-Id"));
+  const employee = employees.find((item) => item.employeeId === employeeId);
+
+  return employee?.isActive ? employee : undefined;
+};
+
+/**
+ * 이 요청을 보낸 직원이 권한을 갖고 있는지 본다.
  *
  * **막는 책임은 서버에 있다.** 화면에서 버튼을 감추는 것은 실수를 줄이는 장치일 뿐,
  * 주소를 직접 치거나 화면이 오래 열려 있는 사이 권한이 바뀌면 그대로 통과한다.
  *
  * 거부할 때는 **무슨 권한이 필요한지**를 함께 돌려준다.
- * "권한이 없습니다"만 보여 주면 담당자는 무엇을 요청해야 하는지 모르고,
+ * "권한이 없습니다"만 보여 주면 직원은 무엇을 요청해야 하는지 모르고,
  * 결국 최고관리자에게 "그냥 다 열어 달라"고 말하게 된다.
  */
 export const requirePermission = (
   request: Request,
   required: PermissionKey,
 ): Response | null => {
-  const managerId = Number(request.headers.get("X-Admin-Id"));
-  const manager = managers.find((item) => item.managerId === managerId);
+  const employee = findRequester(request);
 
-  if (!manager || !manager.isActive) {
+  if (!employee) {
     return HttpResponse.json(
       { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." },
       { status: 401 },
     );
   }
 
-  const role = adminRoles.find((item) => item.roleId === manager.roleId);
+  const role = adminRoles.find((item) => item.roleId === employee.roleId);
 
   if (hasPermission(role?.permissions, required, role?.isSuperAdmin)) {
     return null;
@@ -147,9 +159,66 @@ export const requirePermission = (
   return HttpResponse.json(
     {
       code: "FORBIDDEN",
-      message: `이 작업에는 '${permissionLabel(required)}' 권한이 필요합니다. 현재 직책은 '${manager.roleName}'입니다.`,
-      fields: { requiredPermission: required, roleName: manager.roleName },
+      message: `이 작업에는 '${permissionLabel(required)}' 권한이 필요합니다. 현재 직책은 '${employee.roleName}'입니다.`,
+      fields: { requiredPermission: required, roleName: employee.roleName },
     },
     { status: 403 },
   );
+};
+
+/**
+ * 최고관리자인지 확인하고, 아니면 거부한다.
+ *
+ * **권한 키로 표현할 수 없는 일에만** 쓴다. 지금은 근무 평가 삭제 하나다.
+ * 평가는 한 번 남기면 고칠 수 없어야 공정한데, 잘못 남긴 것을 되돌릴 길은
+ * 있어야 한다. 그 길을 `staff:write` 같은 일상 권한에 붙이면 결국 아무나
+ * 지우게 되므로, 되돌릴 책임을 지는 한 사람에게만 연다.
+ */
+export const requireSuperAdmin = (request: Request): Response | null => {
+  const employee = findRequester(request);
+
+  if (!employee) {
+    return HttpResponse.json(
+      { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." },
+      { status: 401 },
+    );
+  }
+
+  const role = adminRoles.find((item) => item.roleId === employee.roleId);
+
+  if (role?.isSuperAdmin) return null;
+
+  return HttpResponse.json(
+    {
+      code: "FORBIDDEN",
+      message: `이 작업은 최고관리자만 할 수 있습니다. 현재 직책은 '${employee.roleName}'입니다.`,
+      fields: { roleName: employee.roleName },
+    },
+    { status: 403 },
+  );
+};
+
+/**
+ * 권한을 갖고 있는지 **묻기만** 한다. 거부하지 않는다.
+ *
+ * `requirePermission`은 "이 요청을 통째로 막을까"를 정하는 자리에 쓰고,
+ * 이쪽은 **응답에서 일부를 덜어 낼 때** 쓴다.
+ *
+ * 한 화면이 여러 자료를 섞어 보여 주는 곳이 있다. 통합검색은 인력 · 행사 · 거래처를
+ * 한 번에 훑고, 대시보드는 미지급 금액과 매출 추이까지 함께 내려준다.
+ * 이런 응답을 통째로 막으면 화면이 열리지 않고, 그대로 내려주면
+ * 거래처를 볼 수 없는 직책이 검색창에서 거래처 이름을 읽게 된다.
+ * 그래서 막는 대신 **볼 수 있는 것만 남긴다.**
+ */
+export const requesterCan = (
+  request: Request,
+  required: PermissionKey,
+): boolean => {
+  const employee = findRequester(request);
+
+  if (!employee) return false;
+
+  const role = adminRoles.find((item) => item.roleId === employee.roleId);
+
+  return hasPermission(role?.permissions, required, role?.isSuperAdmin);
 };

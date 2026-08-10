@@ -5,7 +5,7 @@ import { useSettingsQuery } from "@/api/ops/getSettings";
 import { usePayrollMutation } from "@/api/payroll/mutatePayroll";
 import { ATTENDANCE_STATUS_LABEL } from "@/type/staff";
 import { calculatePayroll, DEFAULT_WITHHOLDING_RATE } from "@/type/payroll";
-import type { PayrollItem } from "@/type/payroll";
+import type { PayrollItem, PayrollWorkDay } from "@/type/payroll";
 import { formatDate } from "@/lib/dayjs";
 import { formatCurrency } from "@/lib/utils";
 import { WAGE_TYPE_LABEL, toTimeInput } from "@/type/event";
@@ -73,6 +73,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
     deduction: string;
     isOvertimeApplied: boolean;
     isNightPayApplied: boolean;
+    isBreakDeducted: boolean;
   } | null>(null);
 
   const { data: settings } = useSettingsQuery();
@@ -84,6 +85,8 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
     draft?.isOvertimeApplied ?? payroll?.isOvertimeApplied ?? false;
   const isNightPayApplied =
     draft?.isNightPayApplied ?? payroll?.isNightPayApplied ?? false;
+  const isBreakDeducted =
+    draft?.isBreakDeducted ?? payroll?.isBreakDeducted ?? true;
 
   const patchDraft = (
     patch: Partial<{
@@ -91,6 +94,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
       deduction: string;
       isOvertimeApplied: boolean;
       isNightPayApplied: boolean;
+      isBreakDeducted: boolean;
     }>,
   ) =>
     setDraft({
@@ -98,6 +102,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
       deduction,
       isOvertimeApplied,
       isNightPayApplied,
+      isBreakDeducted,
       ...patch,
     });
 
@@ -116,13 +121,25 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
     근무일 배열을 그대로 넘기는 것이 핵심이다. 합계 시간만 넘기면
     연장근로(하루 8시간 기준)를 며칠에 걸쳐 판정할 수 없다.
   */
+  /**
+   * 이 날 실제로 돈이 매겨지는 시간.
+   *
+   * 휴게 공제를 끄면 그날 빠졌던 휴게시간이 되살아난다.
+   * 목업이 저장할 때 쓰는 식과 **같은 모양**이어야 미리보기와 저장 결과가 맞는다.
+   */
+  const paidHoursOf = (day: PayrollWorkDay) =>
+    isBreakDeducted || !day.isPayable
+      ? day.workHours
+      : Math.round((day.workHours + day.breakMinutes / 60) * 10) / 10;
+
   const calculated = payroll
     ? calculatePayroll({
         days: payroll.days.map((day) => ({
-          workHours: day.workHours,
+          workHours: paidHoursOf(day),
           nightHours: day.nightHours,
           wageType: day.wageType,
           wage: day.wage,
+          isPayable: day.isPayable,
         })),
         allowance: nextAllowance,
         deduction: nextDeduction,
@@ -145,6 +162,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
         deduction: nextDeduction,
         isOvertimeApplied,
         isNightPayApplied,
+        isBreakDeducted,
       },
       { onSuccess: handleClose },
     );
@@ -163,6 +181,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
           : undefined
       }
       size="lg"
+      onSubmit={handleSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -215,8 +234,17 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
                   </span>
 
                   <span className="text-right text-font-1 tabular-nums">
-                    {day.workHours}h
-                    {!day.isActualTimeApplied && (
+                    {paidHoursOf(day)}h
+                    {/*
+                      공제를 끄면 근무시간보다 길게 잡힌다.
+                      그 차이가 어디서 왔는지 적지 않으면 "왜 9시간이지"가 된다.
+                    */}
+                    {paidHoursOf(day) !== day.workHours && (
+                      <span className="ml-1 text-[11px] text-brand">
+                        휴게 포함
+                      </span>
+                    )}
+                    {day.isPayable && !day.isActualTimeApplied && (
                       <span className="ml-1 text-[11px] text-warning">예정</span>
                     )}
                   </span>
@@ -226,7 +254,10 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
                   </span>
 
                   <span className="text-right tabular-nums">
-                    {day.deduction > 0 ? (
+                    {/* 안 나온 날은 지급 의무가 없다. 줄은 남기고 0원으로 적는다. */}
+                    {!day.isPayable ? (
+                      <span className="text-font-2">0원</span>
+                    ) : day.deduction > 0 ? (
                       <span className="text-danger">
                         -{formatCurrency(day.deduction)}
                       </span>
@@ -253,7 +284,7 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
                   </Badge>
                 )}
                 <span className="text-[15px] font-semibold whitespace-nowrap text-font-0 tabular-nums">
-                  {payroll.totalWorkHours}시간
+                  {calculated.totalWorkHours}시간
                 </span>
               </div>
             </div>
@@ -268,10 +299,38 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
               label={
                 isDaily
                   ? `기본급 (${WAGE_TYPE_LABEL.DAILY} ${formatCurrency(payroll.wage)} × ${payroll.workDates.length}일)`
-                  : `기본급 (${formatCurrency(payroll.wage)} × ${payroll.totalWorkHours}h)`
+                  : `기본급 (${formatCurrency(payroll.wage)} × ${calculated.totalWorkHours}h)`
               }
               value={formatCurrency(calculated.basePay)}
             />
+
+            {/*
+              휴게시간 공제.
+
+              팀장은 휴게를 통으로 쉬는 자리가 아니라 쪼개 쓰거나 쉬는 중에도
+              무전을 받고 현장을 돈다. 그래서 공제하지 않고 주는 에이전시가 많다.
+              규칙으로 못 박지 않고 건별로 켜고 끈다 — 직무마다 · 거래처마다
+              다르고, 같은 팀장이라도 행사에 따라 달라진다.
+
+              일급 건에도 둔다. 일급은 금액이 시간과 무관하지만, 여기서 끈
+              근무시간이 연장 판정과 기록에 그대로 남는다.
+            */}
+            <div className="flex items-center justify-between gap-3 border-t border-border-main py-2">
+              <div className="min-w-0">
+                <p className="text-[13px] text-font-1">휴게시간 공제</p>
+                <p className="mt-0.5 text-[12px] text-font-2">
+                  {isBreakDeducted
+                    ? "출퇴근 시간에서 휴게시간을 뺀 시간으로 계산합니다."
+                    : "휴게시간을 빼지 않고 출퇴근 시간 전체로 계산합니다."}
+                </p>
+              </div>
+
+              <Switch
+                label="휴게시간 공제"
+                checked={isBreakDeducted}
+                onChange={(checked) => patchDraft({ isBreakDeducted: checked })}
+              />
+            </div>
 
             {/*
               일급은 "하루에 얼마"로 합의한 총액이라 연장 · 야간을 따로 얹지 않는다.

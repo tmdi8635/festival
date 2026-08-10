@@ -1,7 +1,6 @@
 "use client";
 
-import Image from "next/image";
-import { formatDate, formatDateTime } from "@/lib/dayjs";
+import { formatDate } from "@/lib/dayjs";
 import { cn } from "@/lib/utils";
 import type { ContractDocument } from "@/type/contract";
 
@@ -112,50 +111,17 @@ const ContractDocumentView = ({
           <div className="flex-1">
             <p className="text-[12px] text-font-2">근로자 (을)</p>
 
-            {document.signature ? (
-              <>
-                <div className="relative mt-1.5 h-16 w-44 border-b border-border-strong">
-                  {document.signature.imageDataUrl ? (
-                    <Image
-                      src={document.signature.imageDataUrl}
-                      alt="근로자 서명"
-                      fill
-                      sizes="176px"
-                      className="object-contain object-left-bottom"
-                      unoptimized
-                    />
-                  ) : (
-                    <span className="absolute bottom-1 left-1 text-[15px] text-font-1 italic">
-                      {document.signature.signedName}
-                    </span>
-                  )}
-                </div>
+            {/*
+              서명란은 언제나 비워 둔다.
 
-                <p className="mt-2 text-[13px]">
-                  성명 {document.signature.signedName}
-                </p>
-                <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
-                  전자서명 {formatDateTime(document.signature.signedAt)}
-                </p>
-                {/*
-                  서명 이후 문서가 바뀌었는지 확인할 수 있어야 한다.
-                  해시를 함께 남겨 두면 "내가 본 것과 다르다"는 다툼을 가릴 수 있다.
-                */}
-                <p className="text-[11px] text-font-disabled tabular-nums">
-                  문서검증 {document.signature.documentHash}
-                </p>
-              </>
-            ) : (
-              <>
-                <div className="mt-1.5 h-16 w-44 border-b border-border-strong" />
-                <p className="mt-2 text-[13px] text-font-2">
-                  성명 __________ (서명)
-                </p>
-                <p className="mt-0.5 text-[11px] text-font-disabled">
-                  아직 서명 전입니다.
-                </p>
-              </>
-            )}
+              이 문서는 **내려받아 출력한 뒤 손으로 서명받는 종이**다.
+              화면에서 서명이 채워진 문서를 그려 봐야 그 위에 다시 서명할 수 없고,
+              서명된 문서는 등록한 파일 그대로 보는 것이 맞다.
+            */}
+            <div className="mt-1.5 h-16 w-44 border-b border-border-strong" />
+            <p className="mt-2 text-[13px] text-font-2">
+              성명 __________ (서명)
+            </p>
 
             {document.requiresGuardianSignature && (
               <div className="mt-5">

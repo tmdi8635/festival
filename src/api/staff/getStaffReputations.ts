@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { ReputationVerdict, StaffReputation } from "@/type/staff";
 
 export interface StaffReputationResponse {
@@ -30,7 +29,7 @@ export const getStaffReputations = async (staffId: number) => {
  * 어느 행사에서 누구에게 어떤 평가를 받았는지 그대로 보여 줍니다.
  */
 export const useStaffReputationQuery = (staffId: number | null) => {
-  return useQuery<StaffReputationResponse, AppError>({
+  return usePermittedQuery<StaffReputationResponse>("staff:read", {
     queryKey: ["get-staff-reputations", staffId],
     queryFn: () => getStaffReputations(staffId!),
     enabled: staffId !== null,

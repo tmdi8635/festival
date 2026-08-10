@@ -143,6 +143,7 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
           ? `${assignment.staffName} · ${roleLabel(assignment.role)} · ${formatDate(assignment.workDate)}`
           : undefined
       }
+      onSubmit={nextWage <= 0 || isUnchanged ? undefined : handleSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -274,8 +275,8 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
           )}
 
           <p className="text-[12px] text-font-2">
-            바꾼 금액은 정산에 곧바로 반영됩니다. 이미 계약서를 발송했다면 금액이
-            달라지므로 <b>계약서를 다시 만들어 보내야 합니다.</b>
+            바꾼 금액은 정산에 곧바로 반영됩니다. 이미 서명본을 등록했다면 금액이
+            달라지므로 <b>계약서를 재작성해 서명을 다시 받아야 합니다.</b>
           </p>
         </div>
       )}

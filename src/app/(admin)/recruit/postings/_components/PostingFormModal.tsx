@@ -111,6 +111,7 @@ const PostingFormModal = ({
       title={posting ? "공고 수정" : "공고 등록"}
       description="행사를 고르면 공고문 초안이 자동으로 만들어집니다."
       size="lg"
+      onSubmit={onSubmit}
       footer={
         <>
           <CopyButton

@@ -2,10 +2,14 @@
 
 import { useState } from "react";
 import { useEventMutation } from "@/api/event/mutateEvent";
-import { WAGE_TYPE_OPTIONS } from "@/constants/eventOptions";
+import {
+  GENDER_PREFERENCE_OPTIONS,
+  WAGE_TYPE_OPTIONS,
+} from "@/constants/eventOptions";
 import { Plus, Trash } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
+import { openConfirm } from "@/store/useConfirmStore";
 import {
   useActiveJobRoles,
   useJobRoleComparator,
@@ -17,6 +21,7 @@ import {
   type EventDayPlan,
   type EventDetail,
   type EventRoleSlot,
+  type GenderPreference,
   type WageType,
 } from "@/type/event";
 import type { JobRole } from "@/type/staff";
@@ -60,11 +65,12 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
   */
   const [draft, setDraft] = useState<DraftSlot[] | null>(null);
   const serverSlots: DraftSlot[] = (day?.roles ?? []).map(
-    ({ role, requiredCount, wageType, wage }) => ({
+    ({ role, requiredCount, wageType, wage, genderPreference }) => ({
       role,
       requiredCount,
       wageType,
       wage,
+      genderPreference,
     }),
   );
   const slots = draft ?? serverSlots;
@@ -97,6 +103,7 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
         requiredCount: 1,
         wageType: next.defaultWageType,
         wage: next.defaultWage,
+        genderPreference: "ANY",
       },
     ]);
   };
@@ -125,6 +132,35 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
         assignment.status !== "CANCELED",
     ).length;
 
+  /**
+   * 직무 한 줄을 발주에서 뺀다.
+   *
+   * 사람이 배치돼 있어도 막지 않는다. 배치는 그대로 남고 초과 배치로 표시될 뿐이라
+   * 되돌릴 수 없는 일이 아니다. 다만 "이 사람들은 어떻게 되지"가 바로 떠오르는
+   * 자리이므로, 배치가 있을 때만 무슨 일이 일어나는지 먼저 알려 준다.
+   */
+  const handleRemoveSlot = (index: number) => {
+    const slot = slots[index];
+    const assigned = assignedOf(slot.role);
+    const remove = () =>
+      setDraft(slots.filter((_, other) => other !== index));
+
+    if (assigned === 0) {
+      remove();
+      return;
+    }
+
+    openConfirm({
+      title: `'${roleLabel(slot.role)}'을 이 날 발주에서 뺄까요?`,
+      description: `이미 배치된 ${assigned}명은 그대로 남습니다. 발주가 0명이 되어 이 직무는 '초과 배치'로 표시됩니다.`,
+      warning:
+        "사람까지 빼려면 일별 근무자에서 배치를 따로 해제해 주세요. 저장을 눌러야 반영됩니다.",
+      confirmText: "빼기",
+      tone: "danger",
+      onConfirm: async () => remove(),
+    });
+  };
+
   const overAssigned = slots.filter(
     (slot) => assignedOf(slot.role) > slot.requiredCount,
   );
@@ -137,6 +173,7 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
       title="이 날의 발주 인원"
       description={day ? formatDate(day.date) : undefined}
       size="lg"
+      onSubmit={slots.length === 0 ? undefined : handleSave}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -231,19 +268,46 @@ const DayRoleEditModal = ({ event, day, onClose }: DayRoleEditModalProps) => {
                   inputBoxClassName="min-w-28 flex-1"
                 />
 
+                {/*
+                  성별 조건. **표시일 뿐 아무것도 막지 않는다.**
+                  현장은 '남성만'으로 받은 자리에 여성을 넣는 일도 늘 있어서,
+                  이 값으로 배치를 막으면 담당자는 조건을 아예 안 적게 된다.
+                */}
+                <Select
+                  aria-label="성별 조건"
+                  options={GENDER_PREFERENCE_OPTIONS}
+                  value={slot.genderPreference}
+                  onChange={(changeEvent) =>
+                    patchSlot(index, {
+                      genderPreference: changeEvent.target
+                        .value as GenderPreference,
+                    })
+                  }
+                  selectBoxClassName="w-28 shrink-0"
+                />
+
+                {/*
+                  배치된 사람이 있어도 **뺄 수 있다.**
+
+                  예전에는 막아 뒀는데, 발주를 고치는 이유가 대개
+                  "거래처가 이 직무를 뺐다"이고 그때 배치는 아직 남아 있다.
+                  막아 두면 담당자는 사람을 먼저 해제하고 발주를 고친 뒤
+                  다시 배치해야 했고, 그 사이에 계약서와 정산이 끊겼다.
+
+                  빼도 사람이 사라지지는 않는다. 그 직무는 '발주 0 · 배치 n'
+                  (`1/0`)으로 초과 배치 자리에 그대로 남는다.
+                  다만 모르고 누르는 일이 없도록 한 번 짚어 준다.
+                */}
                 <IconButton
                   label="직무 빼기"
                   icon={<Trash size={16} />}
                   tone="danger"
-                  disabled={assigned > 0}
                   title={
                     assigned > 0
-                      ? `이미 ${assigned}명이 배치되어 있어 뺄 수 없습니다. 배치를 먼저 해제해 주세요.`
+                      ? `이 날 발주에서 뺍니다. 배치된 ${assigned}명은 그대로 남아 초과 배치로 표시됩니다.`
                       : "이 날의 발주에서 뺍니다."
                   }
-                  onClick={() =>
-                    setDraft(slots.filter((_, other) => other !== index))
-                  }
+                  onClick={() => handleRemoveSlot(index)}
                 />
               </div>
             );

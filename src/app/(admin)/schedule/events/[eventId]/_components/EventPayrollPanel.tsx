@@ -5,8 +5,10 @@ import { useSelection } from "@/hooks/useSelection";
 import { usePayrollListQuery } from "@/api/payroll/getPayrollList";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import { usePayrollMutation } from "@/api/payroll/mutatePayroll";
+import { useEventMutation } from "@/api/event/mutateEvent";
 import {
   PAYROLL_STATUS_FILTER_OPTIONS,
+  PAYROLL_STATUS_HINT,
   PAYROLL_STATUS_TONE,
 } from "@/constants/payrollOptions";
 import { Check, Download } from "@/icons";
@@ -17,10 +19,17 @@ import { formatCurrency } from "@/lib/utils";
 import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { jobRoleLabel, useJobRoleLabel } from "@/store/useOrgStore";
-import { WAGE_TYPE_LABEL, type EventDetail } from "@/type/event";
+import {
+  EVENT_STATUS_LABEL,
+  WAGE_TYPE_LABEL,
+  groupAssignmentsByStaffRole,
+  type EventDetail,
+} from "@/type/event";
 import {
   PAYROLL_STATUS_LABEL,
+  describeSettlementBlock,
   formatPayrollDates,
+  isSettlementReady,
   type PayrollItem,
   type PayrollStatus,
 } from "@/type/payroll";
@@ -97,7 +106,17 @@ interface EventPayrollPanelProps {
 const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const roleLabel = useJobRoleLabel();
   /* 계좌·정산 금액은 개인정보이자 금전 정보라 권한을 따로 본다. */
+  /*
+    정산 탭은 행사 상세 안에 있어 `event:read`만으로 열린다.
+    그래서 금액을 볼 권한부터 여기서 다시 본다. (정산 메뉴와 달리 화면이 감싸 주지 않는다)
+    행위별 권한은 정산 화면과 같은 기준이다 — 조정/승인/지급 완료가 각각이다.
+  */
   const canViewAccount = useHasPermission("payroll:read");
+  const canWrite = useHasPermission("payroll:write");
+  const canApprove = useHasPermission("payroll:approve");
+  const canPay = useHasPermission("payroll:pay");
+  /* 행사 상태를 넘기는 것은 정산이 아니라 행사를 고치는 일이다. */
+  const canWriteEvent = useHasPermission("event:write");
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [workDate, setWorkDate] = useState("");
@@ -118,8 +137,119 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   });
   const { data: summary } = usePayrollSummaryQuery(filterParams);
   const { statusMutation, allowanceMutation } = usePayrollMutation();
+  const { statusMutation: statusEventMutation } = useEventMutation();
+
+  /**
+   * 행사를 정산 단계로 넘긴다.
+   *
+   * 정산 항목은 이 순간 배치에서 만들어진다. 화면이 비어 있는 이유가
+   * "아직 안 넘겼다"일 때, 다른 탭으로 나가 상태를 바꾸고 돌아오게 하지 않는다.
+   */
+  const handleMoveToSettlement = () =>
+    statusEventMutation.mutate({
+      eventId: event.eventId,
+      status: "SETTLEMENT",
+    });
 
   const rows = data?.content ?? [];
+
+  /**
+   * 아직 정산에 오르지 못한 사람과 그 이유.
+   *
+   * 판정은 목업 · 화면이 **같은 함수**를 쓴다. (`isSettlementReady`)
+   * 화면이 따로 세면 "여기서는 준비 완료인데 목록에는 없다"가 생긴다.
+   *
+   * 사람 × 직무로 묶어서 본다. 계약서도 정산도 그 단위로 잡히기 때문이다.
+   */
+  const blockedStaff = groupAssignmentsByStaffRole(
+    event.assignments.filter(
+      (assignment) =>
+        assignment.status === "CONFIRMED" && !assignment.isEmployee,
+    ),
+  )
+    .filter((assignments) => !isSettlementReady(assignments))
+    .map((assignments) => ({
+      staffId: assignments[0].staffId,
+      staffName: assignments[0].staffName,
+      role: assignments[0].role,
+      reason: describeSettlementBlock(assignments) ?? "",
+    }))
+    .sort((a, b) => a.staffName.localeCompare(b.staffName));
+
+  /**
+   * 정산 건이 하나도 없을 때 **왜 없는지**를 짚는다.
+   *
+   * 예전에는 "행사가 끝나면 배치별로 정산 항목이 자동으로 만들어집니다"라고만
+   * 적어 뒀는데, 담당자 입장에서는 행사를 완료로 바꾸고 근태까지 다 찍었는데도
+   * 화면이 비어 있으면 무엇을 더 해야 하는지 알 방법이 없었다.
+   *
+   * 정산 건이 생기는 조건은 둘뿐이다.
+   * **① 행사가 정산 단계(정산대기 · 완료)로 넘어갔는가 ② 지급 대상 배치가 있는가.**
+   *
+   * 발주 인원을 못 채운 것은 조건이 아니다. 현장 일은 발주보다 적게 뽑고
+   * 진행하는 경우가 흔하고, 그래도 나온 사람에게는 돈이 나가야 한다.
+   */
+  const isSettlementStage =
+    event.status === "SETTLEMENT" || event.status === "DONE";
+
+  /*
+    정산 대상 = 확정 배치 · 직원 아님. 목업의 `isSettlementTarget`과 같은 규칙이다.
+
+    노쇼 · 결근을 여기서 빼지 않는다. 안 나온 날은 0원일 뿐 그 사람의
+    정산이 없어지는 것은 아니다. (사흘 중 하루를 안 나와도 이틀은 지급한다)
+  */
+  const confirmedAssignments = event.assignments.filter(
+    (assignment) => assignment.status === "CONFIRMED",
+  );
+  const settlementTargets = confirmedAssignments.filter(
+    (assignment) => !assignment.isEmployee,
+  );
+
+  const emptyReason = (() => {
+    if (confirmedAssignments.length === 0) {
+      return {
+        title: "확정 배치가 없습니다.",
+        description:
+          "정산은 확정 배치에서 만들어집니다. 일별 근무자 탭에서 인력을 배치하고 확정해 주세요.",
+      };
+    }
+
+    if (settlementTargets.length === 0) {
+      return {
+        title: "시급 정산 대상이 없습니다.",
+        description:
+          "확정 배치가 전부 우리 직원입니다. 직원은 월급으로 급여가 나가 시급 정산을 하지 않고, 근무시간만 운영 > 직원 근무에서 셉니다.",
+      };
+    }
+
+    if (!isSettlementStage) {
+      return {
+        title: `행사가 아직 '${EVENT_STATUS_LABEL[event.status]}' 단계입니다.`,
+        description:
+          "정산 항목은 행사를 '정산대기'로 넘기는 순간 배치에서 만들어집니다. 발주 인원을 다 못 채웠어도 상관없습니다 — 나온 사람 기준으로 계산됩니다.",
+      };
+    }
+
+    /*
+      전원이 아직 조건을 못 채운 경우.
+      위쪽 경고에 이름과 이유가 이미 적혀 있으므로 여기서는 무엇을 하면
+      되는지만 한 번 더 말한다.
+    */
+    if (blockedStaff.length > 0) {
+      return {
+        title: "정산할 수 있는 사람이 아직 없습니다.",
+        description:
+          "근로계약서가 작성 완료이고 실제 출퇴근이 기록되어야 지급할 수 있습니다. 위 목록의 사람들을 처리하면 여기에 올라옵니다.",
+      };
+    }
+
+    return {
+      title: "아직 정산할 건이 없습니다.",
+      description:
+        "필터를 바꿔서 다시 찾아보세요. 그래도 비어 있으면 행사 상태를 '정산대기'로 다시 넘겨 주세요.",
+    };
+  })();
+
   const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
     useSelection(rows.map((row) => row.payrollId));
   const selectedRows = rows.filter((row) => isSelected(row.payrollId));
@@ -367,7 +497,11 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       key: "status",
       header: "상태",
       render: (item) => (
-        <Badge tone={PAYROLL_STATUS_TONE[item.status]}>
+        /* 배지 하나로는 무슨 단계인지 모른다. 뜻을 커서에 붙여 둔다. */
+        <Badge
+          tone={PAYROLL_STATUS_TONE[item.status]}
+          title={PAYROLL_STATUS_HINT[item.status]}
+        >
           {PAYROLL_STATUS_LABEL[item.status]}
         </Badge>
       ),
@@ -382,14 +516,16 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           className="flex justify-end"
           onClick={(clickEvent) => clickEvent.stopPropagation()}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={item.status === "PAID"}
-            onClick={() => setAdjustTarget(item)}
-          >
-            조정
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={item.status === "PAID"}
+              onClick={() => setAdjustTarget(item)}
+            >
+              조정
+            </Button>
+          )}
         </div>
       ),
     },
@@ -398,9 +534,66 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   return (
     <>
       {!canViewAccount && (
-        <Alert tone="info" title="계좌 정보는 대표 권한에서만 보입니다.">
-          매니저 권한으로도 지급액 확인과 승인은 가능하지만, 계좌번호와 이체
-          파일은 열람할 수 없습니다.
+        <Alert tone="info" title="정산 금액을 볼 권한이 없습니다.">
+          이 행사의 지급액과 계좌를 보려면 &lsquo;정산 &gt; 조회&rsquo; 권한이
+          필요합니다.
+        </Alert>
+      )}
+
+      {/*
+        상태가 무슨 뜻인지 화면에 적어 둔다.
+
+        `정산대기 → 지급승인 → 지급완료`는 글자만 봐서는 누가 무엇을 하는
+        단계인지 알 수 없다. 특히 '지급완료'는 "시스템이 돈을 보냈다"로
+        읽히기 쉬운데 실제로는 **사람이 이체를 끝낸 뒤 눌러 두는 기록**이다.
+        그 오해가 남으면 아무도 안 누르거나, 이체 전에 눌러 두고 잊는다.
+      */}
+      {/*
+        아직 정산에 오르지 못한 사람.
+
+        **정산은 사람 단위로 열린다.** 열네 명 중 열세 명이 계약서와 출퇴근을
+        채웠으면 여기 열세 명이 뜨고, 남은 한 명만 기다린다. 그런데 목록에
+        없는 사람은 화면에서 보이지 않으므로, 누가 왜 빠졌는지를 여기서
+        이름째로 적어 준다. 적지 않으면 담당자는 "열네 명인데 왜 열세 명이지"를
+        출퇴근 명부와 계약서 탭을 오가며 직접 찾아야 한다.
+      */}
+      {blockedStaff.length > 0 && (
+        <Alert
+          tone="warning"
+          title={`${blockedStaff.length}명은 아직 정산에 올라오지 않았습니다.`}
+        >
+          <span className="flex flex-col gap-0.5">
+            <span className="text-font-2">
+              근로계약서가 작성 완료이고 실제 출퇴근이 기록되어야 지급할 수
+              있습니다. 채우는 즉시 이 목록에 올라옵니다.
+            </span>
+            {blockedStaff.map((blocked) => (
+              <span key={`${blocked.staffId}-${blocked.role}`}>
+                <b>{blocked.staffName}</b>
+                <span className="text-font-2">
+                  {" "}
+                  ({roleLabel(blocked.role)}) — {blocked.reason}
+                </span>
+              </span>
+            ))}
+          </span>
+        </Alert>
+      )}
+
+      {rows.length > 0 && (
+        <Alert tone="info" title="정산은 세 단계로 넘어갑니다.">
+          <span className="flex flex-col gap-0.5">
+            {(["PENDING", "APPROVED", "PAID"] as const).map((status) => (
+              <span key={status}>
+                <b>{PAYROLL_STATUS_LABEL[status]}</b> —{" "}
+                {PAYROLL_STATUS_HINT[status]}
+              </span>
+            ))}
+            <span className="mt-1 text-font-2">
+              발주 인원을 다 못 채웠어도 정산은 그대로 됩니다. 나온 사람 기준으로
+              계산됩니다.
+            </span>
+          </span>
         </Alert>
       )}
 
@@ -488,16 +681,18 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
               상세 CSV
             </Button>
 
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon={<Download size={15} />}
-              onClick={handleDownloadTransfer}
-              disabled={rows.length === 0 || !canViewAccount}
-              title="은행 대량이체 양식으로 저장합니다."
-            >
-              은행 이체 파일
-            </Button>
+            {canPay && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leftIcon={<Download size={15} />}
+                onClick={handleDownloadTransfer}
+                disabled={rows.length === 0}
+                title="은행 대량이체 양식으로 저장합니다."
+              >
+                은행 이체 파일
+              </Button>
+            )}
 
             <Select
               aria-label="상태 필터"
@@ -520,6 +715,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
 
             <div className="flex flex-wrap items-center gap-2">
               {/* 수당은 강제하지 않는다. 고른 건에 대해 붙이거나 뗀다. */}
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">연장</span>
                 <Button
@@ -537,7 +733,9 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
                   해제
                 </Button>
               </div>
+              )}
 
+              {canWrite && (
               <div className="flex items-center gap-1 rounded-field border border-border-main px-1.5 py-1">
                 <span className="px-1 text-[12px] text-font-2">야간</span>
                 <Button
@@ -555,22 +753,27 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
                   해제
                 </Button>
               </div>
+              )}
 
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => handleBulkStatus("APPROVED")}
-              >
-                지급 승인
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                leftIcon={<Check size={14} />}
-                onClick={() => handleBulkStatus("PAID")}
-              >
-                지급 완료
-              </Button>
+              {canApprove && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleBulkStatus("APPROVED")}
+                >
+                  지급 승인
+                </Button>
+              )}
+              {canPay && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<Check size={14} />}
+                  onClick={() => handleBulkStatus("PAID")}
+                >
+                  지급 완료
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -580,13 +783,27 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           rows={rows}
           getRowKey={(item) => String(item.payrollId)}
           isLoading={isLoading}
-          emptyTitle="아직 정산할 건이 없습니다."
-          emptyDescription="행사가 끝나면 배치별로 정산 항목이 자동으로 만들어집니다."
+          emptyTitle={emptyReason.title}
+          emptyDescription={emptyReason.description}
+          emptyAction={
+            /* 상태만 넘기면 되는 상황이면 그 자리에서 처리한다. */
+            !isSettlementStage &&
+            settlementTargets.length > 0 &&
+            canWriteEvent ? (
+              <Button
+                variant="primary"
+                isLoading={statusEventMutation.isPending}
+                onClick={handleMoveToSettlement}
+              >
+                정산대기로 넘기기
+              </Button>
+            ) : undefined
+          }
         />
       </Card>
 
       <PayrollAdjustModal
-        payroll={adjustTarget}
+        payroll={canWrite ? adjustTarget : null}
         onClose={() => setAdjustTarget(null)}
       />
     </>

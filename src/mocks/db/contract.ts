@@ -1,9 +1,11 @@
-import type {
-  Contract,
-  ContractStatus,
-  ContractTemplate,
+import type { Contract, ContractTemplate } from "@/type/contract";
+import {
+  buildContractFileName,
+  contractNameTag,
+  findDuplicateStaffNames,
+  summarizeContractWork,
 } from "@/type/contract";
-import { buildDocumentHash, summarizeContractWork } from "@/type/contract";
+import { buildPlaceholderPdfDataUrl } from "../placeholderPdf";
 import {
   calculateScheduledWorkHours,
   groupAssignmentsByStaff,
@@ -73,7 +75,7 @@ export const contractTemplates: ContractTemplate[] = [
         title: "제6조 (기타)",
         kind: "TEXT",
         body: `1. 본 계약에 명시되지 않은 사항은 근로기준법에 따른다.
-2. 본 계약은 전자문서로 작성되며, 전자서명은 서명 날인과 동일한 효력을 가진다.`,
+2. 본 계약은 2부를 작성하여 갑과 을이 각각 1부씩 보관한다.`,
       },
     ],
     agreementNote:
@@ -215,16 +217,30 @@ let contractSequence = 0;
  * 실제 배치(assignment)에서 파생시켜야 계약서 화면과 행사 화면의 숫자가 어긋나지 않는다.
  * 여러 날 나오는 사람은 계약서를 날마다 만들지 않고 한 장에 근무일을 모두 적는다.
  * (현장에서도 그렇게 쓴다. 3일 행사에 계약서 3장을 받지는 않는다)
+ *
+ * **서명본을 등록한 사람만 계약서를 갖는다.** 아직 안 받은 사람은 기록 자체가 없고,
+ * 명단에서 '발급 전'으로 나타난다. 종이를 받기도 전에 문서 기록이 생기면
+ * 화면에는 계약서가 있는 것으로 보이고, 그 상태로 현장에 사람이 들어간다.
  */
 export const contracts: Contract[] = events
   .filter((event) => event.status !== "DRAFT" && event.status !== "CANCELED")
   .flatMap((event) => {
     const workHours = calculateScheduledWorkHours(event);
-    const isPast = new Date(event.startDate) < new Date();
+
+    /*
+      한 행사 안에서 이름이 겹치는 사람들.
+      겹칠 때만 파일명에 휴대폰 뒤 네 자리를 붙인다. (`buildContractFileName`)
+    */
+    const duplicateNames = findDuplicateStaffNames(event.assignments);
 
     /** 한 사람이 여러 날 나오면 배치가 여러 건이다. 사람 단위로 묶는다. */
-    return groupAssignmentsByStaff(event.assignments).map(
-      (assignments, index) => {
+    return groupAssignmentsByStaff(event.assignments)
+      /* 직원은 계약 대상이 아니다. (회사와 이미 근로계약이 되어 있다) */
+      .filter(
+        (assignments) =>
+          !assignments[0].isEmployee && assignments[0].isContractSigned,
+      )
+      .map((assignments, index) => {
       const [first] = assignments;
       const staff = findStaff(first.staffId);
 
@@ -242,16 +258,6 @@ export const contracts: Contract[] = events
         workHours,
       );
       const { workDates } = work;
-
-      const status: ContractStatus = first.isContractSigned
-        ? "SIGNED"
-        : isPast
-          ? "EXPIRED"
-          : index % 4 === 0
-            ? "REJECTED"
-            : index % 3 === 0
-              ? "DRAFT"
-              : "SENT";
 
       const template =
         first.role === "SUPERVISOR"
@@ -286,31 +292,39 @@ export const contracts: Contract[] = events
         workHours,
         // 근무일 · 총 시간 · 총액은 한 곳에서만 계산한다.
         ...work,
-        status,
+        status: "SIGNED",
         revision: 1,
-        // 서명 완료 건은 서명 기록도 함께 있어야 화면에서 근거를 확인할 수 있다.
-        signature:
-          status === "SIGNED"
-            ? {
-                imageDataUrl: "",
-                signedName: first.staffName,
-                signedAt: toIsoDateTime(workDates[0], "09:30"),
-                documentHash: buildDocumentHash(
-                  `${contractNumber}${first.staffName}${first.wage}`,
-                ),
-              }
-            : undefined,
-        sentAt:
-          status === "DRAFT" ? undefined : toIsoDateTime(workDates[0], "09:00"),
-        signedAt:
-          status === "SIGNED"
-            ? toIsoDateTime(workDates[0], "09:30")
-            : undefined,
-        rejectedReason:
-          status === "REJECTED"
-            ? "계약서에 적힌 시급이 안내받은 금액과 다릅니다."
-            : undefined,
-        expiresAt: toIsoDateTime(workDates[0], "23:59"),
+        /*
+          서명본 파일.
+
+          이름은 **실제와 같은 규칙으로** 만든다. 담당자가 폴더에서 찾는 것이
+          이 이름이고, 화면에 다른 규칙으로 적히면 규칙이 있는 줄도 모르게 된다.
+
+          내용은 진짜 PDF 한 장을 넣는다. 빈 값으로 두면 화면의 "올린 파일 미리보기"가
+          목업에서 영영 확인되지 않는데, 담당자가 제일 조심해야 하는 것이
+          **누구 것이 올라갔는가**라서 그 자리를 비워 둘 수 없다.
+        */
+        signedFile: {
+          url: buildPlaceholderPdfDataUrl([
+            "SIGNED EMPLOYMENT CONTRACT (SAMPLE SCAN)",
+            `Contract No. ${contractNumber}`,
+            `Work date  ${workDates[0]}`,
+            "",
+            "This page stands in for a scanned paper copy.",
+          ]),
+          fileName: buildContractFileName(
+            workDates[0],
+            event.title,
+            first.staffName,
+            "pdf",
+            duplicateNames.has(first.staffName)
+              ? contractNameTag(first.staffPhone)
+              : undefined,
+          ),
+          mimeType: "application/pdf",
+          uploadedAt: toIsoDateTime(workDates[0], "09:30"),
+        },
+        registeredAt: toIsoDateTime(workDates[0], "09:30"),
         createdAt: first.createdAt,
         } satisfies Contract;
       },

@@ -14,17 +14,28 @@ import {
  * `@/store/useOrgStore`의 `useJobRoleOptions()`에서 가져온다.
  */
 export const STAFF_STATUS_LABEL: Record<StaffStatus, string> = {
+  PENDING: "대기중",
   ACTIVE: "활동중",
-  DORMANT: "휴면",
   BLACKLIST: "블랙리스트",
-  RETIRED: "활동종료",
 };
 
+/**
+ * 대기중이 `warning`인 이유.
+ *
+ * 서류가 없어 **지금 부를 수 없는 사람**이다. 중립색으로 두면 목록에서
+ * 활동중과 구분되지 않고, 배치하려다 확정 단계에서야 막힌다.
+ */
 export const STAFF_STATUS_TONE: Record<StaffStatus, BadgeTone> = {
+  PENDING: "warning",
   ACTIVE: "success",
-  DORMANT: "warning",
   BLACKLIST: "danger",
-  RETIRED: "neutral",
+};
+
+/** 상태별로 지금 무엇을 뜻하는지. 배지 옆·필터 안내에 그대로 쓴다. */
+export const STAFF_STATUS_HINT: Record<StaffStatus, string> = {
+  PENDING: "신분증 · 통장사본이 없어 확정 배치할 수 없습니다.",
+  ACTIVE: "필요한 서류를 모두 냈습니다. 배치할 수 있습니다.",
+  BLACKLIST: "에이전시가 지정했습니다. 배치 대상에서 빠집니다.",
 };
 
 export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatus, BadgeTone> = {
@@ -39,20 +50,25 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatus, BadgeTone> = {
 export const STAFF_STATUS_FILTER_OPTIONS: SelectOption[] = [
   { label: "전체 상태", value: "" },
   { label: STAFF_STATUS_LABEL.ACTIVE, value: "ACTIVE" },
-  { label: STAFF_STATUS_LABEL.DORMANT, value: "DORMANT" },
+  { label: STAFF_STATUS_LABEL.PENDING, value: "PENDING" },
   { label: STAFF_STATUS_LABEL.BLACKLIST, value: "BLACKLIST" },
-  { label: STAFF_STATUS_LABEL.RETIRED, value: "RETIRED" },
-];
-
-export const STAFF_STATUS_OPTIONS: SelectOption[] = [
-  { label: STAFF_STATUS_LABEL.ACTIVE, value: "ACTIVE" },
-  { label: STAFF_STATUS_LABEL.DORMANT, value: "DORMANT" },
-  { label: STAFF_STATUS_LABEL.RETIRED, value: "RETIRED" },
 ];
 
 export const GENDER_OPTIONS: SelectOption[] = [
   { label: GENDER_LABEL.FEMALE, value: "FEMALE" },
   { label: GENDER_LABEL.MALE, value: "MALE" },
+];
+
+/**
+ * 배치 후보를 성별로 좁힐 때 쓰는 선택지.
+ *
+ * 발주에 성별 조건이 있으면 이 값의 **초기값**이 그 조건으로 깔린다.
+ * 다만 언제든 '전체 성별'로 되돌릴 수 있어야 한다. 현장은 조건과 다르게
+ * 뽑는 일이 늘 있고, 필터가 그것을 막으면 후보가 아예 안 보인다.
+ */
+export const GENDER_FILTER_OPTIONS: SelectOption[] = [
+  { label: "전체 성별", value: "" },
+  ...GENDER_OPTIONS,
 ];
 
 /** 서류 제출 여부 필터. 정산 계좌를 확정할 수 있는지와 직결된다. */
@@ -87,9 +103,17 @@ export const ATTENDANCE_FILTER_OPTIONS: SelectOption[] = [
   })),
 ];
 
-/** 근태 기록 모달에서 고르는 값. "예정"은 되돌리기 용도로 남겨 둔다. */
+/**
+ * 근태 기록 모달에서 고르는 값. "예정"은 되돌리기 용도로 남겨 둔다.
+ *
+ * **'지각'은 없다.** 지각은 상태가 아니라 시각의 문제다. 늦게 온 사람은
+ * 출근 시각을 실제로 온 시각으로 적으면 그만이고, 그러면 근무시간이 줄어
+ * 정산 금액까지 저절로 맞는다. 상태로 따로 받으면 같은 사실을 두 번 적게 되고
+ * (10:20으로 적고 + 지각 20분으로 또 적고) 두 값이 어긋나는 날이 온다.
+ * 실제로 지각 분수와 출근 시각이 따로 노는 건이 쌓였다.
+ */
 export const ATTENDANCE_OPTIONS: SelectOption[] = (
-  ["PRESENT", "LATE", "EARLY_LEAVE", "ABSENT", "NO_SHOW", "PENDING"] as const
+  ["PRESENT", "EARLY_LEAVE", "ABSENT", "NO_SHOW", "PENDING"] as const
 ).map((status) => ({
   label: ATTENDANCE_STATUS_LABEL[status],
   value: status,
@@ -101,28 +125,17 @@ export const BULK_ATTENDANCE_OPTIONS: {
   label: string;
 }[] = [
   { status: "PRESENT", label: "정상 출근" },
-  { status: "LATE", label: "지각" },
   { status: "EARLY_LEAVE", label: "조퇴" },
   { status: "ABSENT", label: "결근" },
   { status: "NO_SHOW", label: "노쇼" },
   { status: "PENDING", label: "예정으로 되돌리기" },
 ];
 
-/**
- * 평판 점수 구간별 색.
- *
- * 색은 **평판 점수**로 고른다. 단순 평균으로 고르면 1건 5.0이
- * 40건 4.3보다 진한 색을 달고 목록에서 더 좋아 보인다.
- * 평판 점수는 이미 표본 수를 반영하고 있어 건수를 따로 볼 필요가 없다.
- *
- * 구간은 기본 점수(3.6)를 가운데 두고 나눈다.
- * 기본선 근처는 '아직 판단할 근거가 없다'는 뜻이라 색을 죽인다.
- */
-export const resolveRatingTone = (reputationScore: number): BadgeTone => {
-  if (reputationScore >= 4.3) return "success";
-  if (reputationScore >= 4) return "info";
-  if (reputationScore >= 3.5) return "neutral";
-  if (reputationScore >= 3.2) return "warning";
+/*
+  평판 점수에는 색을 입히지 않는다.
 
-  return "danger";
-};
+  등급 이름을 걷어내고도 초록 · 빨강 배지는 남겨 뒀는데, 그 색이 결국
+  등급이 하던 일을 그대로 했다. 1002점이 초록이면 좋아요 한 번 더 받은 사람이
+  화면에서 '괜찮은 사람'이 되고 998점은 그 반대가 된다. 점수를 보고 판단하는
+  것은 에이전시의 일이지 화면이 미리 해 줄 일이 아니다. (`RatingStat`)
+*/

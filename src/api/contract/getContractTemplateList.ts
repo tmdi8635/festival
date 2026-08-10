@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { ContractTemplate } from "@/type/contract";
 
 export interface ContractTemplateListParams {
@@ -26,7 +25,7 @@ export const getContractTemplateList = async (
 export const useContractTemplateListQuery = (
   params: ContractTemplateListParams = {},
 ) => {
-  return useQuery<ContractTemplateResponse, AppError>({
+  return usePermittedQuery<ContractTemplateResponse>("contract:read", {
     queryKey: ["get-contract-templates", params],
     queryFn: () => getContractTemplateList(params),
   });

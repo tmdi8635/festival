@@ -33,6 +33,22 @@ export interface PayrollWorkDay {
   assignmentId: number;
   workDate: string;
   /**
+   * 이 날 돈이 나가는지.
+   *
+   * 노쇼 · 결근은 나오지 않은 날이라 **0원**이다. 목록에서 아예 빼지 않는
+   * 이유는, 빼 버리면 3일 중 하루를 안 나온 사람의 정산이 이틀짜리로 보여
+   * "왜 하루가 없지"를 매번 다시 확인하게 되기 때문이다. 줄은 남기고
+   * 금액만 0으로 둔다. 그러면 왜 0원인지가 그 자리에서 읽힌다.
+   */
+  isPayable: boolean;
+  /**
+   * 이 날 빠진 휴게시간(분).
+   *
+   * 근무시간에서 이미 빠져 있는 값이다. 정산에서 공제를 끄면
+   * (`PayrollItem.isBreakDeducted`) 이만큼을 다시 더해 계산한다.
+   */
+  breakMinutes: number;
+  /**
    * 이 날 적용된 지급 기준과 금액.
    *
    * 금액은 **배치 한 건(=사람×날짜)마다 따로 정해질 수 있다.**
@@ -44,8 +60,16 @@ export interface PayrollWorkDay {
   wage: number;
   /** 이 날의 기본급. 시급이면 `금액 × 실근무시간`, 일급이면 금액 그대로다. */
   basePay: number;
-  /** 이 날의 정산 기준 실근무시간 */
+  /** 이 날의 정산 기준 실근무시간. 휴게시간이 빠진 값이다. */
   workHours: number;
+  /**
+   * 실제로 돈이 매겨진 시간.
+   *
+   * 휴게 공제를 켜 두면 `workHours`와 같고, 끄면 그만큼 늘어난다.
+   * 두 값을 함께 들고 있어야 "왜 8시간 일했는데 9시간으로 나갔나"를
+   * 화면에서 설명할 수 있다.
+   */
+  paidWorkHours: number;
   /** 행사에 적힌 예정 근무시간 */
   scheduledWorkHours: number;
   /** 실제 출퇴근 기록으로 계산했는지. false면 예정 시간 기준의 잠정치다. */
@@ -128,6 +152,19 @@ export interface PayrollItem {
   isNightPayApplied: boolean;
   /** 야간 시간 가산액 */
   nightPay: number;
+  /**
+   * 휴게시간을 근무시간에서 뺄지. **기본은 뺀다.**
+   *
+   * 그런데 팀장에게는 빼지 않고 주는 에이전시가 많다. 법정 휴게를 통으로
+   * 쉬는 자리가 아니라 쪼개 쓰거나, 쉬는 중에도 무전을 받고 현장을 도는
+   * 자리이기 때문이다. 그걸 "휴게 1시간 뺀 8시간"으로 적으면 실제로 붙어
+   * 있던 9시간이 기록에서 사라진다.
+   *
+   * 규칙으로 못 박지 않고 건별로 켜고 끈다. 직무마다 · 거래처마다 다르고,
+   * 같은 팀장이라도 행사에 따라 달라지는 값이라 자동으로 정할 수가 없다.
+   * 끄면 그날 빠졌던 휴게시간(`PayrollWorkDay.breakMinutes`)이 되살아난다.
+   */
+  isBreakDeducted: boolean;
   /** 식대·교통비 등 별도 지급액 (전체 근무일 합계) */
   allowance: number;
   /** 지각·중도이탈 등으로 차감한 금액 (전체 근무일 합계) */
@@ -164,6 +201,88 @@ export interface PayrollSummary {
   provisionalCount: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* 정산에 올릴 수 있는 상태                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 정산에 올리기 전에 확인하는 최소한의 모양.
+ *
+ * 배치 전체를 요구하지 않는다. 화면 · 목업이 각자 다른 필드를 보고 판단하면
+ * "출퇴근 명부에서는 준비 완료인데 정산에는 안 뜬다"가 반드시 생긴다.
+ */
+export interface SettlementCheckable {
+  attendance: AttendanceStatus;
+  isContractSigned: boolean;
+  checkInAt?: string;
+  checkOutAt?: string;
+}
+
+/**
+ * 이 날 돈이 나가는가.
+ *
+ * 노쇼 · 결근은 나오지 않은 날이라 **지급 의무가 없다.** 0원으로 두고,
+ * 정산에서 빼지는 않는다. 빼 버리면 3일 중 하루를 안 나온 사람의 정산이
+ * 이틀짜리로 보여 매번 "왜 하루가 없지"를 확인하게 된다.
+ */
+export const isPayableDay = (assignment: {
+  attendance: AttendanceStatus;
+}): boolean =>
+  assignment.attendance !== "NO_SHOW" && assignment.attendance !== "ABSENT";
+
+/**
+ * 이 날의 출퇴근이 확정됐는가.
+ *
+ * 나오지 않은 날은 찍을 출퇴근이 없다. **그 자체로 확정**이고, 이 날 때문에
+ * 정산이 막히면 안 된다. (노쇼 한 명이 나머지 열세 명의 정산까지 붙잡는다)
+ */
+export const isCheckTimeSettled = (assignment: SettlementCheckable): boolean =>
+  !isPayableDay(assignment) ||
+  Boolean(assignment.checkInAt && assignment.checkOutAt);
+
+/**
+ * 이 사람의 정산을 열 수 있는가. **사람 단위로 본다.**
+ *
+ * 돈을 내보내려면 두 가지가 함께 있어야 한다.
+ *
+ * 1. **근로계약서가 작성 완료** — 무엇을 얼마에 하기로 했는지의 근거다.
+ *    중도 종료나 일정 변경으로 다시 써야 하면 이 값이 도로 내려가고,
+ *    새 계약서가 완료되면 그때 다시 올라온다.
+ * 2. **실제 출퇴근이 확정** — 얼마나 일했는지의 근거다. 비어 있으면 금액은
+ *    발주 시간으로 짐작한 값이고, 그건 지급 승인을 할 수 있는 숫자가 아니다.
+ *
+ * **한 사람이 막혔다고 전원이 막히지는 않는다.** 열네 명 중 열세 명이
+ * 두 조건을 채웠으면 정산에는 열세 명이 뜬다. 남은 한 명은 그 사람의
+ * 계약서나 출퇴근이 채워지는 순간 따라 올라온다.
+ */
+export const isSettlementReady = (
+  assignments: readonly SettlementCheckable[],
+): boolean =>
+  assignments.length > 0 &&
+  assignments.every(
+    (assignment) => assignment.isContractSigned && isCheckTimeSettled(assignment),
+  );
+
+/** 정산이 막힌 이유. 명부에서 "무엇을 더 하면 되는지"를 그대로 적어 준다. */
+export const describeSettlementBlock = (
+  assignments: readonly SettlementCheckable[],
+): string | undefined => {
+  const missingContract = assignments.some(
+    (assignment) => !assignment.isContractSigned,
+  );
+  const missingCheckTime = assignments.some(
+    (assignment) => !isCheckTimeSettled(assignment),
+  );
+
+  if (missingContract && missingCheckTime) {
+    return "근로계약서와 출퇴근 기록이 필요합니다.";
+  }
+  if (missingContract) return "근로계약서가 작성 완료여야 합니다.";
+  if (missingCheckTime) return "출퇴근 기록이 필요합니다.";
+
+  return undefined;
+};
+
 /** 원천징수율 기본값 (사업소득 3.3%) */
 export const DEFAULT_WITHHOLDING_RATE = 0.033;
 
@@ -177,6 +296,13 @@ export interface PayrollCalculationDay {
   /** 이 날 적용된 지급 기준과 금액 */
   wageType: WageType;
   wage: number;
+  /**
+   * 이 날 돈이 나가는지. 노쇼 · 결근이면 `false`이고 금액은 전부 0이다.
+   *
+   * 시간으로만 가릴 수 없다. 일급은 시간과 무관하게 하루치를 그대로 주므로,
+   * 근무시간 0시간짜리 노쇼 날에도 일급 전액이 잡힌다. 실제로 그렇게 나갔다.
+   */
+  isPayable: boolean;
 }
 
 export interface PayrollCalculationInput {
@@ -243,6 +369,17 @@ export const calculatePayroll = ({
     (더 줄 돈이 생기면 기타수당으로 넣는다. 그래야 왜 더 줬는지가 남는다)
   */
   const perDay = days.map((day) => {
+    /*
+      나오지 않은 날은 전부 0이다.
+
+      시간이 0이니 시급 건은 저절로 0이 되지만, **일급은 그렇지 않다.**
+      일급은 시간과 무관하게 하루치를 주는 값이라 노쇼한 날에도 전액이 잡혔다.
+      여기서 한 번 걸러야 그런 건이 안 나간다.
+    */
+    if (!day.isPayable) {
+      return { basePay: 0, overtimePay: 0, nightPay: 0 };
+    }
+
     const isHourly = day.wageType === "HOURLY";
 
     const basePay = isHourly

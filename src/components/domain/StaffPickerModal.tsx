@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useAssignmentCandidateQuery } from "@/api/event/getAssignmentCandidates";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import type { EmploymentType } from "@/type/employee";
 import {
   useJobRoleComparator,
   useJobRoleLabel,
@@ -13,16 +14,20 @@ import { Sparkle, Star, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
   formatTimeRange,
+  GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
   describeRecurrence,
   type AssignmentStatus,
   type EventDetail,
+  type GenderPreference,
 } from "@/type/event";
 import {
   formatRegion,
   REQUIRED_DOCUMENT_LABEL,
+  type Gender,
   type JobRole,
 } from "@/type/staff";
+import { GENDER_FILTER_OPTIONS } from "@/constants/staffOptions";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -32,6 +37,7 @@ import Modal from "@/components/ui/Modal";
 import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
 import Skeleton from "@/components/ui/Skeleton";
+import GenderMark from "./GenderMark";
 import RatingStat from "./RatingStat";
 
 interface StaffPickerModalProps {
@@ -52,6 +58,19 @@ const ASSIGNMENT_STATUS_OPTIONS = [
   { label: "확정 배치", value: "CONFIRMED" },
   { label: "대기 인력", value: "WAITLIST" },
   { label: "제안 단계", value: "PROPOSED" },
+];
+
+/**
+ * 고용 형태 필터.
+ *
+ * 직원은 직무 조건에 걸리지 않아 어느 직무를 골라도 후보에 **섞여** 있다.
+ * 그런데 목록은 추천 점수 순이라, 인력풀이 수십 명이면 우리 사람이 중간
+ * 어딘가에 흩어져 "직원은 어떻게 넣나"가 된다. 여기서 한 번에 세워 볼 수 있게 한다.
+ */
+const EMPLOYMENT_FILTER_OPTIONS = [
+  { label: "전체 인력", value: "" },
+  { label: "우리 직원", value: "EMPLOYEE" },
+  { label: "프리랜서", value: "FREELANCER" },
 ];
 
 /**
@@ -84,6 +103,16 @@ const StaffPickerModal = ({
     draftRole ?? initialRole ?? jobRoleOptions[0]?.value ?? "STAFF";
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<AssignmentStatus>("CONFIRMED");
+  /*
+    성별 필터.
+
+    발주에 조건이 있으면 그것이 **초기값**이 되고, 담당자가 '전체 성별'로
+    되돌리면 조건과 다른 사람도 그대로 후보에 오른다.
+    현장은 '남성만' 자리에 여성을 넣는 일도 늘 있어서, 필터가 그것을 막으면
+    후보가 아예 안 보이는 날이 생긴다. 강제하지 않는다.
+  */
+  const [draftGender, setDraftGender] = useState<Gender | "" | null>(null);
+  const [employment, setEmployment] = useState<EmploymentType | "">("");
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
@@ -98,12 +127,34 @@ const StaffPickerModal = ({
   const eventDates = event?.dates ?? [];
   const targetDates = draftDates ?? initialDates ?? eventDates;
 
+  /*
+    고른 근무일의 발주에 걸린 성별 조건.
+    날마다 다르면(첫날만 남성) '무관'으로 떨어뜨린다. 한쪽을 대표로 세우면
+    조건이 없는 날까지 좁혀 놓고 고르게 된다.
+  */
+  const targetSlots = (event?.days ?? [])
+    .filter((day) => targetDates.includes(day.date))
+    .flatMap((day) => day.roles.filter((item) => item.role === role));
+
+  const orderGender: GenderPreference =
+    targetSlots.length > 0 &&
+    targetSlots.every(
+      (slot) => slot.genderPreference === targetSlots[0].genderPreference,
+    )
+      ? targetSlots[0].genderPreference
+      : "ANY";
+
+  const gender =
+    draftGender ?? (orderGender === "ANY" ? "" : (orderGender as Gender));
+
   const { data, isLoading } = useAssignmentCandidateQuery(
     {
       eventId: event?.eventId ?? 0,
       role,
       keyword: keyword || undefined,
       includeUnavailable,
+      gender: gender || undefined,
+      employment: employment || undefined,
       // 고른 날 기준으로 겹침을 계산해야 "이 날만 가능한 사람"이 걸러지지 않는다.
       dates: targetDates.join(","),
     },
@@ -119,9 +170,6 @@ const StaffPickerModal = ({
     행사 전체 합계로 안내하면, 일자별 근무자에서 "그 날 그 직무"를 눌러 열었을 때
     "이 날은 다 찼는데 6명이 더 필요합니다"처럼 엇갈린 말이 나온다.
   */
-  const targetSlots = (event?.days ?? [])
-    .filter((day) => targetDates.includes(day.date))
-    .flatMap((day) => day.roles.filter((item) => item.role === role));
   const hasOrder = targetSlots.length > 0;
   const shortage = targetSlots.reduce(
     (sum, item) => sum + Math.max(0, item.requiredCount - item.assignedCount),
@@ -150,6 +198,8 @@ const StaffPickerModal = ({
     setSelectedIds([]);
     setDraftDates(null);
     setDraftRole(null);
+    setDraftGender(null);
+    setEmployment("");
     setKeyword("");
     onClose();
   };
@@ -180,6 +230,11 @@ const StaffPickerModal = ({
           : undefined
       }
       size="xl"
+      onSubmit={
+        selectedIds.length === 0 || targetDates.length === 0
+          ? undefined
+          : handleSubmit
+      }
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -320,6 +375,33 @@ const StaffPickerModal = ({
               selectBoxClassName="w-36"
             />
 
+            {/*
+              성별 필터. 발주 조건이 초기값을 정할 뿐 **막지 않는다.**
+              '전체 성별'로 되돌리면 조건과 다른 사람도 그대로 보인다.
+            */}
+            <Select
+              aria-label="성별 필터"
+              options={GENDER_FILTER_OPTIONS}
+              value={gender}
+              onChange={(changeEvent) => {
+                setDraftGender(changeEvent.target.value as Gender | "");
+                setSelectedIds([]);
+              }}
+              selectBoxClassName="w-28"
+            />
+
+            {/* 우리 직원만 세워 보는 자리. 직무 조건을 건너뛰는 사람들이라 따로 찾을 길이 있어야 한다. */}
+            <Select
+              aria-label="고용 형태 필터"
+              options={EMPLOYMENT_FILTER_OPTIONS}
+              value={employment}
+              onChange={(changeEvent) => {
+                setEmployment(changeEvent.target.value as EmploymentType | "");
+                setSelectedIds([]);
+              }}
+              selectBoxClassName="w-32"
+            />
+
             <Select
               aria-label="배치 상태"
               options={ASSIGNMENT_STATUS_OPTIONS}
@@ -331,6 +413,25 @@ const StaffPickerModal = ({
             />
           </div>
         </div>
+
+        {/*
+          발주에 성별 조건이 있으면 알려 준다. **막지는 않는다.**
+
+          현장은 유동적이라 '남성만'으로 받은 자리에 여성을 넣는 일도,
+          그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는 조건을 아예
+          안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
+          반드시 지켜야 하는 조건이라면 내부 메모로 따로 남긴다.
+        */}
+        {orderGender !== "ANY" && (
+          <Alert
+            tone="info"
+            title={`이 발주에는 '${GENDER_PREFERENCE_LABEL[orderGender]}' 조건이 적혀 있습니다.`}
+          >
+            참고용 표시입니다. 조건과 다른 인력도 그대로 배치할 수 있고 경고도
+            뜨지 않습니다. 위 성별 필터를 &lsquo;전체 성별&rsquo;로 바꾸면 모든
+            후보가 보입니다.
+          </Alert>
+        )}
 
         <Checkbox
           label="같은 날 다른 행사에 확정된 인력도 보기"
@@ -376,8 +477,11 @@ const StaffPickerModal = ({
                 제안 · 대기로는 그대로 담을 수 있다 — 서류는 보통 같이 하기로 한
                 뒤에 받으므로, 여기까지 막으면 새 인력을 부를 방법이 없어진다.
               */
+              /* 직원은 입사할 때 회사가 서류를 이미 받았다. 여기서 다시 막지 않는다. */
               const isDocumentBlocked =
-                status === "CONFIRMED" && !candidate.isDocumentComplete;
+                status === "CONFIRMED" &&
+                !candidate.isEmployee &&
+                !candidate.isDocumentComplete;
               const isFullyBlocked =
                 availableCount === 0 || isDocumentBlocked;
               const hasPartialConflict =
@@ -417,8 +521,20 @@ const StaffPickerModal = ({
                         <p className="truncate text-[14px] font-medium text-font-1">
                           {candidate.name}
                         </p>
+                        {/* 성별 조건이 걸린 발주가 있어 이름 옆에 늘 함께 보인다. */}
+                        <GenderMark gender={candidate.gender} />
                         {candidate.isFavorite && (
                           <Star size={14} className="shrink-0 text-warning" />
+                        )}
+                        {/*
+                          우리 직원.
+                          직무 조건과 무관하게 후보로 올라오기 때문에, 표시가 없으면
+                          "왜 이 사람이 설치 후보에 있지"에서 담당자가 멈춘다.
+                        */}
+                        {candidate.isEmployee && (
+                          <Badge tone="info">
+                            직원{candidate.position ? ` · ${candidate.position}` : ""}
+                          </Badge>
                         )}
                         {/* 상위 3명에게만 추천 표시를 붙여 눈이 분산되지 않게 한다. */}
                         {index < 3 && !isFullyBlocked && (
@@ -437,6 +553,11 @@ const StaffPickerModal = ({
                         머릿속에 있는 몇 사람만 계속 돌려 쓰게 된다.
                       */}
                       <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {candidate.isEmployee && (
+                          <span className="text-[11px] text-font-2">
+                            모든 직무 가능
+                          </span>
+                        )}
                         {[...candidate.roles].sort(compareRoles).map((item) => (
                           <Badge
                             key={item}
@@ -460,7 +581,7 @@ const StaffPickerModal = ({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {!candidate.isDocumentComplete && (
+                      {!candidate.isEmployee && !candidate.isDocumentComplete && (
                         <Badge tone={isDocumentBlocked ? "danger" : "warning"}>
                           서류 미제출
                         </Badge>
@@ -475,9 +596,7 @@ const StaffPickerModal = ({
                       )}
 
                       <RatingStat
-                        goodCount={candidate.goodCount}
-                        badCount={candidate.badCount}
-                        variant="badge"
+                        reputationScore={candidate.reputationScore}
                       />
                     </div>
                   </label>

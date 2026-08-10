@@ -6,6 +6,7 @@ import {
   type WageType,
 } from "./event";
 import type { JobRole } from "./staff";
+import { formatPhoneNumber } from "./staff";
 
 /**
  * 근로계약서 도메인 타입.
@@ -16,24 +17,40 @@ import type { JobRole } from "./staff";
  * 1) 계약서를 **문서(조항 묶음)** 로 다룬다. 통짜 문자열이 아니라 조항 단위로 갖고 있어야
  *    에이전시마다 다른 양식을 조립할 수 있고, A4 문서로 출력·PDF 저장이 가능하다.
  * 2) 인적사항 · 근로조건 · 임금은 **자동으로 채운다.** 사람이 옮겨 적으면 반드시 틀린다.
- * 3) 동의는 **전자서명**으로 받는다. "네" 문자 회신은 근거가 되지 않는다.
+ * 3) 서명은 **종이로 받고, 그 종이를 등록한다.** (아래)
+ *
+ * ## 지금은 '발송'이 아니라 '등록'이다
+ *
+ * 최종 모습은 근로자가 계정으로 들어와 링크를 열고 동의하는 흐름이다.
+ * 그러려면 문서를 보관하고 링크를 발급하는 **메인 서버**가 있어야 하는데 아직 없다.
+ * 서버 없이 '발송함' 상태만 만들어 두면, 아무 데도 나가지 않은 문서가
+ * 화면에서는 나간 것으로 보인다. 그 상태로 현장에 사람을 넣는 것이 가장 위험하다.
+ *
+ * 그래서 지금은 사람이 직접 하는 일을 그대로 옮긴다.
+ * **미리보기 → 서명 전 문서 내려받기 → 종이로 배부하고 서명 → 서명본 업로드.**
+ * 업로드가 끝난 시점에 계약번호가 붙고 서명완료가 된다.
+ * 손에 종이가 있기 전에는 어떤 칸도 완료로 바뀌지 않는다.
  */
 
 /**
  * 계약서 상태.
  *
+ * 사람이 직접 배부하는 지금은 상태가 셋뿐이다.
+ * 서명본이 올라오기 전에는 계약서 기록 자체가 없고(= 명단에서 '발급 전'),
+ * 올라온 순간 계약번호와 함께 `SIGNED`로 만들어진다.
+ *
+ * `DRAFT`는 **재작성으로 새 차수가 생겼는데 아직 서명본을 못 받은** 자리다.
+ * 번호는 이미 있고 서명만 없다. 최초 계약에는 이 상태가 나타나지 않는다.
+ *
  * `SUPERSEDED`는 **재작성으로 대체된 문서**다. 삭제가 아니라 상태다.
  * 3일로 계약한 사람이 하루 만에 그만두면 원래 계약서는 사실과 맞지 않게 되는데,
  * 그렇다고 지워 버리면 "왜 3일치가 아니라 하루치를 줬는가"를 설명할 근거가 사라진다.
  * 옛 문서는 그대로 두고 더 이상 유효하지 않다고만 표시한 뒤, 새 차수를 새로 만든다.
+ *
+ * 서버가 붙으면 발송됨 · 반려 · 기한만료가 이 사이에 들어온다.
+ * 그 전까지는 만들지 않는다. 있지도 않은 절차를 화면에 세워 두는 셈이기 때문이다.
  */
-export type ContractStatus =
-  | "DRAFT"
-  | "SENT"
-  | "SIGNED"
-  | "REJECTED"
-  | "EXPIRED"
-  | "SUPERSEDED";
+export type ContractStatus = "DRAFT" | "SIGNED" | "SUPERSEDED";
 
 /**
  * 계약서를 다시 내는 이유.
@@ -86,11 +103,8 @@ export const AMEND_REASON_PRESETS: Record<AmendReasonType, string[]> = {
 };
 
 export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
-  DRAFT: "작성됨",
-  SENT: "발송됨",
+  DRAFT: "등록 대기",
   SIGNED: "서명완료",
-  REJECTED: "반려",
-  EXPIRED: "기한만료",
   SUPERSEDED: "재작성됨",
 };
 
@@ -190,20 +204,22 @@ export interface ContractTemplateFormValues {
 /* ------------------------------------------------------------------ */
 
 /**
- * 전자서명 기록.
+ * 등록한 서명본 파일.
  *
- * 이미지 한 장만 남기면 "언제 누가 무엇에 동의했는지"를 증명할 수 없다.
- * 서명 시각과 서명 당시의 문서 해시를 함께 남겨, 나중에 문서가 바뀌면
- * 서명이 무효라는 것을 알 수 있게 한다.
+ * 서명은 종이에 받는다. 그 종이를 스캔하거나 찍어 올린 것이 이 파일이고,
+ * **이 파일이 있다는 것이 곧 서명을 받았다는 근거다.** 그래서 계약서 기록은
+ * 이 파일 없이는 서명완료가 될 수 없다.
+ *
+ * 파일명을 함께 남긴다. 나중에 원본 폴더에서 같은 문서를 찾아야 할 때
+ * 화면의 계약번호만으로는 어느 파일인지 알 수 없다.
  */
-export interface ContractSignature {
-  /** 캔버스에서 받은 서명 이미지 (data URL) */
-  imageDataUrl: string;
-  /** 서명자가 직접 입력한 성명 */
-  signedName: string;
-  signedAt: string;
-  /** 서명 시점의 문서 내용 해시. 사후 변조를 잡아내는 근거다. */
-  documentHash: string;
+export interface ContractSignedFile {
+  /** 업로드한 파일의 주소. (목업에서는 data URL) */
+  url: string;
+  fileName: string;
+  /** `application/pdf` · `image/png` 등. 화면에서 바로 펼쳐 볼 수 있는지를 가른다. */
+  mimeType: string;
+  uploadedAt: string;
 }
 
 /**
@@ -274,12 +290,15 @@ export interface Contract {
    */
   totalWage: number;
   status: ContractStatus;
-  signature?: ContractSignature;
-  sentAt?: string;
-  signedAt?: string;
-  rejectedReason?: string;
-  /** 서명 요청 링크 만료 일시 */
-  expiresAt?: string;
+  /**
+   * 등록한 서명본.
+   *
+   * 이 값이 있으면 서명완료다. 반대로 없으면, 화면에 무슨 상태가 적혀 있든
+   * 서명받은 종이는 아직 아무 데도 없다는 뜻이다.
+   */
+  signedFile?: ContractSignedFile;
+  /** 서명본을 등록한 시각 */
+  registeredAt?: string;
 
   /* ---------------------------- 재작성(개정) 이력 --------------------------- */
 
@@ -304,6 +323,341 @@ export interface Contract {
 
   createdAt: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* 계약 명단                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 명단에서 한 사람이 놓인 자리.
+ * `NONE`은 "확정 배치는 됐는데 서명본이 아직 없다"는 뜻이다.
+ */
+export type ContractRosterState = "NONE" | ContractStatus;
+
+/**
+ * 계약 명단 한 줄. **행사 하나 × 사람 하나**다.
+ *
+ * 계약서 기록이 아니라 **계약해야 할 의무**를 세는 단위다.
+ * 그래서 아직 아무것도 안 한 사람도 한 줄을 차지한다. 그 사람이 제일 급하다.
+ *
+ * 같은 사람이 행사 두 개에 나가면 줄도 두 개다. 계약서도 두 장이기 때문이다.
+ * (계약은 사람이 아니라 **그 행사의 근로**에 대해 맺는다)
+ */
+export interface ContractRosterRow {
+  /** `행사-사람`. 계약서가 없을 수 있어 계약서 번호를 키로 쓸 수 없다. */
+  rowId: string;
+  eventId: number;
+  eventTitle: string;
+  clientName: string;
+  venue: string;
+  staffId: number;
+  staffName: string;
+  staffPhone: string;
+  /** 이 행사에서 맡은 직무. 첫날 설치 · 이후 스태프처럼 둘 이상일 수 있다. */
+  roles: JobRole[];
+  workDates: string[];
+  /** 대표 근무일 = 첫날. 정렬과 목록 표시에 쓴다. */
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  endDayOffset: DayOffset;
+  /** 하루 실근무시간 */
+  workHours: number;
+  totalWorkHours: number;
+  wageType: WageType;
+  wage: number;
+  hasMixedWage: boolean;
+  /**
+   * 세전 총 지급액.
+   *
+   * 등록 전이라도 **배치에서 그대로 계산해** 채운다.
+   * 계약서가 생기면 적힐 금액이 이 값이고, 담당자는 그것을 미리 알아야 한다.
+   */
+  totalWage: number;
+  state: ContractRosterState;
+  /** 등록된 계약서. 아직 없으면 `null`이다. */
+  contract: Contract | null;
+}
+
+/** 처리 순서. 손이 더 가야 하는 쪽이 끝난 것보다 뒤에 묻히면 안 된다. */
+export const CONTRACT_ROSTER_STATE_ORDER: ContractRosterState[] = [
+  "NONE",
+  "DRAFT",
+  "SIGNED",
+  "SUPERSEDED",
+];
+
+/** 계약 명단을 만들 때 필요한 행사 정보 */
+export interface ContractRosterEvent {
+  eventId: number;
+  title: string;
+  clientName: string;
+  venue: string;
+  startTime: string;
+  endTime: string;
+  endDayOffset: DayOffset;
+}
+
+/**
+ * 확정 배치에서 계약 명단을 만든다.
+ *
+ * **계약서 목록에서 만들면 안 된다.** 서명본을 올려야 계약서 기록이 생기므로,
+ * 아직 아무것도 안 한 사람은 계약서 목록에 아예 없다. 그게 제일 급한 사람인데도.
+ *
+ * 행사 상세의 탭과 계약서 관리 화면이 **이 함수 하나를** 쓴다.
+ * 두 곳에서 따로 세면 "행사에서는 6명인데 전체에서는 4명"이 된다.
+ *
+ * 우리 직원(`isEmployee`)은 빠진다. 계약서를 쓰는 대상이 아니다.
+ */
+export const buildContractRoster = (
+  event: ContractRosterEvent,
+  assignments: readonly {
+    staffId: number;
+    staffName: string;
+    staffPhone: string;
+    role: JobRole;
+    status: string;
+    workDate: string;
+    wageType: WageType;
+    wage: number;
+    /** 우리 직원이면 명단에 세우지 않는다. (아래 참조) */
+    isEmployee?: boolean;
+  }[],
+  contracts: readonly Contract[],
+  /** 하루 실근무시간. 행사에서 한 번만 구해 넘긴다. */
+  dailyWorkHours: number,
+): ContractRosterRow[] => {
+  const byStaff = new Map<number, typeof assignments>();
+
+  for (const assignment of assignments) {
+    if (assignment.status !== "CONFIRMED") continue;
+
+    /*
+      직원은 세지 않는다.
+
+      직원은 회사와 이미 근로계약이 되어 있고 급여도 월급으로 나간다.
+      행사마다 다시 계약서를 쓰는 대상이 아니다. 명단에 세워 두면
+      아무리 처리해도 '발급 전'이 줄지 않아, 그 숫자가 뜻을 잃는다.
+      이 화면의 존재 이유가 "아직 못 쓴 사람 찾기"라 더더욱 섞이면 안 된다.
+    */
+    if (assignment.isEmployee) continue;
+
+    byStaff.set(assignment.staffId, [
+      ...(byStaff.get(assignment.staffId) ?? []),
+      assignment,
+    ]);
+  }
+
+  return [...byStaff.values()].map((own) => {
+    const [first] = own;
+
+    const work = summarizeContractWork(
+      own.map((item) => ({
+        workDate: item.workDate,
+        wageType: item.wageType,
+        wage: item.wage,
+      })),
+      dailyWorkHours,
+    );
+
+    /*
+      한 사람에게 차수가 여럿일 수 있다. (재작성한 경우)
+      지나간 문서(SUPERSEDED)가 대표로 잡히면 "이미 끝난 사람"으로 보이므로
+      가장 높은 차수를 그 사람의 현재 상태로 삼는다.
+    */
+    const contract =
+      contracts
+        .filter(
+          (item) =>
+            item.eventId === event.eventId && item.staffId === first.staffId,
+        )
+        .sort((a, b) => b.revision - a.revision)[0] ?? null;
+
+    return {
+      rowId: `${event.eventId}-${first.staffId}`,
+      eventId: event.eventId,
+      eventTitle: event.title,
+      clientName: event.clientName,
+      venue: event.venue,
+      staffId: first.staffId,
+      staffName: first.staffName,
+      staffPhone: first.staffPhone,
+      roles: [...new Set(own.map((item) => item.role))],
+      workDates: work.workDates,
+      workDate: work.workDate,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      endDayOffset: event.endDayOffset,
+      workHours: dailyWorkHours,
+      totalWorkHours: work.totalWorkHours,
+      wageType: work.wageType,
+      wage: work.wage,
+      hasMixedWage: work.hasMixedWage,
+      totalWage: work.totalWage,
+      state: contract?.status ?? "NONE",
+      contract,
+    };
+  });
+};
+
+/** 파일명에 쓸 수 없는 글자는 폴더 구조로 읽히거나 저장 자체가 막힌다. */
+const safeFileNamePart = (text: string) =>
+  text.replace(/[\\/:*?"<>|()]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * 한글 이름을 **같은 자모 표기로** 맞춘다.
+ *
+ * 이게 없으면 내려받은 파일을 그대로 다시 올려도 "명단에 없습니다"가 뜬다.
+ * 화면에는 분명히 그 이름이 있는데도 그렇다.
+ *
+ * 한글은 같은 글자를 두 가지로 저장할 수 있다. `이`를 한 글자로 담는 방식(NFC)과
+ * 초성 `ㅇ` + 중성 `ㅣ`로 쪼개 담는 방식(NFD)이다. **화면에는 완전히 똑같이
+ * 그려지지만 `===`로는 다른 문자열이다.**
+ *
+ * 그리고 macOS는 파일명을 **쪼갠 쪽(NFD)으로 저장한다.** 그래서
+ * 서버에서 온 명단(NFC)과 파일에서 읽은 이름(NFD)을 그냥 비교하면 언제나 어긋난다.
+ * 담당자는 파일명을 손대지도 않았는데 전부 실패로 남는 것을 보게 되고,
+ * 눈으로는 두 이름이 같으니 무엇을 고쳐야 하는지 알 방법이 없다.
+ *
+ * 그래서 **비교하는 양쪽 모두** 이 함수를 거친다. 한쪽만 맞추면 반대 방향
+ * (NFD로 저장된 명단 + NFC 파일명)에서 같은 일이 반복된다.
+ */
+export const normalizeNamePart = (text: string): string =>
+  text.normalize("NFC").trim();
+
+/**
+ * 같은 파일을 두 번 내려받으면 브라우저가 뒤에 붙이는 꼬리표를 뗀다.
+ *
+ * `..._김승우.pdf`를 다시 받으면 `..._김승우 (1).pdf`가 된다. 담당자는 이름을
+ * 손댄 적이 없는데 파일명이 달라져 있고, 그 파일은 주인을 못 찾는다.
+ * 여기서 떼어 주지 않으면 "그대로 올렸는데 왜 안 되냐"가 반복된다.
+ *
+ * 이름 뒤 네 자리 꼬리표(`(1858)`)와 헷갈리지 않는다. 그쪽은 **네 자리**이고
+ * 이쪽은 앞에 공백이 붙는다.
+ */
+const stripDownloadSuffix = (base: string): string =>
+  base.replace(/\s\(\d{1,3}\)$/, "");
+
+/**
+ * 동명이인을 가르는 꼬리표. **휴대폰 뒤 네 자리**다.
+ *
+ * 한 행사에 '김민준'이 둘이면 파일명이 똑같아진다.
+ * 폴더에 내려받는 순간 하나가 `...(1).pdf`로 밀리고, 그 순간
+ * **어느 쪽이 누구 것인지 아는 방법이 사라진다.** 잘못 배부하면 남의 시급이 적힌
+ * 계약서에 서명을 받게 된다.
+ *
+ * 이름이 겹치지 않으면 붙이지 않는다. 서른 명 전원에게 번호를 달면
+ * 정작 조심해야 할 두 사람이 눈에 띄지 않는다.
+ */
+export const contractNameTag = (staffPhone: string): string =>
+  staffPhone.replace(/\D/g, "").slice(-4);
+
+/**
+ * 한 행사 안에서 이름이 겹치는 사람들.
+ *
+ * **사람(`staffId`) 기준으로 센다.** 배치는 사람 × 날짜라서 사흘 나온 사람은
+ * 세 건인데, 그걸 그대로 세면 혼자 나온 사람도 동명이인으로 잡힌다.
+ */
+export const findDuplicateStaffNames = (
+  people: readonly { staffId: number; staffName: string }[],
+): Set<string> => {
+  const idsByName = new Map<string, Set<number>>();
+
+  for (const person of people) {
+    const ids = idsByName.get(person.staffName) ?? new Set<number>();
+
+    ids.add(person.staffId);
+    idsByName.set(person.staffName, ids);
+  }
+
+  return new Set(
+    [...idsByName]
+      .filter(([, ids]) => ids.size > 1)
+      .map(([staffName]) => staffName),
+  );
+};
+
+/**
+ * 내려받는 계약서 파일의 이름.
+ *
+ * `261231_A브랜드 성수 팝업_김승우.pdf` 꼴이고,
+ * 동명이인이 있으면 `261231_A브랜드 성수 팝업_김민준(7029).pdf`가 된다.
+ *
+ * 이 이름이 규칙이어야 하는 이유는 파일이 **브라우저 밖에서** 살기 때문이다.
+ * 내려받아 출력하고, 서명받아 다시 스캔해 올리기까지 파일은 담당자의 폴더에 쌓인다.
+ * 이름이 `document(3).pdf`면 서른 명짜리 행사에서 누구 것인지 열어 봐야 알고,
+ * 잘못 올리면 남의 계약서가 그 사람 이름으로 등록된다.
+ *
+ * 규칙이 있으니 **거꾸로 읽을 수도 있다.** 서명본을 한 번에 여러 장 올릴 때
+ * 파일명만 보고 누구 것인지 가려낸다. (`parseContractFileName`)
+ *
+ * 날짜를 앞에 두는 것은 폴더에서 이름순 정렬이 곧 날짜순이 되게 하기 위해서다.
+ */
+export const buildContractFileName = (
+  /** 첫 근무일 (`YYYY-MM-DD`) */
+  workDate: string,
+  eventTitle: string,
+  staffName: string,
+  extension: string,
+  /** 동명이인이 있을 때만 넘긴다. (`contractNameTag`) */
+  nameTag?: string,
+): string => {
+  const date = workDate.replaceAll("-", "").slice(2);
+  const name = safeFileNamePart(staffName);
+
+  return `${date}_${safeFileNamePart(eventTitle)}_${name}${
+    nameTag ? `(${nameTag})` : ""
+  }.${extension}`;
+};
+
+/** 파일명에서 읽어 낸 것. 못 읽으면 `null`이다. */
+export interface ParsedContractFileName {
+  /** `YYMMDD` */
+  date: string;
+  eventTitle: string;
+  staffName: string;
+  /** 괄호 안의 휴대폰 뒤 네 자리. 동명이인이 아니면 없다. */
+  nameTag?: string;
+}
+
+/**
+ * 내려받은 파일명을 거꾸로 읽는다.
+ *
+ * 행사명에 `_`가 들어갈 수 있으므로 통째로 쪼개면 안 된다.
+ * **맨 앞은 날짜, 맨 뒤는 이름**이고 그 사이가 전부 행사명이다.
+ */
+export const parseContractFileName = (
+  fileName: string,
+): ParsedContractFileName | null => {
+  /*
+    읽기 전에 **표기부터 맞춘다.**
+
+    macOS가 파일명을 자모로 쪼개 저장하기 때문에(NFD), 여기서 맞추지 않으면
+    이름이 눈으로는 같은데 명단과 비교했을 때 계속 어긋난다.
+    두 번 내려받아 붙은 ` (1)`도 이 자리에서 뗀다 — 담당자가 손댄 것이 아니라
+    브라우저가 붙인 것이라 실패로 남길 이유가 없다.
+  */
+  const base = stripDownloadSuffix(
+    normalizeNamePart(fileName).replace(/\.[^.]+$/, ""),
+  );
+  const parts = base.split("_");
+
+  if (parts.length < 3) return null;
+
+  const [date] = parts;
+
+  if (!/^\d{6}$/.test(date)) return null;
+
+  const tail = parts[parts.length - 1];
+  const matched = tail.match(/^(.+?)\((\d{4})\)$/);
+
+  return {
+    date,
+    eventTitle: parts.slice(1, -1).join("_"),
+    staffName: normalizeNamePart(matched ? matched[1] : tail),
+    nameTag: matched?.[2],
+  };
+};
 
 /**
  * 근무일 목록에서 계약서의 금액 관련 값을 한꺼번에 구한다.
@@ -402,24 +756,6 @@ export const renderContractContent = (
     return value === undefined ? matched : value;
   });
 
-/**
- * 문서 내용으로 짧은 해시를 만든다.
- *
- * 서명 이후 계약서가 바뀌었는지 확인하는 용도다.
- * 암호학적 강도가 필요한 곳이 아니므로(서버가 붙으면 서버가 다시 계산한다)
- * 외부 라이브러리 없이 계산할 수 있는 방식을 쓴다.
- */
-export const buildDocumentHash = (content: string): string => {
-  let hash = 0;
-
-  for (let index = 0; index < content.length; index += 1) {
-    hash = (hash << 5) - hash + content.charCodeAt(index);
-    hash |= 0;
-  }
-
-  return `SHA-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0")}`;
-};
-
 /** 자동 조항의 표에 들어가는 한 줄 */
 export interface ContractField {
   label: string;
@@ -453,13 +789,20 @@ export interface ContractDocument {
   sections: ContractDocumentSection[];
   agreementNote: string;
   requiresGuardianSignature: boolean;
-  signature?: ContractSignature;
   issuedAt: string;
   /** 해시 계산과 문자 복사에 쓰는 평문 */
   plainText: string;
 }
 
 const formatMoney = (value: number) => `${value.toLocaleString("ko-KR")}원`;
+
+/**
+ * 번호가 아직 없는 문서에 찍는 문구.
+ *
+ * 빈칸으로 두면 인쇄본에서 "계약번호 " 뒤가 그냥 비어, 번호를 적다 만 문서로 읽힌다.
+ * 이 문서가 아직 등록 전이라는 사실 자체를 종이에도 남긴다.
+ */
+export const UNISSUED_CONTRACT_NUMBER = "등록 시 발급";
 
 /**
  * 근무일별 지급 조건을 한 줄로 적는다.
@@ -532,7 +875,7 @@ export const buildContractValues = (
 ): Record<string, string> => ({
   이름: contract.staffName,
   생년월일: contract.staffBirthDate || "-",
-  연락처: contract.staffPhone,
+  연락처: formatPhoneNumber(contract.staffPhone),
   주소: contract.staffAddress || "-",
   행사명: contract.eventTitle,
   근무일: formatWorkDates(contract.workDates),
@@ -566,7 +909,8 @@ export const buildContractValues = (
   대표자: template.companyRepresentative,
   사업자번호: template.companyRegistrationNumber || "-",
   사업장주소: template.companyAddress,
-  계약번호: contract.contractNumber,
+  // 번호는 서명본을 등록할 때 붙는다. 그전에 내려받는 문서에는 아직 없다.
+  계약번호: contract.contractNumber || UNISSUED_CONTRACT_NUMBER,
   작성일: contract.createdAt.slice(0, 10),
 });
 
@@ -589,7 +933,7 @@ const buildAutoFields = (
         { label: "사업장 주소", value: template.companyAddress },
         { label: "근로자(을) 성명", value: contract.staffName },
         { label: "생년월일", value: contract.staffBirthDate || "-" },
-        { label: "연락처", value: contract.staffPhone },
+        { label: "연락처", value: formatPhoneNumber(contract.staffPhone) },
         { label: "주소", value: contract.staffAddress || "-" },
       ];
 
@@ -711,7 +1055,7 @@ export const buildContractDocument = (
 
   const plainText = [
     template.documentTitle,
-    `계약번호: ${contract.contractNumber}`,
+    `계약번호: ${contract.contractNumber || UNISSUED_CONTRACT_NUMBER}`,
     ...sections.map((section) =>
       [
         section.title,
@@ -726,7 +1070,7 @@ export const buildContractDocument = (
 
   return {
     documentTitle: template.documentTitle,
-    contractNumber: contract.contractNumber,
+    contractNumber: contract.contractNumber || UNISSUED_CONTRACT_NUMBER,
     companyName: template.companyName,
     companyRepresentative: template.companyRepresentative,
     companyRegistrationNumber: template.companyRegistrationNumber,
@@ -735,7 +1079,6 @@ export const buildContractDocument = (
     sections,
     agreementNote: template.agreementNote,
     requiresGuardianSignature: template.requiresGuardianSignature,
-    signature: contract.signature,
     issuedAt: contract.createdAt,
     plainText,
   };

@@ -73,6 +73,7 @@ const ApplicationFormModal = ({ isOpen, onClose }: ApplicationFormModalProps) =>
       onClose={onClose}
       title="지원 등록"
       description="문자나 카톡으로 받은 지원을 옮겨 적습니다."
+      onSubmit={onSubmit}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

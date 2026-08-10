@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Skeleton from "@/components/ui/Skeleton";
 import EventDetailView from "./_components/EventDetailView";
+import PermissionGate from "@/components/domain/PermissionGate";
 
 interface EventDetailPageProps {
   params: Promise<{ eventId: string }>;
@@ -18,8 +19,10 @@ export default async function EventDetailPage({ params }: EventDetailPageProps) 
   const { eventId } = await params;
 
   return (
-    <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
-      <EventDetailView eventId={Number(eventId)} />
-    </Suspense>
+    <PermissionGate required="event:read">
+      <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
+        <EventDetailView eventId={Number(eventId)} />
+      </Suspense>
+    </PermissionGate>
   );
 }

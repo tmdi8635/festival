@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
-import type { AppError } from "@/type/api";
+import { usePermittedQuery } from "../usePermittedQuery";
 import type { EventDetail } from "@/type/event";
 
 export const getEventDetail = async (eventId: number) => {
@@ -13,7 +12,7 @@ export const getEventDetail = async (eventId: number) => {
 
 /** 캘린더 · 목록에서 행사를 눌렀을 때 여는 상세 모달에서 사용합니다. */
 export const useEventDetailQuery = (eventId: number | null) => {
-  return useQuery<EventDetail, AppError>({
+  return usePermittedQuery<EventDetail>("event:read", {
     queryKey: ["get-event-detail", eventId],
     queryFn: () => getEventDetail(eventId!),
     enabled: eventId !== null,
