@@ -33,7 +33,6 @@ import {
   type EventDetail,
   type FillState,
   type EventDayPlan,
-  byMainSupervisorFirst,
 } from "@/type/event";
 import { type JobRole } from "@/type/staff";
 import Badge from "@/components/ui/Badge";
@@ -113,8 +112,6 @@ const EventDailyPanel = ({
   const roleLabel = useJobRoleLabel();
   // 직무 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
-  /* 메인팀장은 직무 순서보다 먼저 본다. 그날 명단의 첫 줄이어야 한다. */
-  const mainFirst = byMainSupervisorFirst(event.mainSupervisorStaffId);
   /*
     같은 표 안에서 손대는 대상이 둘이다.
     사람을 붙이고 떼는 것은 배치(`assignment`)이고,
@@ -150,8 +147,7 @@ const EventDailyPanel = ({
       .filter((assignment) => assignment.workDate === day.date)
       .sort(
         (a, b) =>
-          mainFirst(a, b) ||
-          compareRoles(a.role, b.role) ||
+            compareRoles(a.role, b.role) ||
           a.staffName.localeCompare(b.staffName),
       );
 

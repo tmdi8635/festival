@@ -9,7 +9,7 @@ import {
   MESSAGE_CHANNEL_OPTIONS,
   MESSAGE_PURPOSE_OPTIONS,
 } from "@/constants/messageOptions";
-import { Calendar, Close, Info, Phone, Plus, Send, Star } from "@/icons";
+import { Calendar, Close, Info, Phone, Plus, Send } from "@/icons";
 import { formatKoreanDate } from "@/lib/dayjs";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
@@ -24,7 +24,6 @@ import {
 import { useJobRoleLabel } from "@/store/useOrgStore";
 import {
   WAGE_TYPE_LABEL,
-  byMainSupervisorFirst,
   formatTimeRange,
   type Assignment,
   type EventDetail,
@@ -119,11 +118,7 @@ const MessageComposer = ({ fixedEvent }: MessageComposerProps) => {
         .filter((assignment) => assignment.status === "CONFIRMED")
         .map((assignment) => [assignment.staffId, assignment]),
     ).values(),
-  ].sort(
-    (a, b) =>
-      byMainSupervisorFirst(event?.mainSupervisorStaffId)(a, b) ||
-      a.staffName.localeCompare(b.staffName),
-  );
+  ].sort((a, b) => a.staffName.localeCompare(b.staffName));
 
   const selectedIds =
     selection && selection.eventId === event?.eventId
@@ -173,14 +168,6 @@ const MessageComposer = ({ fixedEvent }: MessageComposerProps) => {
           시급: `${WAGE_TYPE_LABEL[assignment.wageType]} ${formatCurrency(assignment.wage)}`,
           담당자: event.managerName,
           담당자연락처: formatPhoneNumber(event.managerPhone),
-          /*
-            메인팀장이 아직 없으면 '미지정'이라고 적는다.
-            토큰을 그대로 두면 받는 사람이 `{{메인팀장}}`이라고 적힌 문자를 받는다.
-          */
-          메인팀장: event.mainSupervisorName ?? "미지정",
-          메인팀장연락처: event.mainSupervisorPhone
-            ? formatPhoneNumber(event.mainSupervisorPhone)
-            : "미지정",
         }
       : MESSAGE_VARIABLE_SAMPLE;
 
@@ -341,11 +328,7 @@ const MessageComposer = ({ fixedEvent }: MessageComposerProps) => {
                       />
 
                       <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-1 truncate text-[14px] text-font-1">
-                          {assignment.staffId ===
-                            event?.mainSupervisorStaffId && (
-                            <Star size={11} className="shrink-0 text-brand" />
-                          )}
+                        <p className="truncate text-[14px] text-font-1">
                           {assignment.staffName}
                         </p>
                         <p className="mt-0.5 truncate text-[12px] text-font-2 tabular-nums">

@@ -26,10 +26,8 @@ import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   GENDER_LABEL,
-  REPUTATION_TIER_LABEL,
   formatPhoneNumber,
   formatRegion,
-  resolveReputationTier,
   type JobRole,
   type Staff,
   type StaffDetail,
@@ -80,11 +78,6 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
   { header: "지각", value: (row) => row.lateCount },
   { header: "노쇼", value: (row) => row.noShowCount },
   { header: "평판 점수", value: (row) => row.reputationScore },
-  {
-    header: "평판 등급",
-    value: (row) =>
-      REPUTATION_TIER_LABEL[resolveReputationTier(row.reputationScore)],
-  },
   { header: "좋아요", value: (row) => row.goodCount },
   { header: "별로예요", value: (row) => row.badCount },
   { header: "최근 근무", value: (row) => formatDate(row.lastWorkedAt) },
@@ -256,9 +249,6 @@ const StaffManager = () => {
       render: (staff) => (
         <RatingStat
           reputationScore={staff.reputationScore}
-          goodCount={staff.goodCount}
-          badCount={staff.badCount}
-          variant="badge"
         />
       ),
     },

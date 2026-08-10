@@ -41,14 +41,12 @@ const TooltipRow = ({ label, value }: { label: string; value: string }) => (
  * ## 막대 하나에 담기는 것은 제목뿐이다
  *
  * 22px 높이에 들어가는 것은 일수 · 제목 · 충원 수가 전부다. 정작 캘린더에서
- * 알고 싶은 것 — 어느 거래처인지, 몇 시에 모이는지, **현장에서 누구에게
- * 전화하면 되는지(메인팀장)** — 는 담을 자리가 없다.
+ * 알고 싶은 것 — 어느 거래처인지, 몇 시에 모이는지, 담당자가 누구인지 — 는
+ * 담을 자리가 없다.
  *
  * 그래서 말풍선으로 뗀다. 브라우저 기본 `title`을 쓰지 않는 이유는 여러 줄로
  * 정리할 수 없고, 뜨기까지 1초 넘게 걸리며, 글꼴 · 색이 화면과 따로 놀기
- * 때문이다. 특히 메인팀장은 **지정 전에도 그 사실이 보여야** 한다.
- * 아무것도 안 적혀 있으면 "아직 안 정한 것"과 "화면이 안 보여 주는 것"이
- * 구분되지 않는다.
+ * 때문이다.
  */
 const MultiDayEventBar = ({
   event,
@@ -91,15 +89,6 @@ const MultiDayEventBar = ({
         )}
       />
       <TooltipRow label="장소" value={event.venue} />
-      {/*
-        메인팀장은 **지정 전에도 줄을 남긴다.**
-        현장 문의가 담당 매니저가 아니라 이 사람에게 먼저 가므로,
-        비어 있다는 사실 자체가 지금 처리해야 할 일이다.
-      */}
-      <TooltipRow
-        label="메인팀장"
-        value={event.mainSupervisorName ?? "지정 전"}
-      />
       <TooltipRow label="담당자" value={event.managerName} />
       <TooltipRow
         label="충원"

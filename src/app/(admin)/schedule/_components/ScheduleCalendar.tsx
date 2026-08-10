@@ -40,8 +40,19 @@ const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 /** 이어지는 근무일 막대 한 줄의 높이(px). 셀 상단에 이만큼씩 자리를 비워 둔다. */
 const BAR_LANE_HEIGHT = 24;
 
-/** 날짜 숫자가 들어가는 셀 상단 높이(px) */
-const CELL_HEADER_HEIGHT = 28;
+/**
+ * 막대가 시작하는 높이(px). **날짜 숫자 바로 아래다.**
+ *
+ * 예전에는 셀의 위쪽 여백을 막대 높이만큼 밀어 두고 막대를 고정 위치에 그렸다.
+ * 그런데 밀린 양(막대 줄 수 × 24)과 막대가 놓이는 자리(28 + 줄 번호 × 24)가
+ * 서로 다른 계산이라, 줄이 늘어날수록 마지막 막대가 날짜 숫자를 덮었다.
+ * 일요일 칸은 날짜가 아예 안 보였다.
+ *
+ * 그래서 순서를 화면에 보이는 대로 맞춘다. **날짜 → 막대 → 그날 카드.**
+ * 셀 안에 막대 높이만큼의 빈 자리를 두고, 막대는 그 자리 위에 겹쳐 그린다.
+ * 이 값은 셀 위쪽 여백(p-2 = 8) + 날짜 줄(24) + 사이 간격(gap-1 = 4)이다.
+ */
+const BAR_AREA_TOP = 36;
 
 /** 주 안에서 이어지는 근무일 구간 */
 interface BarSegment {
@@ -438,7 +449,6 @@ const ScheduleCalendar = () => {
                         return (
                           <div
                             key={date}
-                            style={{ paddingTop: barAreaHeight }}
                             className={cn(
                               "group flex flex-col gap-1 border-r border-b border-border-main p-2",
                               /*
@@ -483,6 +493,17 @@ const ScheduleCalendar = () => {
                               </button>
                             </div>
 
+                            {/*
+                              막대가 놓이는 자리. 실제 막대는 주 전체를 가로지르므로
+                              셀 위에 겹쳐 그리고, 칸은 그만큼 자리만 비워 둔다.
+                            */}
+                            {barAreaHeight > 0 && (
+                              <div
+                                aria-hidden
+                                style={{ height: barAreaHeight }}
+                              />
+                            )}
+
                             <div className="flex flex-col gap-1">
                               {dayEvents.map((event) => (
                                 <CalendarEventChip
@@ -510,7 +531,7 @@ const ScheduleCalendar = () => {
                         style={{
                           left: `calc(${(segment.startColumn / 7) * 100}% + 4px)`,
                           width: `calc(${(segment.span / 7) * 100}% - 8px)`,
-                          top: CELL_HEADER_HEIGHT + segment.lane * BAR_LANE_HEIGHT,
+                          top: BAR_AREA_TOP + segment.lane * BAR_LANE_HEIGHT,
                         }}
                         className="absolute"
                       >

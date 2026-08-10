@@ -11,6 +11,7 @@ import type {
   WageType,
 } from "@/type/event";
 import { aggregateDayPlans, resolveEventDates } from "@/type/event";
+import type { EmploymentType } from "@/type/employee";
 import type { AttendanceStatus, Gender, JobRole } from "@/type/staff";
 import {
   REPUTATION_BASE_SCORE,
@@ -165,7 +166,6 @@ export const eventHandlers = [
         endDayOffset: event.endDayOffset,
         venue: event.venue,
         managerName: event.managerName,
-        mainSupervisorName: event.mainSupervisorName,
         roles: event.roles,
         days: event.days,
         totalRequired: event.totalRequired,
@@ -301,56 +301,6 @@ export const eventHandlers = [
 
     return HttpResponse.json(created, { status: 201 });
   }),
-
-  /**
-   * 메인팀장 지정.
-   *
-   * 확정 배치된 사람만 지정할 수 있다. 배치되지도 않은 사람을 메인으로 적어 두면
-   * 캘린더에는 이름이 뜨는데 현장에는 그 사람이 없다.
-   */
-  http.patch(
-    `${BASE_URI}/admin/events/:eventId/main-supervisor`,
-    async ({ params, request }) => {
-      const denied = requirePermission(request, "event:write");
-
-      if (denied) return denied;
-
-      const event = findEvent(Number(params.eventId));
-      const body = (await request.json()) as { staffId: number | null };
-
-      if (!event) return notFound("존재하지 않는 행사입니다.");
-
-      if (body.staffId === null) {
-        event.mainSupervisorStaffId = undefined;
-        event.mainSupervisorName = undefined;
-        event.mainSupervisorPhone = undefined;
-
-        await delay(MOCK_DELAY_MS);
-
-        return HttpResponse.json(event);
-      }
-
-      const assignment = event.assignments.find(
-        (item) =>
-          item.staffId === body.staffId && item.status === "CONFIRMED",
-      );
-
-      if (!assignment) {
-        return badRequest(
-          "이 행사에 확정 배치된 인력만 메인팀장으로 지정할 수 있습니다.",
-        );
-      }
-
-      event.mainSupervisorStaffId = assignment.staffId;
-      event.mainSupervisorName = assignment.staffName;
-      event.mainSupervisorPhone = assignment.staffPhone;
-      event.updatedAt = new Date().toISOString();
-
-      await delay(MOCK_DELAY_MS);
-
-      return HttpResponse.json(event);
-    },
-  ),
 
   http.put(`${BASE_URI}/admin/events/:eventId`, async ({ params, request }) => {
       const denied = requirePermission(request, "event:write");
@@ -547,6 +497,9 @@ export const eventHandlers = [
         여기서 발주 조건을 강제하면 후보가 아예 안 보이는 날이 생긴다.
       */
       const gender = url.searchParams.get("gender") as Gender | null;
+      const employment = url.searchParams.get(
+        "employment",
+      ) as EmploymentType | null;
 
       if (!event) return notFound("존재하지 않는 행사입니다.");
 
@@ -566,6 +519,8 @@ export const eventHandlers = [
             : true,
         )
         .filter((staff) => (gender ? staff.gender === gender : true))
+        /* 우리 직원만 · 프리랜서만 세워 보는 자리. 비우면 전부다. */
+        .filter((staff) => (employment ? staff.employment === employment : true))
         .filter((staff) =>
           matchesKeyword(keyword, staff.name, staff.phoneNumber, staff.region),
         )
@@ -926,6 +881,21 @@ export const eventHandlers = [
               "이미 평가를 남긴 근무입니다. 고칠 수 없으며, 최고관리자만 삭제할 수 있습니다.",
           },
           { status: 409 },
+        );
+      }
+
+      /*
+        평가에는 **항목이 최소 하나** 있어야 한다.
+
+        좋아요 · 별로예요는 항목을 고르기 쉽게 갈라 놓은 편의 기능이고,
+        실제로 남는 것은 항목이다. 방향만 남은 평가는 나중에 그 사람을 다시
+        부를지 정할 때 아무 근거가 되지 않는다. 화면에서만 막으면 주소를 아는
+        쪽은 그대로 통과하므로 여기서도 막는다.
+      */
+      if (body.reputationVerdict && (body.reputationTags ?? []).length === 0) {
+        return badRequest(
+          "평가 항목을 한 개 이상 골라 주세요. 좋아요 · 별로예요만으로는 남길 수 없습니다.",
+          "REPUTATION_TAG_REQUIRED",
         );
       }
 

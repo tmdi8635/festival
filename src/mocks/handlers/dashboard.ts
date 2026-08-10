@@ -10,6 +10,7 @@ import {
   calculateBasePay,
   calculateScheduledWorkHours,
 } from "@/type/event";
+import { resolveBillingRate } from "@/type/client";
 import { events } from "../db/event";
 import { payrollItems } from "../db/payroll";
 import { applications } from "../db/recruit";
@@ -44,7 +45,14 @@ const buildMonthlyTrend = (): MonthlyTrendPoint[] => {
 
     point.eventCount += 1;
     point.revenue += Math.round(
-      event.totalAssigned * workHours * event.clientBillingRate,
+      event.assignments
+        .filter((assignment) => assignment.status === "CONFIRMED")
+        .reduce(
+          (sum, assignment) =>
+            sum +
+            workHours * resolveBillingRate(event.billingRates, assignment.role),
+          0,
+        ),
     );
     point.laborCost += event.assignments.reduce(
       (sum, assignment) =>

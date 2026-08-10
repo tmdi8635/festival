@@ -2,9 +2,7 @@ import type { BadgeTone, SelectOption } from "@/components/ui";
 import {
   ATTENDANCE_STATUS_LABEL,
   GENDER_LABEL,
-  resolveReputationTier,
   type AttendanceStatus,
-  type ReputationTier,
   type StaffStatus,
 } from "@/type/staff";
 
@@ -105,9 +103,17 @@ export const ATTENDANCE_FILTER_OPTIONS: SelectOption[] = [
   })),
 ];
 
-/** 근태 기록 모달에서 고르는 값. "예정"은 되돌리기 용도로 남겨 둔다. */
+/**
+ * 근태 기록 모달에서 고르는 값. "예정"은 되돌리기 용도로 남겨 둔다.
+ *
+ * **'지각'은 없다.** 지각은 상태가 아니라 시각의 문제다. 늦게 온 사람은
+ * 출근 시각을 실제로 온 시각으로 적으면 그만이고, 그러면 근무시간이 줄어
+ * 정산 금액까지 저절로 맞는다. 상태로 따로 받으면 같은 사실을 두 번 적게 되고
+ * (10:20으로 적고 + 지각 20분으로 또 적고) 두 값이 어긋나는 날이 온다.
+ * 실제로 지각 분수와 출근 시각이 따로 노는 건이 쌓였다.
+ */
 export const ATTENDANCE_OPTIONS: SelectOption[] = (
-  ["PRESENT", "LATE", "EARLY_LEAVE", "ABSENT", "NO_SHOW", "PENDING"] as const
+  ["PRESENT", "EARLY_LEAVE", "ABSENT", "NO_SHOW", "PENDING"] as const
 ).map((status) => ({
   label: ATTENDANCE_STATUS_LABEL[status],
   value: status,
@@ -119,29 +125,17 @@ export const BULK_ATTENDANCE_OPTIONS: {
   label: string;
 }[] = [
   { status: "PRESENT", label: "정상 출근" },
-  { status: "LATE", label: "지각" },
   { status: "EARLY_LEAVE", label: "조퇴" },
   { status: "ABSENT", label: "결근" },
   { status: "NO_SHOW", label: "노쇼" },
   { status: "PENDING", label: "예정으로 되돌리기" },
 ];
 
-/**
- * 평판 등급별 색.
- *
- * 구간 판정은 `resolveReputationTier`(`type/staff.ts`) 한 곳이 하고,
- * 여기서는 그 결과를 색으로만 옮긴다. 두 곳에서 각각 숫자를 비교하면
- * 배지 색과 옆에 적힌 등급 이름이 서로 다른 말을 하는 날이 온다.
- *
- * 기준점(1000) 근처는 '아직 판단할 근거가 없다'는 뜻이라 색을 죽인다.
- */
-export const REPUTATION_TIER_TONE: Record<ReputationTier, BadgeTone> = {
-  GREAT: "success",
-  GOOD: "info",
-  NORMAL: "neutral",
-  CAUTION: "warning",
-  RISK: "danger",
-};
+/*
+  평판 점수에는 색을 입히지 않는다.
 
-export const resolveRatingTone = (reputationScore: number): BadgeTone =>
-  REPUTATION_TIER_TONE[resolveReputationTier(reputationScore)];
+  등급 이름을 걷어내고도 초록 · 빨강 배지는 남겨 뒀는데, 그 색이 결국
+  등급이 하던 일을 그대로 했다. 1002점이 초록이면 좋아요 한 번 더 받은 사람이
+  화면에서 '괜찮은 사람'이 되고 998점은 그 반대가 된다. 점수를 보고 판단하는
+  것은 에이전시의 일이지 화면이 미리 해 줄 일이 아니다. (`RatingStat`)
+*/

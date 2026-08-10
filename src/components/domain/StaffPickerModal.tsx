@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useAssignmentCandidateQuery } from "@/api/event/getAssignmentCandidates";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import type { EmploymentType } from "@/type/employee";
 import {
   useJobRoleComparator,
   useJobRoleLabel,
@@ -60,6 +61,19 @@ const ASSIGNMENT_STATUS_OPTIONS = [
 ];
 
 /**
+ * 고용 형태 필터.
+ *
+ * 직원은 직무 조건에 걸리지 않아 어느 직무를 골라도 후보에 **섞여** 있다.
+ * 그런데 목록은 추천 점수 순이라, 인력풀이 수십 명이면 우리 사람이 중간
+ * 어딘가에 흩어져 "직원은 어떻게 넣나"가 된다. 여기서 한 번에 세워 볼 수 있게 한다.
+ */
+const EMPLOYMENT_FILTER_OPTIONS = [
+  { label: "전체 인력", value: "" },
+  { label: "우리 직원", value: "EMPLOYEE" },
+  { label: "프리랜서", value: "FREELANCER" },
+];
+
+/**
  * 인력 배치 모달.
  *
  * 대표가 머릿속으로 하던 판단(누굴 넣지)을 화면이 대신 정렬해 준다.
@@ -98,6 +112,7 @@ const StaffPickerModal = ({
     후보가 아예 안 보이는 날이 생긴다. 강제하지 않는다.
   */
   const [draftGender, setDraftGender] = useState<Gender | "" | null>(null);
+  const [employment, setEmployment] = useState<EmploymentType | "">("");
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
@@ -139,6 +154,7 @@ const StaffPickerModal = ({
       keyword: keyword || undefined,
       includeUnavailable,
       gender: gender || undefined,
+      employment: employment || undefined,
       // 고른 날 기준으로 겹침을 계산해야 "이 날만 가능한 사람"이 걸러지지 않는다.
       dates: targetDates.join(","),
     },
@@ -183,6 +199,7 @@ const StaffPickerModal = ({
     setDraftDates(null);
     setDraftRole(null);
     setDraftGender(null);
+    setEmployment("");
     setKeyword("");
     onClose();
   };
@@ -371,6 +388,18 @@ const StaffPickerModal = ({
                 setSelectedIds([]);
               }}
               selectBoxClassName="w-28"
+            />
+
+            {/* 우리 직원만 세워 보는 자리. 직무 조건을 건너뛰는 사람들이라 따로 찾을 길이 있어야 한다. */}
+            <Select
+              aria-label="고용 형태 필터"
+              options={EMPLOYMENT_FILTER_OPTIONS}
+              value={employment}
+              onChange={(changeEvent) => {
+                setEmployment(changeEvent.target.value as EmploymentType | "");
+                setSelectedIds([]);
+              }}
+              selectBoxClassName="w-32"
             />
 
             <Select
@@ -568,9 +597,6 @@ const StaffPickerModal = ({
 
                       <RatingStat
                         reputationScore={candidate.reputationScore}
-                        goodCount={candidate.goodCount}
-                        badCount={candidate.badCount}
-                        variant="badge"
                       />
                     </div>
                   </label>

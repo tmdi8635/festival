@@ -9,15 +9,14 @@ import {
   Clock,
   MapPin,
   Phone,
-  Star,
 } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
+import { resolveBillingRate } from "@/type/client";
 import { cn, formatCurrency, formatWithCommas } from "@/lib/utils";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import {
   GENDER_PREFERENCE_LABEL,
   WAGE_TYPE_LABEL,
-  byMainSupervisorFirst,
   describeRecurrence,
   formatTimeRange,
   groupConsecutiveDates,
@@ -25,10 +24,8 @@ import {
   type EventDetail,
 } from "@/type/event";
 import { formatPhoneNumber, type JobRole } from "@/type/staff";
-import { useEventMutation } from "@/api/event/mutateEvent";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
-import Select from "@/components/ui/Select";
 import GenderMark from "@/components/domain/GenderMark";
 import { useHasPermission } from "@/store/useAdminStore";
 
@@ -65,8 +62,6 @@ interface EventOverviewPanelProps {
  */
 const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
   const canAssign = useHasPermission("assignment:write");
-  const canEditEvent = useHasPermission("event:write");
-  const { mainSupervisorMutation } = useEventMutation();
 
   /*
     펼친 직무들.
@@ -93,30 +88,9 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
   const { dailyWorkHours, laborCost, revenue, margin } =
     summarizeEventCost(event);
 
-  /*
-    메인팀장 후보는 **확정 배치된 사람**뿐이다.
-    배치되지도 않은 사람을 메인으로 적어 두면 캘린더에는 이름이 뜨는데
-    현장에는 그 사람이 없다. 팀장 직무를 위로 세우되 다른 직무도 고를 수 있게 둔다.
-    (설치 팀장이 메인을 맡는 현장이 실제로 있다)
-  */
-  const candidates = [
-    ...new Map(
-      event.assignments
-        .filter((assignment) => assignment.status === "CONFIRMED")
-        .map((assignment) => [assignment.staffId, assignment]),
-    ).values(),
-  ].sort(
-    (a, b) =>
-      compareRoles(a.role, b.role) || a.staffName.localeCompare(b.staffName),
-  );
-
-  const mainSupervisorOptions = [
-    { label: "지정 전", value: "0" },
-    ...candidates.map((assignment) => ({
-      label: `${assignment.staffName} (${jobRoleLabel(assignment.role)})`,
-      value: String(assignment.staffId),
-    })),
-  ];
+  /** 이 행사에서 그 직무를 얼마에 청구하는지. 안 정했으면 0이다. */
+  const billingRateOf = (role: JobRole) =>
+    resolveBillingRate(event.billingRates, role);
 
   /*
     직무 하나에 실제로 서는 사람들.
@@ -135,11 +109,7 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
           )
           .map((assignment) => [assignment.staffId, assignment]),
       ).values(),
-    ].sort(
-      (a, b) =>
-        byMainSupervisorFirst(event.mainSupervisorStaffId)(a, b) ||
-        a.staffName.localeCompare(b.staffName),
-    );
+    ].sort((a, b) => a.staffName.localeCompare(b.staffName));
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -190,8 +160,7 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
           value={
             <span className="flex items-center gap-1.5">
               <Building size={14} className="text-font-2" />
-              {event.clientName} · 청구 시급{" "}
-              {formatCurrency(event.clientBillingRate)}
+              {event.clientName}
             </span>
           }
         />
@@ -217,63 +186,6 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
           description="전체 근무일을 합친 인원입니다."
           bodyClassName="flex flex-col gap-2"
         >
-          {/*
-            메인팀장이 이 카드 맨 위에 있는 이유.
-
-            **직무가 아니라 자리다.** 팀장 여럿 중 이 행사를 끌고 가는 한 사람이고,
-            현장 문의는 담당 매니저가 아니라 이 사람에게 먼저 간다.
-            발주 조건(반복 · 장소 · 복장) 사이에 끼워 두면 "누가 이 현장을 잡았나"를
-            찾으려고 긴 목록을 훑어야 했다. 사람 이야기는 사람 목록 맨 위가 맞다.
-          */}
-          <div className="rounded-field border border-brand-opacity bg-brand-opacity-3 px-3 py-2.5">
-            <p className="flex items-center gap-1.5 text-[13px] font-medium text-font-1">
-              <Star size={13} className="text-brand" />
-              메인팀장
-            </p>
-
-            {/*
-              고르는 칸과 번호를 한 줄에 붙이지 않는다.
-              카드가 좁아서 나란히 두면 "김도윤 (스…"처럼 이름이 잘리는데,
-              여기서 확인하려는 것이 바로 그 이름이다.
-            */}
-            <div className="mt-2 flex flex-col gap-1.5">
-              {canEditEvent ? (
-                <Select
-                  aria-label="메인팀장"
-                  options={mainSupervisorOptions}
-                  value={String(event.mainSupervisorStaffId ?? 0)}
-                  disabled={mainSupervisorMutation.isPending}
-                  onChange={(changeEvent) =>
-                    mainSupervisorMutation.mutate({
-                      eventId: event.eventId,
-                      staffId: Number(changeEvent.target.value) || null,
-                    })
-                  }
-                />
-              ) : (
-                <span className="text-[14px] text-font-1">
-                  {event.mainSupervisorName ?? "지정 전"}
-                </span>
-              )}
-
-              {event.mainSupervisorPhone && (
-                <a
-                  href={`tel:${event.mainSupervisorPhone}`}
-                  className="flex w-fit items-center gap-1 text-[13px] text-font-2 tabular-nums transition hover:text-brand"
-                >
-                  <Phone size={13} />
-                  {formatPhoneNumber(event.mainSupervisorPhone)}
-                </a>
-              )}
-
-              {candidates.length === 0 && (
-                <p className="text-[12px] text-font-2">
-                  확정 배치된 인력이 있어야 지정할 수 있습니다.
-                </p>
-              )}
-            </div>
-          </div>
-
           {sortedRoles.map((slot) => {
             const isShort = slot.assignedCount < slot.requiredCount;
             /* 직무마다 따로 접고 편다. 하나를 열었다고 보던 것이 닫히면 대조가 안 된다. */
@@ -335,6 +247,16 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                       <p className="truncate text-[12px] text-font-2 tabular-nums">
                         {WAGE_TYPE_LABEL[slot.wageType]}{" "}
                         {formatWithCommas(slot.wage)}원
+                        {/*
+                          우리가 주는 금액 옆에 거래처에서 받는 금액을 나란히 둔다.
+                          이 두 숫자의 차이가 이 직무 한 명당 마진이라, 떨어뜨려
+                          놓으면 발주를 받아 놓고 밑지는 자리를 알아채지 못한다.
+                        */}
+                        {billingRateOf(slot.role) > 0 && (
+                          <span className="ml-1.5">
+                            · 청구 {formatWithCommas(billingRateOf(slot.role))}원
+                          </span>
+                        )}
                         {/* 조건이 걸린 발주만 적는다. 강제가 아니라 안내다. */}
                         {slot.genderPreference !== "ANY" && (
                           <span className="ml-1.5">
@@ -393,13 +315,6 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
 
                             <div className="min-w-0">
                               <p className="flex items-center gap-1 truncate text-[13px] text-font-1">
-                                {member.staffId ===
-                                  event.mainSupervisorStaffId && (
-                                  <Star
-                                    size={11}
-                                    className="shrink-0 text-brand"
-                                  />
-                                )}
                                 {member.staffName}
                                 <GenderMark gender={member.staffGender} size={11} />
                               </p>

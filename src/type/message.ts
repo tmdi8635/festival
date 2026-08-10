@@ -157,16 +157,6 @@ export const MESSAGE_VARIABLES: MessageVariable[] = [
     description: "담당 매니저 휴대폰번호",
     example: "010-2345-0917",
   },
-  {
-    token: "{{메인팀장}}",
-    description: "이 행사의 메인팀장",
-    example: "장채원",
-  },
-  {
-    token: "{{메인팀장연락처}}",
-    description: "메인팀장 휴대폰번호",
-    example: "010-4574-3138",
-  },
 ];
 
 /**

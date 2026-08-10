@@ -9,6 +9,7 @@ import { Clock, TrendUp, Users, Warning } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 import {
+  confirmedHoursOf,
   formatMonthLabel,
   monthKey,
   resolveEmployeeHourTone,
@@ -48,21 +49,30 @@ const WORK_SORT_OPTIONS = [
   { label: "직책순", value: "POSITION" },
 ];
 
+/** 목록이 세는 값. 확정된 근무만이다. */
+const confirmedOf = (row: EmployeeWorkRow) => ({
+  workedHours: confirmedHoursOf(row),
+  baseMonthlyHours: row.baseMonthlyHours,
+});
+
 const WORK_CSV_COLUMNS: CsvColumn<EmployeeWorkRow>[] = [
   { header: "이름", value: (row) => row.name },
   { header: "직책", value: (row) => row.position },
   { header: "기준 시간", value: (row) => row.baseMonthlyHours },
-  { header: "근무시간", value: (row) => row.workedHours },
+  { header: "확정 근무시간", value: (row) => confirmedHoursOf(row) },
   {
     header: "초과",
-    value: (row) => summarizeEmployeeHours(row).overHours,
+    value: (row) => summarizeEmployeeHours(confirmedOf(row)).overHours,
   },
   {
     header: "미달",
-    value: (row) => summarizeEmployeeHours(row).remainingHours,
+    value: (row) => summarizeEmployeeHours(confirmedOf(row)).remainingHours,
   },
-  { header: "채움률(%)", value: (row) => summarizeEmployeeHours(row).rate },
-  { header: "그중 예정 기준", value: (row) => row.scheduledHours },
+  {
+    header: "채움률(%)",
+    value: (row) => summarizeEmployeeHours(confirmedOf(row)).rate,
+  },
+  { header: "예정 시간(별도)", value: (row) => row.scheduledHours },
   { header: "근무일수", value: (row) => row.workedDays },
   { header: "참여 행사", value: (row) => row.events.length },
   {
@@ -141,8 +151,16 @@ const EmployeeWorkBoard = () => {
       key: "hours",
       header: "근무시간 / 기준",
       render: (row) => {
+        /*
+          **확정된 근무만 센다.**
+
+          아직 출퇴근이 안 찍힌 날을 발주 시간으로 미리 더해 놓으면
+          달이 시작하자마자 모두가 기준을 채운 것처럼 보인다. 예정까지 포함해
+          보는 자리는 줄을 눌러 여는 근무 상세이고, 거기에는 토글이 있다.
+        */
+        const confirmedHours = confirmedHoursOf(row);
         const { rate, remainingHours, overHours, isOver } =
-          summarizeEmployeeHours(row);
+          summarizeEmployeeHours(confirmedOf(row));
         const tone = resolveEmployeeHourTone(rate);
 
         return (
@@ -154,7 +172,7 @@ const EmployeeWorkBoard = () => {
                   HOUR_TONE_CLASS[tone],
                 )}
               >
-                {row.workedHours}
+                {confirmedHours}
                 <span className="text-[13px] font-normal text-font-2">
                   {" "}
                   / {row.baseMonthlyHours}시간
@@ -178,15 +196,7 @@ const EmployeeWorkBoard = () => {
             </div>
 
             <span className="text-[12px] text-font-2">
-              {isOver
-                ? `초과 +${overHours}시간`
-                : `${remainingHours}시간 남음`}
-              {/*
-                출퇴근이 아직 안 찍힌 날은 행사 예정 시간으로 셌다.
-                그 사실을 적지 않으면 확정된 숫자로 읽고 다음 달 배치를 정하게 된다.
-              */}
-              {row.scheduledHours > 0 &&
-                ` · 예정 기준 ${row.scheduledHours}시간 포함`}
+              {isOver ? `초과 +${overHours}시간` : `${remainingHours}시간 남음`}
             </span>
           </div>
         );
@@ -213,7 +223,7 @@ const EmployeeWorkBoard = () => {
         <StatTile
           label="합계 근무시간"
           value={`${summary?.totalWorkedHours ?? 0}시간`}
-          description={`기준 합계 ${summary?.totalBaseHours ?? 0}시간`}
+          description={`확정 기준 · 기준 합계 ${summary?.totalBaseHours ?? 0}시간`}
           icon={<Clock size={18} />}
         />
         <StatTile

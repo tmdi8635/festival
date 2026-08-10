@@ -1,3 +1,5 @@
+import type { ClientBillingRate } from "./client";
+import { resolveBillingRate } from "./client";
 import type {
   AttendanceStatus,
   Gender,
@@ -351,18 +353,15 @@ export interface EventSummary {
    * 번호를 안 적으면, 현장에서 문제가 생긴 사람은 결국 아무 데도 연락하지 못한다.
    */
   managerPhone: string;
-  /**
-   * 메인팀장.
-   *
-   * **직무가 아니라 자리다.** 팀장 여럿 중 이 행사를 끌고 가는 한 사람이고,
-   * 현장 문의는 담당 매니저가 아니라 이 사람에게 먼저 간다.
-   * 직무로 만들면 "팀장 3명 중 누가 메인인가"를 표현할 수 없다.
-   *
-   * 배치가 확정되기 전에는 비어 있다.
-   */
-  mainSupervisorStaffId?: number;
-  mainSupervisorName?: string;
-  mainSupervisorPhone?: string;
+  /*
+    '메인팀장'은 두지 않는다.
+
+    직무와 별개로 "팀장 중 이 행사를 끌고 가는 한 사람"을 따로 지정하게 했는데,
+    직무 목록에 이미 팀장이 있으니 **같은 것을 두 곳에서 정하는 일**이 됐다.
+    배치에서 팀장을 넣고 상세에서 메인팀장을 또 고르지 않으면 명단 · 문자 ·
+    캘린더 곳곳에 '지정 전'만 남았고, 그 빈칸이 무엇을 뜻하는지 아무도 몰랐다.
+    현장에서 누구에게 연락하는지는 직무(팀장)와 담당 매니저로 충분하다.
+  */
   /** 전체 일자를 합산한 직무별 현황 */
   roles: EventRoleSlot[];
   totalRequired: number;
@@ -378,28 +377,23 @@ export interface EventDetail extends EventSummary {
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  /** 거래처에 청구하는 시급. 인건비와 비교해 마진을 계산한다. */
-  clientBillingRate: number;
+  /**
+   * 거래처에 청구하는 **직무별** 시급. 인건비와 비교해 마진을 계산한다.
+   *
+   * 예전에는 행사 하나에 시급 하나였다. 그런데 팀장 · 스태프 · 설치는
+   * 지급도 청구도 단가가 다르다. 하나로 묶어 두면 팀장이 많은 행사의 매출이
+   * 통째로 낮게 잡히고, 그 숫자를 보고 다음 발주 단가를 정하게 된다.
+   *
+   * 거래처에 등록된 단가를 기본으로 가져오되(`Client.billingRates`)
+   * 행사마다 자유롭게 고친다. 발주는 늘 그때그때 다르게 들어온다.
+   * 비어 있어도 된다 — 그 직무가 마진 계산에서 빠질 뿐이다.
+   */
+  billingRates: ClientBillingRate[];
   memo: string;
   assignments: Assignment[];
   createdAt: string;
   updatedAt: string;
 }
-
-/**
- * 메인팀장을 맨 앞에 세우는 비교기.
- *
- * **직무 순서보다 먼저 본다.** 메인팀장은 직무가 아니라 자리라서,
- * 팀장 세 명을 이름순으로 늘어놓으면 그중 누가 이 행사를 끌고 가는지가 사라진다.
- * 명단 · 근무자 · 출퇴근 어디에서든 이 사람이 첫 줄이어야 한다.
- *
- * 지정 전이면(`undefined`) 아무것도 바꾸지 않는다.
- */
-export const byMainSupervisorFirst =
-  (mainSupervisorStaffId?: number) =>
-  (a: { staffId: number }, b: { staffId: number }): number =>
-    Number(b.staffId === mainSupervisorStaffId) -
-    Number(a.staffId === mainSupervisorStaffId);
 
 export type AssignmentStatus =
   | "PROPOSED"
@@ -602,7 +596,7 @@ export interface AssignmentCandidate {
    * 우리 직원인가.
    *
    * 직원은 **직무 조건에 걸리지 않고** 후보로 올라온다. 대행사가 주는 자리에 따라
-   * 메인팀장도 스태프도 맡기 때문이다. 화면에서도 그 사실이 보여야
+   * 팀장도 스태프도 맡기 때문이다. 화면에서도 그 사실이 보여야
    * 담당자가 "왜 이 사람이 설치 후보에 있지"에서 멈추지 않는다.
    */
   isEmployee: boolean;
@@ -650,7 +644,7 @@ export interface EventFormValues {
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  clientBillingRate: number;
+  billingRates: ClientBillingRate[];
   memo: string;
   roles: EventRoleSlot[];
 }
@@ -676,14 +670,6 @@ export interface CalendarEvent {
   endDayOffset: DayOffset;
   venue: string;
   managerName: string;
-  /**
-   * 메인팀장 이름.
-   *
-   * 캘린더를 '간략히'로 접어 놓아도 이 이름은 남는다.
-   * 에이전시가 달력에서 제일 먼저 확인하는 것이 "이 날은 누가 메인으로 들어가나"라서,
-   * 그것이 안 보이면 결국 행사를 하나씩 열어 봐야 한다.
-   */
-  mainSupervisorName?: string;
   /** 전체 근무일을 합산한 직무별 현황 */
   roles: EventRoleSlot[];
   /**
@@ -1218,8 +1204,24 @@ export const summarizeEventCost = (event: EventDetail) => {
       0,
     );
 
+  /*
+    매출은 **직무마다** 다르게 잡힌다.
+
+    예전에는 `확정 인원 × 시간 × 시급 하나`였는데, 팀장과 스태프의 청구
+    단가가 다른 것이 현실이라 팀장이 많은 행사의 매출이 통째로 낮게 잡혔다.
+    단가를 안 정한 직무는 0으로 빠진다. (마진이 실제보다 작게 보일 뿐,
+    없는 매출을 지어내지는 않는다)
+  */
   const revenue = Math.round(
-    event.totalAssigned * dailyWorkHours * event.clientBillingRate,
+    event.assignments
+      .filter((assignment) => assignment.status === "CONFIRMED")
+      .reduce(
+        (sum, assignment) =>
+          sum +
+          dailyWorkHours *
+            resolveBillingRate(event.billingRates, assignment.role),
+        0,
+      ),
   );
 
   return { dailyWorkHours, laborCost, revenue, margin: revenue - laborCost };

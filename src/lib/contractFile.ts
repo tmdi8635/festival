@@ -343,27 +343,3 @@ export const downloadContractAsPdf = async (
 ): Promise<void> => {
   download(await buildContractPdfBlob(contractDocument), fileName);
 };
-
-/**
- * 계약서를 새 창에서 연다.
- *
- * 미리보기는 "형식이 맞나"를 훑는 자리라 작게 보여 주고, 조항을 실제로
- * 읽어야 할 때 여기로 넘어온다. 창을 먼저 열어 두는 이유는, 문서를 다 만든
- * 뒤에 열면 사용자의 클릭과 멀어져 브라우저가 팝업으로 막기 때문이다.
- */
-export const openContractPdf = async (
-  contractDocument: ContractDocument,
-): Promise<void> => {
-  const target = window.open("", "_blank");
-  const blob = await buildContractPdfBlob(contractDocument);
-  const url = URL.createObjectURL(blob);
-
-  if (target) {
-    target.location.href = url;
-  } else {
-    // 팝업이 막혔으면 내려받기로 떨어뜨린다. 아무 일도 안 일어나는 것보다 낫다.
-    window.location.href = url;
-  }
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-};

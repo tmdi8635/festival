@@ -22,11 +22,14 @@ import { jobRoleLabel, useJobRoleLabel } from "@/store/useOrgStore";
 import {
   EVENT_STATUS_LABEL,
   WAGE_TYPE_LABEL,
+  groupAssignmentsByStaffRole,
   type EventDetail,
 } from "@/type/event";
 import {
   PAYROLL_STATUS_LABEL,
+  describeSettlementBlock,
   formatPayrollDates,
+  isSettlementReady,
   type PayrollItem,
   type PayrollStatus,
 } from "@/type/payroll";
@@ -151,6 +154,29 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const rows = data?.content ?? [];
 
   /**
+   * 아직 정산에 오르지 못한 사람과 그 이유.
+   *
+   * 판정은 목업 · 화면이 **같은 함수**를 쓴다. (`isSettlementReady`)
+   * 화면이 따로 세면 "여기서는 준비 완료인데 목록에는 없다"가 생긴다.
+   *
+   * 사람 × 직무로 묶어서 본다. 계약서도 정산도 그 단위로 잡히기 때문이다.
+   */
+  const blockedStaff = groupAssignmentsByStaffRole(
+    event.assignments.filter(
+      (assignment) =>
+        assignment.status === "CONFIRMED" && !assignment.isEmployee,
+    ),
+  )
+    .filter((assignments) => !isSettlementReady(assignments))
+    .map((assignments) => ({
+      staffId: assignments[0].staffId,
+      staffName: assignments[0].staffName,
+      role: assignments[0].role,
+      reason: describeSettlementBlock(assignments) ?? "",
+    }))
+    .sort((a, b) => a.staffName.localeCompare(b.staffName));
+
+  /**
    * 정산 건이 하나도 없을 때 **왜 없는지**를 짚는다.
    *
    * 예전에는 "행사가 끝나면 배치별로 정산 항목이 자동으로 만들어집니다"라고만
@@ -166,15 +192,17 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const isSettlementStage =
     event.status === "SETTLEMENT" || event.status === "DONE";
 
-  /* 지급 대상 = 확정 배치 · 직원 아님 · 노쇼/결근 아님. 목업의 `isPayable`과 같은 규칙이다. */
+  /*
+    정산 대상 = 확정 배치 · 직원 아님. 목업의 `isSettlementTarget`과 같은 규칙이다.
+
+    노쇼 · 결근을 여기서 빼지 않는다. 안 나온 날은 0원일 뿐 그 사람의
+    정산이 없어지는 것은 아니다. (사흘 중 하루를 안 나와도 이틀은 지급한다)
+  */
   const confirmedAssignments = event.assignments.filter(
     (assignment) => assignment.status === "CONFIRMED",
   );
-  const payableAssignments = confirmedAssignments.filter(
-    (assignment) =>
-      !assignment.isEmployee &&
-      assignment.attendance !== "NO_SHOW" &&
-      assignment.attendance !== "ABSENT",
+  const settlementTargets = confirmedAssignments.filter(
+    (assignment) => !assignment.isEmployee,
   );
 
   const emptyReason = (() => {
@@ -186,22 +214,12 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       };
     }
 
-    if (payableAssignments.length === 0) {
-      const isAllEmployee = confirmedAssignments.every(
-        (assignment) => assignment.isEmployee,
-      );
-
-      return isAllEmployee
-        ? {
-            title: "시급 정산 대상이 없습니다.",
-            description:
-              "확정 배치가 전부 우리 직원입니다. 직원은 월급으로 급여가 나가 시급 정산을 하지 않고, 근무시간만 운영 > 직원 근무에서 셉니다.",
-          }
-        : {
-            title: "지급할 근무가 없습니다.",
-            description:
-              "확정 배치가 모두 노쇼 · 결근으로 기록돼 있습니다. 근태가 잘못됐다면 출퇴근 명부 탭에서 고쳐 주세요.",
-          };
+    if (settlementTargets.length === 0) {
+      return {
+        title: "시급 정산 대상이 없습니다.",
+        description:
+          "확정 배치가 전부 우리 직원입니다. 직원은 월급으로 급여가 나가 시급 정산을 하지 않고, 근무시간만 운영 > 직원 근무에서 셉니다.",
+      };
     }
 
     if (!isSettlementStage) {
@@ -209,6 +227,19 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         title: `행사가 아직 '${EVENT_STATUS_LABEL[event.status]}' 단계입니다.`,
         description:
           "정산 항목은 행사를 '정산대기'로 넘기는 순간 배치에서 만들어집니다. 발주 인원을 다 못 채웠어도 상관없습니다 — 나온 사람 기준으로 계산됩니다.",
+      };
+    }
+
+    /*
+      전원이 아직 조건을 못 채운 경우.
+      위쪽 경고에 이름과 이유가 이미 적혀 있으므로 여기서는 무엇을 하면
+      되는지만 한 번 더 말한다.
+    */
+    if (blockedStaff.length > 0) {
+      return {
+        title: "정산할 수 있는 사람이 아직 없습니다.",
+        description:
+          "근로계약서가 작성 완료이고 실제 출퇴근이 기록되어야 지급할 수 있습니다. 위 목록의 사람들을 처리하면 여기에 올라옵니다.",
       };
     }
 
@@ -517,6 +548,38 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         읽히기 쉬운데 실제로는 **사람이 이체를 끝낸 뒤 눌러 두는 기록**이다.
         그 오해가 남으면 아무도 안 누르거나, 이체 전에 눌러 두고 잊는다.
       */}
+      {/*
+        아직 정산에 오르지 못한 사람.
+
+        **정산은 사람 단위로 열린다.** 열네 명 중 열세 명이 계약서와 출퇴근을
+        채웠으면 여기 열세 명이 뜨고, 남은 한 명만 기다린다. 그런데 목록에
+        없는 사람은 화면에서 보이지 않으므로, 누가 왜 빠졌는지를 여기서
+        이름째로 적어 준다. 적지 않으면 담당자는 "열네 명인데 왜 열세 명이지"를
+        출퇴근 명부와 계약서 탭을 오가며 직접 찾아야 한다.
+      */}
+      {blockedStaff.length > 0 && (
+        <Alert
+          tone="warning"
+          title={`${blockedStaff.length}명은 아직 정산에 올라오지 않았습니다.`}
+        >
+          <span className="flex flex-col gap-0.5">
+            <span className="text-font-2">
+              근로계약서가 작성 완료이고 실제 출퇴근이 기록되어야 지급할 수
+              있습니다. 채우는 즉시 이 목록에 올라옵니다.
+            </span>
+            {blockedStaff.map((blocked) => (
+              <span key={`${blocked.staffId}-${blocked.role}`}>
+                <b>{blocked.staffName}</b>
+                <span className="text-font-2">
+                  {" "}
+                  ({roleLabel(blocked.role)}) — {blocked.reason}
+                </span>
+              </span>
+            ))}
+          </span>
+        </Alert>
+      )}
+
       {rows.length > 0 && (
         <Alert tone="info" title="정산은 세 단계로 넘어갑니다.">
           <span className="flex flex-col gap-0.5">
@@ -725,7 +788,7 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           emptyAction={
             /* 상태만 넘기면 되는 상황이면 그 자리에서 처리한다. */
             !isSettlementStage &&
-            payableAssignments.length > 0 &&
+            settlementTargets.length > 0 &&
             canWriteEvent ? (
               <Button
                 variant="primary"

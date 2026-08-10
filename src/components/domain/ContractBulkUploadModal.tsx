@@ -7,6 +7,7 @@ import { Check, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
   contractNameTag,
+  normalizeNamePart,
   parseContractFileName,
   type ContractStatus,
 } from "@/type/contract";
@@ -106,8 +107,15 @@ const ContractBulkUploadModal = ({
       };
     }
 
+    /*
+      **양쪽 다 표기를 맞춘 뒤 비교한다.**
+
+      파일명 쪽만 맞추면 반대 방향(명단이 자모로 쪼개져 들어온 경우)에서
+      같은 일이 그대로 반복된다. 화면에 똑같이 보이는 두 이름이 `===`로는
+      다른 문자열이라, 비교하는 자리마다 한 번씩 맞춰 두는 편이 안전하다.
+    */
     const matched = targets.filter(
-      (target) => target.staffName === parsed.staffName,
+      (target) => normalizeNamePart(target.staffName) === parsed.staffName,
     );
 
     if (matched.length === 0) {

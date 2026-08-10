@@ -24,7 +24,10 @@ import {
   findContractTemplate,
 } from "../db/contract";
 import { events, findEvent, recalculateEventCounts } from "../db/event";
-import { syncPayrollWithAssignment } from "../db/payroll";
+import {
+  syncPayrollWithAssignment,
+  syncPayrollWithContract,
+} from "../db/payroll";
 import { findStaff } from "../db/staff";
 import {
   BASE_URI,
@@ -107,7 +110,9 @@ const buildContractFrom = (
 const markAssignmentsSigned = (contract: Contract) => {
   const event = findEvent(contract.eventId);
 
-  event?.assignments
+  if (!event) return;
+
+  event.assignments
     .filter(
       (item) =>
         item.staffId === contract.staffId &&
@@ -116,6 +121,34 @@ const markAssignmentsSigned = (contract: Contract) => {
     .forEach((item) => {
       item.isContractSigned = true;
     });
+
+  /*
+    정산까지 여기서 이어 준다.
+
+    계약서가 완료되는 것이 **정산에 오르는 두 조건 중 하나**다.
+    (`isSettlementReady`) 여기서 이어 주지 않으면 계약서를 다 받아 놓고도
+    정산 화면에는 그 사람이 없고, 담당자는 어디를 더 눌러야 하는지 모른다.
+  */
+  syncPayrollWithContract(event, contract.staffId);
+};
+
+/** 서명을 되돌린다. 정산에 올라 있던 건은 근거를 잃으므로 함께 내려간다. */
+const unmarkAssignmentsSigned = (contract: Contract) => {
+  const event = findEvent(contract.eventId);
+
+  if (!event) return;
+
+  event.assignments
+    .filter(
+      (item) =>
+        item.staffId === contract.staffId &&
+        contract.workDates.includes(item.workDate),
+    )
+    .forEach((item) => {
+      item.isContractSigned = false;
+    });
+
+  syncPayrollWithContract(event, contract.staffId);
 };
 
 export const contractHandlers = [
@@ -501,15 +534,7 @@ export const contractHandlers = [
 
       const event = findEvent(contract.eventId);
 
-      event?.assignments
-        .filter(
-          (item) =>
-            item.staffId === contract.staffId &&
-            contract.workDates.includes(item.workDate),
-        )
-        .forEach((item) => {
-          item.isContractSigned = false;
-        });
+      unmarkAssignmentsSigned(contract);
 
       contract.signedFile = undefined;
       contract.registeredAt = undefined;

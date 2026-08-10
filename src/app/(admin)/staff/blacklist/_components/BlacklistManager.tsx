@@ -5,7 +5,7 @@ import { useListSearch } from "@/hooks/useListSearch";
 import { useStaffListQuery } from "@/api/staff/getStaffList";
 import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { useHasPermission } from "@/store/useAdminStore";
-import { Ban, ShieldAlert, Warning } from "@/icons";
+import { Ban, Warning } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
@@ -22,7 +22,6 @@ import BlacklistModal from "@/components/domain/BlacklistModal";
 import RatingStat from "@/components/domain/RatingStat";
 import StaffCell from "@/components/domain/StaffCell";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
-import StatTile from "@/components/domain/StatTile";
 
 /** 이 횟수부터 블랙리스트 후보로 올린다. 기준 설정 화면에서 바꿀 수 있다. */
 const NO_SHOW_THRESHOLD = 2;
@@ -144,9 +143,6 @@ const BlacklistManager = () => {
       render: (staff) => (
         <RatingStat
           reputationScore={staff.reputationScore}
-          goodCount={staff.goodCount}
-          badCount={staff.badCount}
-          variant="badge"
         />
       ),
     },
@@ -219,9 +215,6 @@ const BlacklistManager = () => {
       render: (staff) => (
         <RatingStat
           reputationScore={staff.reputationScore}
-          goodCount={staff.goodCount}
-          badCount={staff.badCount}
-          variant="badge"
         />
       ),
     },
@@ -250,28 +243,14 @@ const BlacklistManager = () => {
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatTile
-          label="블랙리스트"
-          value={`${data?.totalCount ?? 0}명`}
-          description="배치 후보에서 자동으로 제외됩니다."
-          tone="danger"
-          icon={<Ban size={18} />}
-        />
-        <StatTile
-          label="지정 후보"
-          value={`${candidates.length}명`}
-          description={`노쇼 ${NO_SHOW_THRESHOLD}회 이상 기록`}
-          tone={candidates.length > 0 ? "warning" : "default"}
-          icon={<ShieldAlert size={18} />}
-        />
-        <StatTile
-          label="판단 기준"
-          value={`노쇼 ${NO_SHOW_THRESHOLD}회`}
-          description="운영 › 기준 설정에서 바꿀 수 있습니다."
-        />
-      </div>
+      {/*
+        인원수를 따로 적지 않는다.
 
+        아래 표의 페이지 표시가 이미 전체 건수를 말하고 있다.
+        같은 숫자를 위에 한 번 더 적어 두면 둘 중 무엇이 맞는지 확인하게 되고,
+        정작 이 화면에서 할 일 — 후보를 검토하고 사유를 남기는 것 — 이
+        그만큼 아래로 밀린다.
+      */}
       <Alert tone="info" title="사유 없는 지정은 남지 않습니다.">
         블랙리스트는 반드시 사유와 함께 기록되며, 운영 로그에도 남습니다.
         같은 판단을 다른 담당자도 확인할 수 있어야 업무를 나눌 수 있습니다.

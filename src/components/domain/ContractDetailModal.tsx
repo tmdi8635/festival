@@ -13,7 +13,6 @@ import { formatDate } from "@/lib/dayjs";
 import {
   downloadContractAsImage,
   downloadContractAsPdf,
-  openContractPdf,
 } from "@/lib/contractFile";
 import { showErrorToast } from "@/lib/toast";
 import { openConfirm } from "@/store/useConfirmStore";
@@ -34,7 +33,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import ContractAmendModal from "./ContractAmendModal";
 import ContractFilePreview from "./ContractFilePreview";
-import ContractPreviewCard from "./ContractPreviewCard";
+import ContractSheetView from "./ContractSheetView";
 import ContractUploadZone from "./ContractUploadZone";
 import CopyButton from "./CopyButton";
 
@@ -85,7 +84,6 @@ const ContractDetailModal = ({
   const [amendTarget, setAmendTarget] = useState<Contract | null>(null);
   /* PDF는 지면을 이미지로 굽는 과정이 있어 잠깐 걸린다. 눌린 것이 보여야 한다. */
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [isOpeningPdf, setIsOpeningPdf] = useState(false);
   /** 보고 있는 차수. 비우면 지금 유효한 차수를 본다. */
   const [viewingContractId, setViewingContractId] = useState<number | null>(
     null,
@@ -214,21 +212,6 @@ const ContractDetailModal = ({
       showErrorToast(error, "계약서를 PDF로 만들지 못했습니다.");
     } finally {
       setIsDownloadingPdf(false);
-    }
-  };
-
-  /** 조항을 실제로 읽어야 할 때. 보고 있던 화면은 그대로 남는다. */
-  const handleOpenPdf = async () => {
-    if (!document) return;
-
-    setIsOpeningPdf(true);
-
-    try {
-      await openContractPdf(document);
-    } catch (error) {
-      showErrorToast(error, "계약서를 열지 못했습니다.");
-    } finally {
-      setIsOpeningPdf(false);
     }
   };
 
@@ -523,18 +506,10 @@ const ContractDetailModal = ({
             )}
 
             {/*
-              미리보기.
-
-              A4 지면을 전부 그려 두면 조항이 많은 문서에서 모달이 문서로
-              가득 차고, 정작 여기서 할 일(내려받아 배부 · 서명본 등록)이
-              스크롤 저 아래로 밀린다. 첫 장만 작게 보여 주고,
-              조항을 실제로 읽어야 할 때는 새 창에서 PDF로 연다.
+              문서 본문.
+              내려받는 것도 이 문서 그대로다.
             */}
-            <ContractPreviewCard
-              document={document}
-              isOpening={isOpeningPdf}
-              onOpenPdf={handleOpenPdf}
-            />
+            <ContractSheetView document={document} />
           </div>
         )}
       </Modal>

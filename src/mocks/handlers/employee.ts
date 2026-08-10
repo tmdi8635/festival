@@ -8,6 +8,7 @@ import type {
 } from "@/type/employee";
 import {
   comparePositions,
+  confirmedHoursOf,
   monthKey,
   summarizeEmployeeHours,
 } from "@/type/employee";
@@ -102,8 +103,20 @@ const summarizeMonth = (staffId: number, month: string) => {
     workedHours: Math.round(workedHours * 10) / 10,
     scheduledHours: Math.round(scheduledHours * 10) / 10,
     workedDays: workDates.size,
-    /* 오래 붙어 있던 현장이 위다. 초과가 났을 때 먼저 봐야 하는 줄이다. */
-    events: workEvents.sort((a, b) => b.workHours - a.workHours),
+    /*
+      **최근에 나간 현장이 위다.**
+
+      예전에는 근무시간이 긴 순이었는데, 이 목록을 여는 사람은 대개
+      "요즘 어디에 나갔나"를 보는 중이다. 시간순이면 반년 전 장기 현장이
+      늘 첫 줄이라 지난주에 나간 곳이 아래로 밀렸다.
+      마지막 근무일로 비교한다. (같은 날이면 시간이 긴 쪽이 위다)
+    */
+    events: workEvents.sort(
+      (a, b) =>
+        (b.workDates[b.workDates.length - 1] ?? "").localeCompare(
+          a.workDates[a.workDates.length - 1] ?? "",
+        ) || b.workHours - a.workHours,
+    ),
   };
 };
 
@@ -163,11 +176,6 @@ const syncAssignments = (staffId: number, name: string, phone: string) => {
 
       assignment.staffName = name;
       assignment.staffPhone = phone;
-    }
-
-    if (event.mainSupervisorStaffId === staffId) {
-      event.mainSupervisorName = name;
-      event.mainSupervisorPhone = phone;
     }
   }
 };
@@ -291,9 +299,13 @@ export const employeeHandlers = [
         (단축근무 120시간) 채움률만으로는 "실제로 오래 뛴 사람"이 안 보이고,
         직책순은 팀 단위로 훑을 때 쓴다.
       */
+      /* 목록이 세우는 기준도 확정된 시간이다. 화면에 적힌 숫자와 순서가 같아야 한다. */
       .sort((a, b) => {
         if (sort === "HOURS") {
-          return b.workedHours - a.workedHours || a.name.localeCompare(b.name);
+          return (
+            confirmedHoursOf(b) - confirmedHoursOf(a) ||
+            a.name.localeCompare(b.name)
+          );
         }
 
         if (sort === "POSITION") {
@@ -304,27 +316,42 @@ export const employeeHandlers = [
         }
 
         return (
-          b.workedHours / (b.baseMonthlyHours || 1) -
-            a.workedHours / (a.baseMonthlyHours || 1) ||
+          confirmedHoursOf(b) / (b.baseMonthlyHours || 1) -
+            confirmedHoursOf(a) / (a.baseMonthlyHours || 1) ||
           a.name.localeCompare(b.name)
         );
       });
 
+    /*
+      합계는 **확정된 근무만** 센다.
+
+      아직 출퇴근이 안 찍힌 날을 발주 시간으로 미리 더해 두면, 달이 시작하자마자
+      전원이 기준을 채운 것처럼 보이고 '기준 초과'에도 줄이 선다. 그 숫자를 보고
+      배치를 덜면 실제로는 아무도 일하지 않은 달의 배치를 줄이는 것이 된다.
+      예정까지 포함해서 보는 자리는 근무 상세의 토글이다.
+    */
+    const confirmedOf = (row: EmployeeWorkRow) => ({
+      workedHours: confirmedHoursOf(row),
+      baseMonthlyHours: row.baseMonthlyHours,
+    });
+
     const summary: EmployeeWorkSummary = {
       totalCount: rows.length,
       totalWorkedHours:
-        Math.round(rows.reduce((sum, row) => sum + row.workedHours, 0) * 10) /
-        10,
+        Math.round(
+          rows.reduce((sum, row) => sum + confirmedHoursOf(row), 0) * 10,
+        ) / 10,
       totalBaseHours: rows.reduce((sum, row) => sum + row.baseMonthlyHours, 0),
-      overCount: rows.filter((row) => row.workedHours > row.baseMonthlyHours)
-        .length,
+      overCount: rows.filter(
+        (row) => confirmedHoursOf(row) > row.baseMonthlyHours,
+      ).length,
       underCount: rows.filter(
-        (row) => summarizeEmployeeHours(row).rate < 60,
+        (row) => summarizeEmployeeHours(confirmedOf(row)).rate < 60,
       ).length,
       totalOverHours:
         Math.round(
           rows.reduce(
-            (sum, row) => sum + summarizeEmployeeHours(row).overHours,
+            (sum, row) => sum + summarizeEmployeeHours(confirmedOf(row)).overHours,
             0,
           ) * 10,
         ) / 10,

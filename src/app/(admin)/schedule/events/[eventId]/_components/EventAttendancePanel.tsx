@@ -25,7 +25,6 @@ import {
   type Assignment,
   type AssignmentStatus,
   type EventDetail,
-  byMainSupervisorFirst,
 } from "@/type/event";
 import type { AttendanceStatus, JobRole } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
@@ -92,8 +91,6 @@ const EventAttendancePanel = ({
   const jobRoleFilterOptions = useJobRoleFilterOptions();
   // 직무 순서는 기준 설정이 정한다. 코드 알파벳순으로 늘어놓으면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
-  /* 메인팀장은 직무 순서보다 먼저 본다. 어느 명단에서든 첫 줄이어야 한다. */
-  const mainFirst = byMainSupervisorFirst(event.mainSupervisorStaffId);
 
   const [groupMode, setGroupMode] = useState<GroupMode>("STAFF");
   const [workDate, setWorkDate] = useState("");
@@ -126,7 +123,6 @@ const EventAttendancePanel = ({
     .sort(
       (a, b) =>
         a.workDate.localeCompare(b.workDate) ||
-        mainFirst(a, b) ||
         compareRoles(a.role, b.role) ||
         a.staffName.localeCompare(b.staffName),
     );
@@ -145,7 +141,6 @@ const EventAttendancePanel = ({
     }))
     .sort(
       (a, b) =>
-        mainFirst(a.assignments[0], b.assignments[0]) ||
         compareRoles(a.assignments[0].role, b.assignments[0].role) ||
         a.assignments[0].staffName.localeCompare(b.assignments[0].staffName),
     );
@@ -156,8 +151,7 @@ const EventAttendancePanel = ({
       key: assignments[0].workDate,
       assignments: [...assignments].sort(
         (a, b) =>
-          mainFirst(a, b) ||
-          compareRoles(a.role, b.role) ||
+            compareRoles(a.role, b.role) ||
           a.staffName.localeCompare(b.staffName),
       ),
     }))

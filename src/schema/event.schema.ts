@@ -92,10 +92,22 @@ export const eventSchema = z
     dressCode: z.string().min(1, "복장 규정을 입력해 주세요."),
     belongings: z.string().max(200, "200자 이내로 입력해 주세요."),
     breakMinutes: z.coerce.number().int().min(0).max(240),
-    clientBillingRate: z.coerce
-      .number()
-      .int("정수로 입력해 주세요.")
-      .min(0, "0 이상이어야 합니다."),
+    /*
+      직무별 거래처 청구 단가. **선택이다.**
+
+      거래처에 등록해 둔 단가를 기본으로 깔아 주되, 발주는 늘 그때그때
+      다르게 들어오므로 행사마다 자유롭게 고친다. 비워 두면 그 직무가
+      마진 계산에서 빠질 뿐 저장은 그대로 된다.
+    */
+    billingRates: z.array(
+      z.object({
+        role: z.string().min(1),
+        rate: z.coerce
+          .number()
+          .int("정수로 입력해 주세요.")
+          .min(0, "0 이상이어야 합니다."),
+      }),
+    ),
     memo: z.string().max(500, "500자 이내로 입력해 주세요."),
     roles: z
       .array(eventRoleSlotSchema)
@@ -181,7 +193,8 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
   dressCode: "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",
   belongings: "신분증",
   breakMinutes: 0,
-  clientBillingRate: 17000,
+  // 거래처를 고르면 화면이 그 거래처의 단가로 채운다.
+  billingRates: [],
   memo: "",
   roles: [
     {

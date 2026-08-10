@@ -226,21 +226,18 @@ const EmployeeDetailModal = ({
                     </Link>
                   </span>
                 ) : (
-                  <span className="text-font-2">
-                    집계 대상이 아닙니다. (직원 근무에 나오지 않습니다)
-                  </span>
+                  <span className="text-font-2">집계 대상이 아닙니다.</span>
                 )
               }
             />
           </Section>
 
           <Section title="활동" icon={<Clock size={14} />}>
-            <Row
-              label="담당 행사"
-              value={
-                <span className="tabular-nums">{employee.eventCount}건</span>
-              }
-            />
+            {/*
+              '담당 행사 n건'은 두지 않는다. 이 사람이 몇 건을 맡았는지는
+              행사 목록에서 담당자로 걸러 보면 되고, 여기서는 숫자 하나만 남아
+              어느 행사인지도 알 수 없었다.
+            */}
             <Row
               label="마지막 접속"
               value={

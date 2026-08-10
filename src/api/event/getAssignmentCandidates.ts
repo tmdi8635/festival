@@ -1,5 +1,6 @@
 import { adminAxios } from "..";
 import { usePermittedQuery } from "../usePermittedQuery";
+import type { EmploymentType } from "@/type/employee";
 import type { AssignmentCandidate } from "@/type/event";
 import type { Gender, JobRole } from "@/type/staff";
 
@@ -17,6 +18,14 @@ export interface AssignmentCandidateParams {
    * 여기서 발주 조건을 강제하면 후보가 아예 안 보이는 날이 생긴다.
    */
   gender?: Gender;
+  /**
+   * 고용 형태로 좁히기.
+   *
+   * 직원은 직무 조건에 걸리지 않아 어느 직무를 골라도 후보에 섞여 있는데,
+   * 인력풀이 수십 명이면 추천 점수 순 목록 어딘가에 묻혀 **"직원은 어떻게
+   * 넣나"**가 된다. 우리 사람만 따로 세워 볼 수 있어야 한다.
+   */
+  employment?: EmploymentType;
   /**
    * 배치하려는 근무일 (쉼표로 이어 붙인다).
    * 이 날짜들을 기준으로 겹침을 계산하므로, 고른 날에만 맞춰 후보가 걸러진다.

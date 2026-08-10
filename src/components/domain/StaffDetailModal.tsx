@@ -12,7 +12,6 @@ import {
   STAFF_STATUS_HINT,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
-  resolveRatingTone,
 } from "@/constants/staffOptions";
 import { Ban, Edit, EyeOff, Trash, Warning } from "@/icons";
 import { formatDate, formatDateTime } from "@/lib/dayjs";
@@ -26,14 +25,11 @@ import {
   GENDER_LABEL,
   RATER_TYPE_LABEL,
   REPUTATION_BASE_SCORE,
-  REPUTATION_TIER_LABEL,
   REPUTATION_VERDICT_LABEL,
   calculateAge,
   formatPhoneNumber,
   formatRegion,
   formatReputationDelta,
-  resolveReputationTier,
-  resolveTagPoints,
   resolveTagVerdict,
   summarizeAttendance,
   type StaffDetail,
@@ -473,7 +469,6 @@ const StaffDetailModal = ({
               <Badge
                 key={tag}
                 tone={resolveTagVerdict(tag) === "BAD" ? "danger" : "success"}
-                title={`${formatReputationDelta(resolveTagPoints(tag))}점`}
               >
                 {tag}
               </Badge>
@@ -671,13 +666,9 @@ const StaffDetailModal = ({
                   </p>
                 </div>
                 <div>
-                  {/* 점수만 크게 띄우면 뜻이 안 통한다. 받은 항목 수를 함께 적는다. */}
+                  {/* 무엇을 받아서 이 점수가 됐는지는 아래 평판 탭이 답한다. */}
                   <p className="text-[12px] text-font-2">평판</p>
-                  <RatingStat
-                    reputationScore={staff.reputationScore}
-                    goodCount={staff.goodCount}
-                    badCount={staff.badCount}
-                  />
+                  <RatingStat reputationScore={staff.reputationScore} />
                 </div>
                 <div>
                   <p className="text-[12px] text-font-2">지각</p>
@@ -793,27 +784,13 @@ const StaffDetailModal = ({
                     크게 띄우는 숫자는 **누적 평판 점수**다.
                     모두가 1000점에서 시작해 평가가 쌓인 만큼만 오르내리므로,
                     숫자 하나로 "얼마나 쌓아 온 사람인가"가 읽힌다.
-                    다만 1009가 좋은 값인지는 알 수 없어 등급과 증감을 함께 적는다.
+                    그 숫자가 어떤 평가에서 왔는지는 아래 표가 항목째로 보여 준다.
                   */}
                   <div>
                     <p className="text-[12px] text-font-2">평판 점수</p>
-                    <div className="mt-1 flex items-baseline gap-1.5">
-                      <span className="text-[28px] font-bold text-font-0 tabular-nums">
-                        {reputationScore}
-                      </span>
-                      <Badge tone={resolveRatingTone(reputationScore)}>
-                        {REPUTATION_TIER_LABEL[
-                          resolveReputationTier(reputationScore)
-                        ]}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-font-2 tabular-nums">
-                      기준 {REPUTATION_BASE_SCORE}점에서{" "}
-                      {formatReputationDelta(
-                        reputationScore - REPUTATION_BASE_SCORE,
-                      )}
-                      점 · 받은 항목 {staff.goodCount + staff.badCount}개
-                    </p>
+                    <span className="mt-1 block text-[28px] font-bold text-font-0 tabular-nums">
+                      {reputationScore}
+                    </span>
                   </div>
 
                   {/* 좋아요 · 별로예요 비율. 점수 하나보다 "몇 명이 어떻게 봤나"가 더 많은 것을 말한다. */}
@@ -865,7 +842,6 @@ const StaffDetailModal = ({
                       <Badge
                         key={tag}
                         tone={verdict === "GOOD" ? "success" : "danger"}
-                        title={`건당 ${formatReputationDelta(resolveTagPoints(tag))}점`}
                       >
                         {tag} {count}
                       </Badge>

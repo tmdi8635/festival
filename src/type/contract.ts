@@ -505,6 +505,40 @@ const safeFileNamePart = (text: string) =>
   text.replace(/[\\/:*?"<>|()]/g, " ").replace(/\s+/g, " ").trim();
 
 /**
+ * 한글 이름을 **같은 자모 표기로** 맞춘다.
+ *
+ * 이게 없으면 내려받은 파일을 그대로 다시 올려도 "명단에 없습니다"가 뜬다.
+ * 화면에는 분명히 그 이름이 있는데도 그렇다.
+ *
+ * 한글은 같은 글자를 두 가지로 저장할 수 있다. `이`를 한 글자로 담는 방식(NFC)과
+ * 초성 `ㅇ` + 중성 `ㅣ`로 쪼개 담는 방식(NFD)이다. **화면에는 완전히 똑같이
+ * 그려지지만 `===`로는 다른 문자열이다.**
+ *
+ * 그리고 macOS는 파일명을 **쪼갠 쪽(NFD)으로 저장한다.** 그래서
+ * 서버에서 온 명단(NFC)과 파일에서 읽은 이름(NFD)을 그냥 비교하면 언제나 어긋난다.
+ * 담당자는 파일명을 손대지도 않았는데 전부 실패로 남는 것을 보게 되고,
+ * 눈으로는 두 이름이 같으니 무엇을 고쳐야 하는지 알 방법이 없다.
+ *
+ * 그래서 **비교하는 양쪽 모두** 이 함수를 거친다. 한쪽만 맞추면 반대 방향
+ * (NFD로 저장된 명단 + NFC 파일명)에서 같은 일이 반복된다.
+ */
+export const normalizeNamePart = (text: string): string =>
+  text.normalize("NFC").trim();
+
+/**
+ * 같은 파일을 두 번 내려받으면 브라우저가 뒤에 붙이는 꼬리표를 뗀다.
+ *
+ * `..._김승우.pdf`를 다시 받으면 `..._김승우 (1).pdf`가 된다. 담당자는 이름을
+ * 손댄 적이 없는데 파일명이 달라져 있고, 그 파일은 주인을 못 찾는다.
+ * 여기서 떼어 주지 않으면 "그대로 올렸는데 왜 안 되냐"가 반복된다.
+ *
+ * 이름 뒤 네 자리 꼬리표(`(1858)`)와 헷갈리지 않는다. 그쪽은 **네 자리**이고
+ * 이쪽은 앞에 공백이 붙는다.
+ */
+const stripDownloadSuffix = (base: string): string =>
+  base.replace(/\s\(\d{1,3}\)$/, "");
+
+/**
  * 동명이인을 가르는 꼬리표. **휴대폰 뒤 네 자리**다.
  *
  * 한 행사에 '김민준'이 둘이면 파일명이 똑같아진다.
@@ -595,7 +629,17 @@ export interface ParsedContractFileName {
 export const parseContractFileName = (
   fileName: string,
 ): ParsedContractFileName | null => {
-  const base = fileName.replace(/\.[^.]+$/, "");
+  /*
+    읽기 전에 **표기부터 맞춘다.**
+
+    macOS가 파일명을 자모로 쪼개 저장하기 때문에(NFD), 여기서 맞추지 않으면
+    이름이 눈으로는 같은데 명단과 비교했을 때 계속 어긋난다.
+    두 번 내려받아 붙은 ` (1)`도 이 자리에서 뗀다 — 담당자가 손댄 것이 아니라
+    브라우저가 붙인 것이라 실패로 남길 이유가 없다.
+  */
+  const base = stripDownloadSuffix(
+    normalizeNamePart(fileName).replace(/\.[^.]+$/, ""),
+  );
   const parts = base.split("_");
 
   if (parts.length < 3) return null;
@@ -610,7 +654,7 @@ export const parseContractFileName = (
   return {
     date,
     eventTitle: parts.slice(1, -1).join("_"),
-    staffName: (matched ? matched[1] : tail).trim(),
+    staffName: normalizeNamePart(matched ? matched[1] : tail),
     nameTag: matched?.[2],
   };
 };

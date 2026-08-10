@@ -225,7 +225,7 @@ export interface Staff {
    * 투입 가능한 직무. 배치 후보 추천의 1차 조건이다.
    *
    * 직원은 이 목록과 무관하게 **모든 직무에 들어갈 수 있다.**
-   * 대행사가 주는 자리에 따라 메인팀장도 스태프도 맡기 때문이다.
+   * 대행사가 주는 자리에 따라 팀장도 스태프도 맡기 때문이다.
    */
   roles: JobRole[];
   /** 주 활동 지역 시/도. 새벽 집합 행사에서 이동 가능 여부를 가른다. */
@@ -567,21 +567,28 @@ export const RATER_TYPE_LABEL: Record<RaterType, string> = {
 };
 
 /**
- * 평가 항목 하나. **항목이 곧 점수다.**
+ * 항목 하나의 무게. **좋아요든 별로예요든 한 개는 2점이다.**
+ *
+ * 항목마다 다른 점수를 매겨 봤는데, 평가하는 사람에게 아무 도움이 안 됐다.
+ * 화면에는 항목 옆마다 `+5` `-8` 같은 숫자가 붙고, 남기는 사람은 고르기 전에
+ * 그 숫자를 견주게 된다. 정작 알고 싶은 것은 "무엇이 좋았고 무엇이 걸렸나"인데
+ * 점수표를 읽는 일이 되어 버린 것이다.
+ *
+ * 그래서 무게를 없앤다. 항목은 **몇 개를 받았나**로만 쌓인다.
+ * 좋아요 항목 2개면 +4, 별로예요 항목 1개면 −2, 합쳐서 +2다.
+ */
+export const REPUTATION_TAG_POINTS = 2;
+
+/**
+ * 평가 항목 하나.
  *
  * 코멘트만 받으면 대부분 비워 두고, 비워 둔 평가는 나중에 아무것도 설명하지 못한다.
  * 그렇다고 필수로 만들면 아무 말이나 적는다. 그래서 **고르기만 하면 되는 항목**을
- * 미리 깔아 두고, 그 항목마다 무게를 붙여 둔다.
- *
- * 무게가 다른 이유는 실제로 다르기 때문이다. 복장이 흐트러진 것과 말없이 자리를
- * 비운 것을 같은 한 표로 세면, 현장에 구멍을 낸 사람과 옷이 좀 헐렁했던 사람이
- * 목록에서 나란히 선다.
+ * 미리 깔아 둔다.
  */
 export interface ReputationTagDef {
   tag: string;
   verdict: ReputationVerdict;
-  /** 좋아요는 +1~+5, 별로예요는 −5~−10 */
-  points: number;
 }
 
 /**
@@ -592,19 +599,19 @@ export interface ReputationTagDef {
  * verdict별 Record로 쪼개 두면 그 조합을 표현할 자리가 없어진다.
  */
 export const REPUTATION_TAGS: ReputationTagDef[] = [
-  { tag: "먼저 찾아서 함", verdict: "GOOD", points: 5 },
-  { tag: "지시 이해가 빠름", verdict: "GOOD", points: 3 },
-  { tag: "손님 응대가 좋음", verdict: "GOOD", points: 3 },
-  { tag: "시간을 잘 지킴", verdict: "GOOD", points: 2 },
-  { tag: "동료와 협조적", verdict: "GOOD", points: 2 },
-  { tag: "복장 · 용모 단정", verdict: "GOOD", points: 1 },
+  { tag: "먼저 찾아서 함", verdict: "GOOD" },
+  { tag: "지시 이해가 빠름", verdict: "GOOD" },
+  { tag: "손님 응대가 좋음", verdict: "GOOD" },
+  { tag: "시간을 잘 지킴", verdict: "GOOD" },
+  { tag: "동료와 협조적", verdict: "GOOD" },
+  { tag: "복장 · 용모 단정", verdict: "GOOD" },
 
-  { tag: "무단으로 자리를 비움", verdict: "BAD", points: -10 },
-  { tag: "지시를 따르지 않음", verdict: "BAD", points: -8 },
-  { tag: "손님 응대가 불친절", verdict: "BAD", points: -8 },
-  { tag: "지각이 잦음", verdict: "BAD", points: -7 },
-  { tag: "동료와 마찰", verdict: "BAD", points: -7 },
-  { tag: "복장 규정 미준수", verdict: "BAD", points: -5 },
+  { tag: "무단으로 자리를 비움", verdict: "BAD" },
+  { tag: "지시를 따르지 않음", verdict: "BAD" },
+  { tag: "손님 응대가 불친절", verdict: "BAD" },
+  { tag: "지각이 잦음", verdict: "BAD" },
+  { tag: "동료와 마찰", verdict: "BAD" },
+  { tag: "복장 규정 미준수", verdict: "BAD" },
 ];
 
 /** 좋아요 · 별로예요별 항목. 평가 모달의 팔레트를 그릴 때 쓴다. */
@@ -615,30 +622,25 @@ export const reputationTagsOf = (
 const findReputationTag = (tag: string): ReputationTagDef | undefined =>
   REPUTATION_TAGS.find((item) => item.tag === tag);
 
-/** 항목 하나의 무게. 없어진 항목(과거 평가)은 0으로 둔다. */
-export const resolveTagPoints = (tag: string): number =>
-  findReputationTag(tag)?.points ?? 0;
+/** 항목 하나가 움직이는 점수. 없어진 항목(과거 평가)은 0으로 둔다. */
+export const resolveTagPoints = (tag: string): number => {
+  const verdict = findReputationTag(tag)?.verdict;
+
+  if (!verdict) return 0;
+
+  return verdict === "GOOD" ? REPUTATION_TAG_POINTS : -REPUTATION_TAG_POINTS;
+};
 
 /** 항목이 좋아요 쪽인지 별로예요 쪽인지. 배지 색을 여기서 정한다. */
 export const resolveTagVerdict = (tag: string): ReputationVerdict | undefined =>
   findReputationTag(tag)?.verdict;
 
 /**
- * 항목을 하나도 고르지 않았을 때의 기본 무게.
- *
- * 버튼만 누르고 넘어가는 평가도 뜻이 있어야 하지만, 이유를 적은 평가보다
- * 무겁게 잡히면 안 된다. 그래서 각 방향의 가장 작은 값을 준다.
- */
-const BARE_VERDICT_POINTS: Record<ReputationVerdict, number> = {
-  GOOD: 1,
-  BAD: -5,
-};
-
-/**
  * 평가 한 건이 점수를 얼마나 움직이는지.
  *
- * 항목을 고르면 그 합, 하나도 안 골랐으면 방향만큼의 최소값이다.
- * **화면·목업이 같은 함수를 쓴다.** 따로 세면 모달에 적힌 `+8점`과
+ * 항목 하나당 2점이고, 좋아요는 더하고 별로예요는 뺀다.
+ * 항목을 하나도 안 골랐으면 방향만 남은 것이므로 한 개 몫으로 센다.
+ * **화면·목업이 같은 함수를 쓴다.** 따로 세면 모달에 적힌 점수와
  * 저장 뒤 실제로 오른 점수가 달라진다.
  */
 export const calculateReputationDelta = (
@@ -649,7 +651,9 @@ export const calculateReputationDelta = (
     return tags.reduce((sum, tag) => sum + resolveTagPoints(tag), 0);
   }
 
-  return verdict ? BARE_VERDICT_POINTS[verdict] : 0;
+  if (!verdict) return 0;
+
+  return verdict === "GOOD" ? REPUTATION_TAG_POINTS : -REPUTATION_TAG_POINTS;
 };
 
 /**
@@ -665,30 +669,14 @@ export const REPUTATION_BASE_SCORE = 1000;
 export const buildReputationScore = (delta: number): number =>
   REPUTATION_BASE_SCORE + delta;
 
-/**
- * 점수 구간.
- *
- * `1009점`이라는 숫자만으로는 좋은 것인지 알 수 없다. 기준점이 1000이라는 사실을
- * 아는 사람에게만 뜻이 통하는 숫자라, 읽는 말을 항상 함께 붙인다.
- */
-export type ReputationTier = "GREAT" | "GOOD" | "NORMAL" | "CAUTION" | "RISK";
+/*
+  등급 이름(우수 · 양호 · 보통 · 주의 · 위험)은 두지 않는다.
 
-export const REPUTATION_TIER_LABEL: Record<ReputationTier, string> = {
-  GREAT: "우수",
-  GOOD: "양호",
-  NORMAL: "보통",
-  CAUTION: "주의",
-  RISK: "위험",
-};
-
-export const resolveReputationTier = (score: number): ReputationTier => {
-  if (score >= REPUTATION_BASE_SCORE + 30) return "GREAT";
-  if (score >= REPUTATION_BASE_SCORE + 10) return "GOOD";
-  if (score > REPUTATION_BASE_SCORE - 10) return "NORMAL";
-  if (score > REPUTATION_BASE_SCORE - 30) return "CAUTION";
-
-  return "RISK";
-};
+  '양호'가 몇 점부터인지는 아무도 외우지 못하고, 구간을 나눈 사람 말고는
+  1010점과 1029점이 같은 이름으로 묶인다는 사실도 모른다. 그 이름 때문에
+  숫자를 읽는 대신 이름을 읽게 되고, 정작 두 사람 중 누가 위인지가 가려졌다.
+  **점수 하나면 충분하다.** 높으면 높은 것이고, 낮으면 낮은 것이다.
+*/
 
 /** 기준점에서 얼마나 움직였는지. `+24` · `-31`처럼 부호를 붙여 적는다. */
 export const formatReputationDelta = (delta: number): string =>

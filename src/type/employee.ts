@@ -23,7 +23,7 @@
  *
  * ## 직무가 아니라 사람 쪽에 표시한다
  *
- * 직원은 대행사가 주는 자리에 따라 메인팀장도 스태프도 맡는다. 그래서 '직원'을
+ * 직원은 대행사가 주는 자리에 따라 팀장도 스태프도 맡는다. 그래서 '직원'을
  * 직무로 만들 수 없다. (직무 목록에 넣으면 직원이 팀장을 맡은 행사에서
  * 팀장 발주가 한 명 비게 된다) 대신 **인력풀의 한 사람**으로 두되 고용 형태만
  * 다르게 표시한다. (`Staff.employment`) 배치 · 출퇴근 · 캘린더는 프리랜서와
@@ -234,10 +234,18 @@ export interface EmployeeWorkEvent {
   eventId: number;
   eventTitle: string;
   clientName: string;
-  /** 이 달에 나간 날짜만 (오름차순) */
+  /**
+   * **이 달에 나간 날짜만** (오름차순)
+   *
+   * 07.28~08.01 행사라면 7월에는 28 · 29 · 30 · 31이, 8월에는 01이 담긴다.
+   * 행사 기간 전체를 담으면 한 달 집계에 다른 달의 근무가 섞여 들어가,
+   * 7월과 8월을 각각 열어 봤을 때 합이 실제보다 커진다.
+   * 근무는 **근무일이 속한 달**에 잡힌다. (자정을 넘겨 퇴근한 근무도
+   * 출근한 날이 속한 달의 근무다 — 그날 나간 일이기 때문이다)
+   */
   workDates: string[];
   workHours: number;
-  /** 그중 출퇴근이 안 찍혀 예정 시간으로 센 시간 */
+  /** 그중 출퇴근이 안 찍혀 발주 시간으로 센 시간 */
   scheduledHours: number;
 }
 
@@ -271,9 +279,29 @@ export interface EmployeeWorkRow {
   /** 그중 예정 시간으로 센 시간. 남아 있으면 이 숫자는 아직 확정이 아니다. */
   scheduledHours: number;
   workedDays: number;
-  /** 이 달에 나간 행사 (근무시간이 많은 순) */
+  /**
+   * 이 달에 나간 행사. **최근에 나간 것이 맨 앞이다.**
+   *
+   * 예전에는 근무시간이 긴 순이었다. 그런데 이 목록을 훑는 사람은 대개
+   * "요즘 어디에 나갔나"를 확인하는 중이고, 시간순으로 세우면 반년 전
+   * 장기 현장이 늘 첫 줄을 차지해 지난주에 나간 곳이 아래로 밀렸다.
+   */
   events: EmployeeWorkEvent[];
 }
+
+/**
+ * 확정된 근무시간만. **출퇴근이 찍힌 시간이다.**
+ *
+ * `workedHours`에는 아직 안 찍혀 발주 시간으로 센 몫이 섞여 있다.
+ * 목록은 이 값으로 세운다 — 목록에서 하는 판단(다음 달 배치를 덜지 말지)은
+ * 확정된 근무를 근거로 해야 하고, 아직 오지 않은 날까지 더해 놓으면
+ * 월초에는 모두가 초과로 보인다.
+ */
+export const confirmedHoursOf = (employee: {
+  workedHours: number;
+  scheduledHours: number;
+}): number =>
+  Math.round((employee.workedHours - employee.scheduledHours) * 10) / 10;
 
 /** 근무 화면 상단 합계 */
 export interface EmployeeWorkSummary {

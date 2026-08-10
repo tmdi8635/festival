@@ -47,24 +47,6 @@ export const updateEventDayRoles = async (
   return response.data;
 };
 
-/**
- * 메인팀장을 지정한다. 해제할 때는 `null`을 보낸다.
- *
- * 배치와 직무는 그대로 두고 **누가 이 행사를 끌고 가는지만** 정한다.
- * 직무로 만들면 팀장 세 명 중 누가 메인인지를 표현할 수 없다.
- */
-export const updateEventMainSupervisor = async (
-  eventId: number,
-  staffId: number | null,
-) => {
-  const response = await adminAxios.patch<EventDetail>(
-    `/admin/events/${eventId}/main-supervisor`,
-    { staffId },
-  );
-
-  return response.data;
-};
-
 export const deleteEvent = async (eventId: number) => {
   await adminAxios.delete(`/admin/events/${eventId}`);
 };
@@ -135,30 +117,6 @@ export const useEventMutation = () => {
     },
   });
 
-  /**
-   * 메인팀장 지정.
-   *
-   * 직무를 바꾸는 것이 아니라 **자리를 정하는 것**이라 배치는 건드리지 않는다.
-   * 캘린더가 이 이름을 접힌 상태에서도 보여 주므로 캘린더도 함께 갱신한다.
-   */
-  const mainSupervisorMutation = useMutation<
-    EventDetail,
-    AppError,
-    { eventId: number; staffId: number | null }
-  >({
-    mutationFn: ({ eventId, staffId }) =>
-      updateEventMainSupervisor(eventId, staffId),
-    onSuccess: (event) => {
-      showAppToast(
-        "success",
-        event.mainSupervisorName
-          ? `${event.mainSupervisorName}님을 메인팀장으로 지정했습니다.`
-          : "메인팀장 지정을 해제했습니다.",
-      );
-      invalidateEvent();
-    },
-  });
-
   const deleteMutation = useMutation<void, AppError, number>({
     mutationFn: deleteEvent,
     onSuccess: () => {
@@ -171,7 +129,6 @@ export const useEventMutation = () => {
     createMutation,
     updateMutation,
     statusMutation,
-    mainSupervisorMutation,
     deleteMutation,
     dayRolesMutation,
   };

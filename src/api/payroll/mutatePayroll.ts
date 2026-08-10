@@ -27,6 +27,8 @@ export interface UpdatePayrollAmountBody {
   /** 연장수당을 이 건에 붙일지. 기준 설정의 기본값을 건별로 덮어쓴다. */
   isOvertimeApplied?: boolean;
   isNightPayApplied?: boolean;
+  /** 휴게시간을 근무시간에서 뺄지. 끄면 그만큼 되살아난다. */
+  isBreakDeducted?: boolean;
 }
 
 export const updatePayrollAmount = async (

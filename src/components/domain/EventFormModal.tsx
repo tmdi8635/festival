@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { useClientListQuery } from "@/api/client/getClientList";
+import { resolveBillingRate, type ClientBillingRate } from "@/type/client";
 import { useHasPermission } from "@/store/useAdminStore";
 import { useEventMutation } from "@/api/event/mutateEvent";
 import {
@@ -75,17 +76,49 @@ const toFormValues = (event: EventDetail): EventSchemaInput => ({
   dressCode: event.dressCode,
   belongings: event.belongings,
   breakMinutes: event.breakMinutes,
-  clientBillingRate: event.clientBillingRate,
+  billingRates: event.billingRates,
   memo: event.memo,
   // 직무 슬롯도 기준 설정 순서로 세워 둔다. 화면마다 자리가 달라지면 안 된다.
   roles: sortByJobRole(event.roles, (slot) => slot.role),
 });
 
 /**
+ * 폼 한 덩어리.
+ *
+ * 예전에는 스무 개 남짓한 칸이 한 줄로 쭉 이어져 있었다. 그러다 보니
+ * **거래처와 청구 시급이 화면 두 개만큼 떨어져** 있었고, 성격이 다른 값들이
+ * (일정과 복장이) 나란히 붙어 있었다. 발주서를 보고 옮겨 적는 사람은
+ * 거래처 이야기 · 일정 이야기 · 현장 이야기를 묶음으로 읽는다.
+ */
+const Section = ({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) => (
+  <section className="flex flex-col gap-3 rounded-card border border-border-main px-4 py-4">
+    <div>
+      <h3 className="text-[14px] font-semibold text-font-0">{title}</h3>
+      {description && (
+        <p className="mt-0.5 text-[12px] text-font-2">{description}</p>
+      )}
+    </div>
+    {children}
+  </section>
+);
+
+/**
  * 행사 등록 · 수정 모달.
  *
  * 발주는 직무 단위로 들어오므로 직무 슬롯을 자유롭게 추가 · 삭제할 수 있게 한다.
  * 저장하는 순간 캘린더에 `(0/1) (0/10)` 형태로 나타난다.
+ *
+ * 칸은 **성격별로 묶는다.** (거래처 · 일정 · 장소 · 발주 · 메모)
+ * 거래처 청구 단가가 거래처 칸에서 멀리 떨어져 있으면, 거래처를 바꾸고도
+ * 단가를 그대로 두는 일이 생긴다. 같이 봐야 하는 값은 같은 상자 안에 둔다.
  */
 const EventFormModal = ({
   isOpen,
@@ -116,13 +149,30 @@ const EventFormModal = ({
 
   const { fields, append, remove } = useFieldArray({ control, name: "roles" });
 
+  /**
+   * 청구 단가 칸을 **지금 켜져 있는 직무**로 깐다.
+   *
+   * 저장된 값이 있으면 그 위에 얹는다. 새 행사는 거래처에 등록해 둔 단가가
+   * 그 자리에 온다. 어느 쪽이든 여기서 자유롭게 고칠 수 있다.
+   */
+  const buildBillingRates = (source: readonly ClientBillingRate[]) =>
+    jobRoles.map((role) => {
+      const rate = resolveBillingRate(source, role.code);
+
+      /* 안 정한 단가는 `0`이 아니라 빈 칸이다. 0원 청구와 미설정은 다르다. */
+      return { role: role.code, rate: rate > 0 ? rate : "" };
+    });
+
   // 모달이 열릴 때만 폼을 초기화한다. 입력 중에는 서버 값이 덮어쓰지 않는다.
   useEffect(() => {
     if (!isOpen) return;
 
     reset(
       event
-        ? toFormValues(event)
+        ? {
+            ...toFormValues(event),
+            billingRates: buildBillingRates(event.billingRates),
+          }
         : {
             ...EMPTY_EVENT_VALUES,
             startDate: defaultDate ?? "",
@@ -141,8 +191,11 @@ const EventFormModal = ({
               /* 조건이 있는 발주가 예외다. 기본은 언제나 무관이다. */
               genderPreference: "ANY" as const,
             })),
+            /* 거래처를 아직 안 골랐으므로 칸만 깔아 둔다. */
+            billingRates: buildBillingRates([]),
           },
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, event, defaultDate, reset, jobRoles]);
 
   /*
@@ -263,7 +316,10 @@ const EventFormModal = ({
           />
         </FormField>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Section
+          title="거래처"
+          description="발주를 준 곳과 그쪽 담당자, 그리고 청구 단가입니다."
+        >
           <FormField
             label="거래처"
             required
@@ -281,42 +337,109 @@ const EventFormModal = ({
                 <Select
                   options={clientOptions}
                   value={String(field.value)}
-                  onChange={(changeEvent) =>
-                    field.onChange(Number(changeEvent.target.value))
-                  }
+                  onChange={(changeEvent) => {
+                    const nextClientId = Number(changeEvent.target.value);
+
+                    field.onChange(nextClientId);
+                    /*
+                      거래처를 고르면 그 거래처의 청구 단가를 그대로 가져온다.
+
+                      **고를 때만** 덮어쓴다. 화면을 그릴 때마다 맞추면
+                      담당자가 이 행사에만 다르게 적어 둔 값이 조용히 되돌아간다.
+                      (발주 단가는 행사마다 다르게 들어오는 것이 오히려 보통이다)
+                    */
+                    setValue(
+                      "billingRates",
+                      buildBillingRates(
+                        (clientData?.content ?? []).find(
+                          (item) => item.clientId === nextClientId,
+                        )?.billingRates ?? [],
+                      ),
+                    );
+                  }}
                   hasError={Boolean(errors.clientId)}
                 />
               )}
             />
           </FormField>
 
-          <FormField
-            label="담당 매니저"
-            required
-            error={errors.managerName?.message}
-          >
-            <Input
-              {...register("managerName")}
-              placeholder="예) 김도윤"
-              hasError={Boolean(errors.managerName)}
-            />
-          </FormField>
-        </div>
+          {/*
+            담당 매니저와 그 번호는 **한 줄이다.**
+            이름만 적힌 줄과 번호만 적힌 줄이 따로 있으면, 옮겨 적는 사람은
+            둘이 같은 사람 이야기인지 매번 확인해야 한다.
+          */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormField
+              label="담당 매니저"
+              required
+              error={errors.managerName?.message}
+            >
+              <Input
+                {...register("managerName")}
+                placeholder="예) 김도윤"
+                hasError={Boolean(errors.managerName)}
+              />
+            </FormField>
 
-        <FormField
-          label="담당 매니저 연락처"
-          required
-          hint="'-' 없이 숫자만. 출근 안내 문자의 {{담당자연락처}}로 들어갑니다."
-          error={errors.managerPhone?.message}
-        >
-          <Input
-            {...register("managerPhone")}
-            placeholder="01012345678"
-            inputBoxClassName="sm:max-w-60"
-            hasError={Boolean(errors.managerPhone)}
-          />
-        </FormField>
+            <FormField
+              label="담당 매니저 연락처"
+              required
+              error={errors.managerPhone?.message}
+            >
+              <Input
+                {...register("managerPhone")}
+                placeholder="01012345678"
+                hasError={Boolean(errors.managerPhone)}
+              />
+            </FormField>
+          </div>
 
+          {/*
+            직무별 청구 단가.
+
+            예전에는 행사 하나에 시급 하나였고, 그 칸이 폼 저 아래
+            복장 · 준비물 옆에 있었다. 거래처를 바꿔도 단가는 그대로 남았고,
+            팀장과 스태프의 청구가 다른 현실도 담지 못했다.
+          */}
+          <div className="flex flex-col gap-2">
+            <p className="text-[13px] font-medium text-font-1">
+              거래처 청구 시급
+              <span className="ml-1.5 text-[12px] font-normal text-font-2">
+                직무별 · 선택
+              </span>
+            </p>
+
+            {jobRoles.length === 0 ? (
+              <p className="rounded-field border border-border-main px-4 py-3 text-[13px] text-font-2">
+                사용 중인 직무가 없습니다.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-field border border-border-main p-3">
+                {jobRoles.map((role, index) => (
+                  <label key={role.code} className="flex flex-col gap-1.5">
+                    <span className="text-[13px] text-font-2">{role.name}</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="미설정"
+                      {...register(`billingRates.${index}.rate`)}
+                      rightSlot={
+                        <span className="text-[13px] text-font-2">원</span>
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <p className="text-[12px] text-font-2">
+              거래처에 등록된 단가를 기본으로 가져옵니다. 이 행사만 다르게
+              받기로 했다면 여기서 고치세요. 비운 직무는 마진 계산에서 빠집니다.
+            </p>
+          </div>
+        </Section>
+
+        <Section title="일정">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="시작일" required error={errors.startDate?.message}>
             <Input
@@ -468,7 +591,12 @@ const EventFormModal = ({
             </div>
           )}
         />
+        </Section>
 
+        <Section
+          title="장소 · 현장 안내"
+          description="공고문과 출근 안내 문자에 그대로 들어갑니다."
+        >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="장소명" required error={errors.venue?.message}>
             <Input
@@ -513,18 +641,7 @@ const EventFormModal = ({
           </FormField>
         </div>
 
-        <FormField
-          label="거래처 청구 시급"
-          hint="인건비와 비교해 마진을 계산합니다."
-          error={errors.clientBillingRate?.message}
-        >
-          <Input
-            type="number"
-            {...register("clientBillingRate")}
-            rightSlot={<span className="text-[13px] text-font-2">원</span>}
-            hasError={Boolean(errors.clientBillingRate)}
-          />
-        </FormField>
+        </Section>
 
         {/*
           발주 인원은 **등록할 때만** 받는다.
@@ -537,8 +654,10 @@ const EventFormModal = ({
           일별 근무자 탭의 "발주 수정" 하나뿐이다. (가이드 13-2)
         */}
         {!event && (
-          <>
-          {/* 직무별 발주 인원 */}
+          <Section
+            title="직무별 발주"
+            description="거래처에서 받은 인원과 우리가 지급할 금액입니다."
+          >
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <p className="text-[13px] font-medium text-font-1">
@@ -710,9 +829,10 @@ const EventFormModal = ({
               </p>
             </div>
           </div>
-          </>
+          </Section>
         )}
 
+        <Section title="메모">
         <FormField label="행사 설명" error={errors.description?.message}>
           <Textarea
             {...register("description")}
@@ -728,6 +848,7 @@ const EventFormModal = ({
         >
           <Textarea {...register("memo")} rows={2} />
         </FormField>
+        </Section>
       </form>
     </Modal>
   );

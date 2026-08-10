@@ -13,7 +13,6 @@ import {
   calculateReputationDelta,
   formatReputationDelta,
   reputationTagsOf,
-  resolveTagPoints,
   resolveTagVerdict,
   type ReputationVerdict,
 } from "@/type/staff";
@@ -38,9 +37,15 @@ const VERDICT_CLASS: Record<ReputationVerdict, string> = {
 /**
  * 근무 평가.
  *
- * 현장에서 실제로 내리는 판단은 **"또 부를 것인가"** 하나이고,
- * 그건 누가 눌러도 같은 뜻이다. 그래서 좋아요 · 별로예요 둘로 받고,
- * 왜 그렇게 봤는지는 **고르기만 하면 되는 항목**으로 남긴다.
+ * 남기는 것은 **항목이다.** 좋아요 · 별로예요 버튼은 그 항목을 고르기 쉽게
+ * 위아래로 갈라 놓은 **편의 기능**일 뿐, 그 자체가 평가가 아니다.
+ *
+ * ## 항목을 최소 하나는 골라야 한다
+ *
+ * 버튼만 누르고 저장할 수 있게 뒀더니 대부분이 그렇게 남겼다. 그렇게 쌓인
+ * '좋아요만 남김'은 나중에 아무것도 설명하지 못한다. 왜 좋았는지도, 왜
+ * 별로였는지도 없으니 그 사람을 다시 부를지 말지에 쓸 수가 없고, 인력 상세의
+ * 평판 탭은 이유 없는 배지 목록이 된다. **점수가 아니라 이유를 남기는 화면**이다.
  *
  * ## 좋아요와 별로예요는 함께 담긴다
  *
@@ -49,12 +54,12 @@ const VERDICT_CLASS: Record<ReputationVerdict, string> = {
  * 흔한 조합인데, 한쪽만 고를 수 있으면 담당자는 둘 중 하나를 버리게 되고
  * 버린 쪽은 영영 기록되지 않는다.
  *
- * ## 점수는 항목이 정한다
+ * ## 남기는 화면에는 점수를 적지 않는다
  *
- * 항목마다 무게가 다르다. (칭찬 +1~+5 / 불만 −5~−10) 복장이 흐트러진 것과
- * 말없이 자리를 비운 것을 같은 한 표로 세면, 현장에 구멍을 낸 사람과
- * 옷이 좀 헐렁했던 사람이 목록에서 나란히 선다.
- * 이번 평가가 몇 점을 움직이는지 저장 전에 그대로 보여 준다.
+ * 항목마다 `+5` `-8`을 붙여 뒀더니, 평가를 남기는 사람이 무엇이 좋았는지가
+ * 아니라 **몇 점을 줄지**를 고르기 시작했다. 여기서 할 일은 현장에서 본 것을
+ * 그대로 고르는 것뿐이다. 항목 하나는 2점이고 그 합이 점수가 되지만,
+ * 그 계산은 화면이 아니라 뒤에서 한다. 결과는 인력 상세의 평판 탭이 보여 준다.
  *
  * ## 한 번 남기면 고칠 수 없다
  *
@@ -109,8 +114,16 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
   /** 이번 평가가 점수를 얼마나 움직이는지. 목업 · 집계와 같은 함수를 쓴다. */
   const delta = calculateReputationDelta(tags, palette);
 
+  /**
+   * 항목을 하나도 안 고르면 저장하지 않는다.
+   *
+   * 남길 것은 좋아요/별로예요가 아니라 **왜 그렇게 봤는가**다.
+   * 방향만 남은 평가는 나중에 다시 부를지 정할 때 아무 근거가 되지 못한다.
+   */
+  const hasTag = tags.length > 0;
+
   const handleSubmit = () => {
-    if (!assignment || isRated) return;
+    if (!assignment || isRated || !hasTag) return;
 
     reputationMutation.mutate(
       {
@@ -158,7 +171,7 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
           ? `${assignment.staffName} · ${assignment.eventTitle}`
           : undefined
       }
-      onSubmit={isRated ? undefined : handleSubmit}
+      onSubmit={isRated || !hasTag ? undefined : handleSubmit}
       footer={
         isRated ? (
           <>
@@ -183,6 +196,7 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
             <Button
               variant="primary"
               onClick={handleSubmit}
+              disabled={!hasTag}
               isLoading={reputationMutation.isPending}
             >
               평가 남기기
@@ -226,9 +240,6 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
                     }
                   >
                     {tag}
-                    <span className="ml-1 tabular-nums opacity-70">
-                      {formatReputationDelta(resolveTagPoints(tag))}
-                    </span>
                   </Badge>
                 ))}
               </div>
@@ -254,7 +265,7 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
         <div className="flex flex-col gap-4">
           <FormField
             label="어떤 점을 남기시겠어요?"
-            hint="누르면 아래 항목이 바뀝니다. 두 쪽을 함께 고를 수 있습니다."
+            hint="아래 항목을 고르기 위한 버튼입니다. 두 쪽을 함께 고를 수 있습니다."
           >
             <div className="grid grid-cols-2 gap-2">
               {(["GOOD", "BAD"] as const).map((option) => (
@@ -276,12 +287,17 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
             </div>
           </FormField>
 
+          {/*
+            여기가 평가의 본문이다.
+            방향(좋아요/별로예요)이 아니라 **어떤 항목을 골랐는가**가 남는다.
+          */}
           <FormField
             label={palette === "GOOD" ? "이런 점이 좋았어요" : "이런 점이 아쉬웠어요"}
-            hint="여러 개 고를 수 있습니다 (선택)"
+            required
+            hint="한 개 이상 골라 주세요. 여러 개 고를 수 있습니다."
           >
             <div className="flex flex-wrap gap-1.5">
-              {reputationTagsOf(palette).map(({ tag, points }) => (
+              {reputationTagsOf(palette).map(({ tag }) => (
                 <button
                   key={tag}
                   type="button"
@@ -295,9 +311,6 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
                   )}
                 >
                   {tag}
-                  <span className="ml-1.5 text-[12px] tabular-nums opacity-60">
-                    {formatReputationDelta(points)}
-                  </span>
                 </button>
               ))}
             </div>
@@ -311,27 +324,14 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
             사라지면, 담당자는 자기가 무엇을 남기는지 모르는 채 저장한다.
           */}
           <div className="flex flex-col gap-2 rounded-field border border-border-main bg-subtle px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[13px] font-medium text-font-1">
-                이번 평가
-                <span className="ml-1.5 text-[12px] font-normal text-font-2">
-                  {tags.length > 0
-                    ? `${tags.length}개 항목`
-                    : "항목을 고르지 않았습니다"}
-                </span>
+            <span className="text-[13px] font-medium text-font-1">
+              이번 평가
+              <span className="ml-1.5 text-[12px] font-normal text-font-2">
+                {hasTag ? `${tags.length}개 항목` : "항목을 고르지 않았습니다"}
               </span>
+            </span>
 
-              <span
-                className={cn(
-                  "text-[16px] font-bold tabular-nums",
-                  delta > 0 ? "text-success" : "text-danger",
-                )}
-              >
-                {formatReputationDelta(delta)}점
-              </span>
-            </div>
-
-            {tags.length > 0 ? (
+            {hasTag ? (
               <div className="flex flex-wrap gap-1.5">
                 {tags.map((tag) => (
                   <button
@@ -347,17 +347,14 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
                     )}
                   >
                     {tag}
-                    <span className="tabular-nums opacity-70">
-                      {formatReputationDelta(resolveTagPoints(tag))}
-                    </span>
                     <Close size={12} />
                   </button>
                 ))}
               </div>
             ) : (
-              <p className="text-[12px] text-font-2">
-                항목 없이 남기면 {REPUTATION_VERDICT_LABEL[palette]}만 기록되고{" "}
-                {formatReputationDelta(delta)}점이 반영됩니다.
+              <p className="text-[12px] text-font-error">
+                항목을 하나도 고르지 않으면 남길 수 없습니다. 좋아요 ·
+                별로예요만으로는 나중에 이 평가를 설명할 수 없습니다.
               </p>
             )}
           </div>
