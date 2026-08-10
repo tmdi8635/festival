@@ -307,6 +307,25 @@ export interface EventSummary {
   venue: string;
   address: string;
   managerName: string;
+  /**
+   * 담당 매니저 연락처.
+   *
+   * 이름만으로는 현장에서 아무것도 할 수 없다. 문자에 담당자를 적어 보내 놓고
+   * 번호를 안 적으면, 현장에서 문제가 생긴 사람은 결국 아무 데도 연락하지 못한다.
+   */
+  managerPhone: string;
+  /**
+   * 메인팀장.
+   *
+   * **직무가 아니라 자리다.** 팀장 여럿 중 이 행사를 끌고 가는 한 사람이고,
+   * 현장 문의는 담당 매니저가 아니라 이 사람에게 먼저 간다.
+   * 직무로 만들면 "팀장 3명 중 누가 메인인가"를 표현할 수 없다.
+   *
+   * 배치가 확정되기 전에는 비어 있다.
+   */
+  mainSupervisorStaffId?: number;
+  mainSupervisorName?: string;
+  mainSupervisorPhone?: string;
   /** 전체 일자를 합산한 직무별 현황 */
   roles: EventRoleSlot[];
   totalRequired: number;
@@ -329,6 +348,21 @@ export interface EventDetail extends EventSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * 메인팀장을 맨 앞에 세우는 비교기.
+ *
+ * **직무 순서보다 먼저 본다.** 메인팀장은 직무가 아니라 자리라서,
+ * 팀장 세 명을 이름순으로 늘어놓으면 그중 누가 이 행사를 끌고 가는지가 사라진다.
+ * 명단 · 근무자 · 출퇴근 어디에서든 이 사람이 첫 줄이어야 한다.
+ *
+ * 지정 전이면(`undefined`) 아무것도 바꾸지 않는다.
+ */
+export const byMainSupervisorFirst =
+  (mainSupervisorStaffId?: number) =>
+  (a: { staffId: number }, b: { staffId: number }): number =>
+    Number(b.staffId === mainSupervisorStaffId) -
+    Number(a.staffId === mainSupervisorStaffId);
 
 export type AssignmentStatus =
   | "PROPOSED"
@@ -359,6 +393,22 @@ export interface Assignment {
   staffId: number;
   staffName: string;
   staffPhone: string;
+  /**
+   * 얼굴 사진.
+   *
+   * 명부를 보는 사람은 이름보다 얼굴로 사람을 기억한다. 특히 동명이인이 있는
+   * 현장에서는 사진 한 장이 이름 두 줄보다 빠르다. 배치마다 인력을 다시 조회하면
+   * 명부 한 장에 서른 번 요청이 나가므로 여기에 함께 담는다.
+   */
+  staffProfileImageUrl?: string;
+  /**
+   * 이 사람이 우리 직원인가.
+   *
+   * 인력 쪽을 다시 조회하지 않고도 계약 · 정산에서 갈라낼 수 있어야 한다.
+   * 계약 명단(`buildContractRoster`)과 정산 시드는 배치만 보고 도는데,
+   * 여기 값이 없으면 직원에게도 계약서를 받으라고 하고 시급을 계산해 버린다.
+   */
+  isEmployee: boolean;
   role: JobRole;
   status: AssignmentStatus;
   /** 이 배치에 적용된 지급 기준 (행사 직무에서 그대로 내려온다) */
@@ -388,7 +438,13 @@ export interface Assignment {
   /** 고른 평가 항목 (선택) */
   reputationTags?: string[];
   reputationComment?: string;
-  /** 근로계약서 서명 완료 여부. 미완료면 현장 투입 전에 처리해야 한다. */
+  /**
+   * 근로계약서 서명 완료 여부. 미완료면 현장 투입 전에 처리해야 한다.
+   *
+   * **직원은 항상 `true`다.** 회사와 이미 근로계약이 되어 있어 행사마다 다시 쓰지 않는다.
+   * 이 값을 `false`로 두면 명부 · 명단 · 대시보드 곳곳에서 영원히 처리되지 않는
+   * '계약 미완'이 뜨고, 그 옆에 있는 진짜 미완이 묻힌다.
+   */
   isContractSigned: boolean;
   isPaid: boolean;
   createdAt: string;
@@ -489,6 +545,16 @@ export interface AssignmentCandidate {
   lateCount: number;
   isFavorite: boolean;
   isDocumentComplete: boolean;
+  /**
+   * 우리 직원인가.
+   *
+   * 직원은 **직무 조건에 걸리지 않고** 후보로 올라온다. 대행사가 주는 자리에 따라
+   * 메인팀장도 스태프도 맡기 때문이다. 화면에서도 그 사실이 보여야
+   * 담당자가 "왜 이 사람이 설치 후보에 있지"에서 멈추지 않는다.
+   */
+  isEmployee: boolean;
+  /** 직원의 직책. 후보 목록에서 누가 우리 사람인지 바로 읽힌다. */
+  position?: string;
   /** 이 거래처 행사에 참여한 횟수. 많을수록 현장 적응이 빠르다. */
   clientWorkCount: number;
   /**
@@ -525,6 +591,7 @@ export interface EventFormValues {
   venue: string;
   address: string;
   managerName: string;
+  managerPhone: string;
   description: string;
   meetingPoint: string;
   dressCode: string;
@@ -556,6 +623,14 @@ export interface CalendarEvent {
   endDayOffset: DayOffset;
   venue: string;
   managerName: string;
+  /**
+   * 메인팀장 이름.
+   *
+   * 캘린더를 '간략히'로 접어 놓아도 이 이름은 남는다.
+   * 에이전시가 달력에서 제일 먼저 확인하는 것이 "이 날은 누가 메인으로 들어가나"라서,
+   * 그것이 안 보이면 결국 행사를 하나씩 열어 봐야 한다.
+   */
+  mainSupervisorName?: string;
   /** 전체 근무일을 합산한 직무별 현황 */
   roles: EventRoleSlot[];
   /**
@@ -1102,7 +1177,16 @@ export const summarizeEventProgress = (assignments: Assignment[]) => {
     (assignment) => assignment.status === "CONFIRMED",
   );
 
-  const contractSignedCount = confirmed.filter(
+  /*
+    계약서는 **직원을 빼고** 센다.
+    직원은 회사와 이미 근로계약이 되어 있어 행사마다 계약서를 쓰지 않는다.
+    함께 세면 아무리 처리해도 '미완료 2건'이 영원히 남아, 정작 진짜 미완료가
+    그 숫자에 묻힌다.
+  */
+  const contractTarget = confirmed.filter(
+    (assignment) => !assignment.isEmployee,
+  );
+  const contractSignedCount = contractTarget.filter(
     (assignment) => assignment.isContractSigned,
   ).length;
   const attendanceCheckedCount = confirmed.filter(
@@ -1123,7 +1207,9 @@ export const summarizeEventProgress = (assignments: Assignment[]) => {
       (assignment) => assignment.status === "WAITLIST",
     ).length,
     contractSignedCount,
-    contractMissingCount: confirmed.length - contractSignedCount,
+    /** 계약서를 받아야 하는 건수. 직원은 대상이 아니다. */
+    contractTargetCount: contractTarget.length,
+    contractMissingCount: contractTarget.length - contractSignedCount,
     attendanceCheckedCount,
     attendancePendingCount: confirmed.length - attendanceCheckedCount,
     checkTimeRecordedCount,

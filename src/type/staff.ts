@@ -7,6 +7,7 @@
 
 // 지급 기준은 행사 도메인이 원본이다. 타입만 빌려 쓰므로 순환 참조가 생기지 않는다.
 import type { WageType } from "./event";
+import type { EmploymentType } from "./employee";
 
 /**
  * 행사에 투입되는 직무.
@@ -167,7 +168,20 @@ export interface Staff {
   birthDate: string;
   gender: Gender;
   status: StaffStatus;
-  /** 투입 가능한 직무. 배치 후보 추천의 1차 조건이다. */
+  /**
+   * 고용 형태.
+   *
+   * 직원은 인력풀에 함께 있되 **돈과 계약서에서 갈라진다.**
+   * (근로계약서를 쓰지 않고 시급 정산도 하지 않는다 — `type/employee.ts`)
+   * 배치 · 출퇴근은 프리랜서와 같은 길을 쓰므로 여기서만 구분한다.
+   */
+  employment: EmploymentType;
+  /**
+   * 투입 가능한 직무. 배치 후보 추천의 1차 조건이다.
+   *
+   * 직원은 이 목록과 무관하게 **모든 직무에 들어갈 수 있다.**
+   * 대행사가 주는 자리에 따라 메인팀장도 스태프도 맡기 때문이다.
+   */
   roles: JobRole[];
   /** 주 활동 지역 시/도. 새벽 집합 행사에서 이동 가능 여부를 가른다. */
   region: string;
@@ -215,6 +229,14 @@ export interface StaffDetail extends Staff {
   blacklistedAt?: string;
   totalPaidAmount: number;
   memos: StaffMemo[];
+
+  /* ------------------------------ 직원만 쓰는 값 ---------------------------- */
+
+  /** 회사 안에서의 자리. 직무(JobRole)가 아니다. */
+  position?: string;
+  hireDate?: string;
+  /** 이번 달에 채워야 하는 시간. 이 기준이 없으면 집계가 많은지 적은지 알 수 없다. */
+  baseMonthlyHours?: number;
 }
 
 /** 인력에 남기는 타임스탬프 메모 */
@@ -392,10 +414,18 @@ export const REQUIRED_DOCUMENT_LABEL = "신분증 · 통장사본";
 export const DOCUMENT_BLOCK_MESSAGE =
   "신분증 또는 통장사본이 없어 확정 배치할 수 없습니다. 서류를 먼저 등록해 주세요.";
 
-/** 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다. */
+/**
+ * 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다.
+ *
+ * **직원은 이 검사를 받지 않는다.** 신분증 · 통장사본을 요구하는 이유가
+ * "이 사람에게 돈을 보낼 수 있는가"인데, 직원의 급여는 회사가 이미 다른 경로로
+ * 내보내고 있다. 입사할 때 받은 서류를 인력풀에 다시 올리게 하면,
+ * 직원을 현장에 넣을 때마다 아무 뜻 없는 벽에 막힌다.
+ */
 export const canConfirmAssignment = (staff: {
   isDocumentComplete: boolean;
-}): boolean => staff.isDocumentComplete;
+  employment?: EmploymentType;
+}): boolean => staff.employment === "EMPLOYEE" || staff.isDocumentComplete;
 
 export interface StaffFormValues {
   name: string;

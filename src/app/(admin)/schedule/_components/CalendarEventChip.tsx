@@ -1,6 +1,7 @@
 "use client";
 
 import { EVENT_STATUS_TONE } from "@/constants/eventOptions";
+import { Star } from "@/icons";
 import { useJobRoleShortLabel } from "@/store/useOrgStore";
 import { cn } from "@/lib/utils";
 import {
@@ -82,6 +83,20 @@ const CalendarEventChip = ({
             {event.title}
           </span>
         </div>
+
+        {/*
+          메인팀장은 '간략히'에서도 남긴다.
+
+          달력에서 제일 먼저 확인하는 것이 "이 날은 누가 메인으로 들어가나"다.
+          그것이 안 보이면 결국 행사를 하나씩 열어 봐야 하고,
+          그러면 달력을 접어 둔 뜻이 사라진다. 이름 하나면 알 수 있는 일이다.
+        */}
+        {event.mainSupervisorName && (
+          <span className="flex min-w-0 items-center gap-1 text-[11px] text-font-2">
+            <Star size={10} className="shrink-0 text-brand" />
+            <span className="truncate">{event.mainSupervisorName}</span>
+          </span>
+        )}
 
         {isDetailed && (
           <div className="flex min-w-0 flex-wrap items-center gap-1 overflow-hidden">

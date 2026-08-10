@@ -344,7 +344,13 @@ const BulkAttendanceModal = ({
                   />
                 </div>
 
-                <div className="flex items-center justify-between border-t border-border-main pt-3">
+                {/*
+                  설명과 결과 시간을 좌우로 나란히 두면, 설명이 두 줄로 접히면서
+                  오른쪽 시간이 "하루 / 32 / 시간" 세 줄로 쪼개진다.
+                  결과 숫자는 이 화면에서 제일 크게 읽혀야 하는 값이라
+                  설명 아래로 내리고 오른쪽에 한 줄로 붙인다.
+                */}
+                <div className="flex flex-col gap-2 border-t border-border-main pt-3">
                   <span className="text-[13px] text-font-2">
                     이 시각은 선택한 <b>{dates.length}개 근무일에 각각</b>{" "}
                     기록됩니다.
@@ -352,7 +358,7 @@ const BulkAttendanceModal = ({
                       ` 퇴근은 각 근무일의 +${checkOutDayOffset}일입니다.`}
                   </span>
 
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center justify-end gap-2">
                     {nextWorkHours !== undefined &&
                       nextWorkHours !== scheduledWorkHours && (
                         <Badge
@@ -370,7 +376,7 @@ const BulkAttendanceModal = ({
                           h
                         </Badge>
                       )}
-                    <span className="text-[15px] font-semibold text-font-0 tabular-nums">
+                    <span className="text-[15px] font-semibold whitespace-nowrap text-font-0 tabular-nums">
                       하루 {nextWorkHours ?? 0}시간
                     </span>
                   </span>

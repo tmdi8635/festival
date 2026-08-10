@@ -72,7 +72,14 @@ export const messageHandlers = [
 
     const body = (await request.json()) as SendMessageRequest;
 
-    if (body.staffIds.length === 0) {
+    /*
+      직접 입력한 번호도 수신 대상이다.
+      인력풀에서 한 명도 고르지 않았어도 번호를 쳤으면 보낼 수 있어야 한다.
+      (아직 등록 안 된 지원자 · 거래처 담당자에게 보내는 경우)
+    */
+    const phoneNumbers = body.phoneNumbers ?? [];
+
+    if (body.staffIds.length + phoneNumbers.length === 0) {
       return badRequest("수신 대상을 한 명 이상 선택해 주세요.");
     }
 
@@ -90,6 +97,8 @@ export const messageHandlers = [
       (staffId) => !findStaff(staffId)?.phoneNumber,
     ).length;
 
+    const targetCount = body.staffIds.length + phoneNumbers.length;
+
     const created: MessageLog = {
       messageId: nextId(messageLogs, "messageId"),
       templateId: template?.templateId,
@@ -99,9 +108,10 @@ export const messageHandlers = [
       eventId: event?.eventId,
       eventTitle: event?.title,
       content: body.content,
-      targetCount: body.staffIds.length,
-      successCount: body.staffIds.length - failCount,
+      targetCount,
+      successCount: targetCount - failCount,
       failCount,
+      directCount: phoneNumbers.length,
       status: "SENT",
       sender: "운영자",
       sentAt: new Date().toISOString(),

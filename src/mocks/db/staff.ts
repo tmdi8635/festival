@@ -221,6 +221,7 @@ export const staffList: StaffDetail[] = Array.from(
       birthDate,
       gender,
       status,
+      employment: "FREELANCER",
       roles,
       region,
       district,
@@ -268,10 +269,100 @@ export const staffList: StaffDetail[] = Array.from(
 );
 
 
+/* ------------------------------------------------------------------ */
+/* 우리 직원                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 에이전시 직원 6명.
+ *
+ * 인력풀에 **함께** 넣는다. 따로 두면 배치 · 출퇴근 · 캘린더를 전부 두 벌로
+ * 만들어야 하고, 같은 사람이 두 레코드로 갈라진다.
+ * 다른 점은 `employment` 하나이고, 그 값이 계약서와 정산을 갈라 낸다.
+ *
+ * 직책은 실장 하나 · 팀장 둘 · 나머지 실무자로 둔다.
+ * 실제로 메인팀장을 잡는 것은 대개 대리~팀장급이라 그 구간을 두껍게 만든다.
+ */
+const EMPLOYEE_SEED = [
+  { name: "한지섭", position: "실장", months: 71, baseHours: 174 },
+  { name: "오세림", position: "팀장", months: 46, baseHours: 174 },
+  { name: "배준호", position: "팀장", months: 38, baseHours: 174 },
+  { name: "문가율", position: "대리", months: 25, baseHours: 174 },
+  { name: "심우빈", position: "주임", months: 14, baseHours: 174 },
+  /* 육아 단축근무. 기준 시간이 사람마다 다를 수 있다는 것을 화면에서 보여 준다. */
+  { name: "노아린", position: "사원", months: 8, baseHours: 120 },
+];
+
+const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
+  const seed = 1000 + index;
+  const staffId = staffList.length + index + 1;
+  const gender: Gender = index % 2 === 0 ? "MALE" : "FEMALE";
+  const region = pickOne(seed * 61, REGION_POOL);
+  const district = pickOne(seed * 149, REGION_DISTRICTS[region]);
+
+  return {
+    staffId,
+    name: employee.name,
+    phoneNumber: `010${String(randomInt(seed * 53, 2000, 9999))}${String(randomInt(seed * 59, 1000, 9999))}`,
+    profileImageUrl: `https://picsum.photos/seed/staff-${staffId}/200/200`,
+    birthDate: `${randomInt(seed * 19, 1986, 1999)}-${String(randomInt(seed * 23, 1, 12)).padStart(2, "0")}-${String(randomInt(seed * 29, 1, 28)).padStart(2, "0")}`,
+    gender,
+    status: "ACTIVE",
+    employment: "EMPLOYEE",
+    /*
+      직무 목록은 비워 둔다.
+
+      직원은 대행사가 주는 자리에 따라 어디에나 들어가므로 "가능 직무"라는 조건이
+      뜻을 갖지 못한다. 그래서 후보 조회에서 직무 조건 자체를 건너뛴다.
+      (`mocks/handlers/event.ts`의 후보 필터)
+      여기에 전 직무를 적어 두면, 나중에 직무를 하나 추가한 날 직원만 조용히 빠진다.
+    */
+    roles: [],
+    region,
+    district,
+    /*
+      직원 서류는 입사할 때 회사가 이미 받았다.
+      인력풀 기준으로는 미제출이지만, 확정 배치는 막히지 않는다.
+      (`canConfirmAssignment` — 직원은 서류 검사를 받지 않는다)
+    */
+    isDocumentComplete: true,
+    workCount: randomInt(seed * 11, 20, 90),
+    totalWorkHours: randomInt(seed * 13, 400, 2200),
+    noShowCount: 0,
+    lateCount: 0,
+    goodCount: 0,
+    badCount: 0,
+    isFavorite: false,
+    lastWorkedAt: daysAgo(randomInt(seed * 71, 1, 20)),
+    createdAt: daysAgo(employee.months * 30),
+
+    bankName: pickOne(seed * 79, BANKS),
+    accountNumber: `${randomInt(seed * 83, 100, 999)}${randomInt(seed * 89, 100000, 999999)}${randomInt(seed * 97, 10, 99)}`,
+    accountHolder: employee.name,
+    idCardImageUrl: `https://picsum.photos/seed/idcard-${staffId}/600/380`,
+    bankBookImageUrl: `https://picsum.photos/seed/bankbook-${staffId}/600/380`,
+    address: `${region} ${district} ${randomInt(seed * 101, 1, 90)}길 ${randomInt(seed * 103, 1, 40)}`,
+    emergencyContact: `010${String(randomInt(seed * 107, 2000, 9999))}${String(randomInt(seed * 109, 1000, 9999))}`,
+    height: gender === "FEMALE" ? randomInt(seed * 113, 158, 175) : randomInt(seed * 113, 170, 187),
+    clothingSize: pickOne(seed * 127, CLOTHING_SIZES),
+    totalPaidAmount: 0,
+    memos: [],
+
+    position: employee.position,
+    hireDate: daysAgo(employee.months * 30).slice(0, 10),
+    baseMonthlyHours: employee.baseHours,
+  };
+});
+
+staffList.push(...employees);
 
 /** 배치 · 계약 · 정산 목업이 공통으로 쓰는 조회 헬퍼 */
 export const findStaff = (staffId: number) =>
   staffList.find((staff) => staff.staffId === staffId);
+
+/** 우리 직원만. 운영 > 직원 관리가 쓴다. */
+export const employeeStaff = () =>
+  staffList.filter((staff) => staff.employment === "EMPLOYEE");
 
 /** 오늘 기준으로 배치 가능한 인력만 추린다. (블랙리스트 · 활동종료 제외) */
 export const assignableStaff = () =>

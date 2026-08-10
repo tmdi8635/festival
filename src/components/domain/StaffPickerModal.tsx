@@ -381,8 +381,11 @@ const StaffPickerModal = ({
                 제안 · 대기로는 그대로 담을 수 있다 — 서류는 보통 같이 하기로 한
                 뒤에 받으므로, 여기까지 막으면 새 인력을 부를 방법이 없어진다.
               */
+              /* 직원은 입사할 때 회사가 서류를 이미 받았다. 여기서 다시 막지 않는다. */
               const isDocumentBlocked =
-                status === "CONFIRMED" && !candidate.isDocumentComplete;
+                status === "CONFIRMED" &&
+                !candidate.isEmployee &&
+                !candidate.isDocumentComplete;
               const isFullyBlocked =
                 availableCount === 0 || isDocumentBlocked;
               const hasPartialConflict =
@@ -425,6 +428,16 @@ const StaffPickerModal = ({
                         {candidate.isFavorite && (
                           <Star size={14} className="shrink-0 text-warning" />
                         )}
+                        {/*
+                          우리 직원.
+                          직무 조건과 무관하게 후보로 올라오기 때문에, 표시가 없으면
+                          "왜 이 사람이 설치 후보에 있지"에서 담당자가 멈춘다.
+                        */}
+                        {candidate.isEmployee && (
+                          <Badge tone="info">
+                            직원{candidate.position ? ` · ${candidate.position}` : ""}
+                          </Badge>
+                        )}
                         {/* 상위 3명에게만 추천 표시를 붙여 눈이 분산되지 않게 한다. */}
                         {index < 3 && !isFullyBlocked && (
                           <Badge tone="brand" leftIcon={<Sparkle size={11} />}>
@@ -442,6 +455,11 @@ const StaffPickerModal = ({
                         머릿속에 있는 몇 사람만 계속 돌려 쓰게 된다.
                       */}
                       <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {candidate.isEmployee && (
+                          <span className="text-[11px] text-font-2">
+                            모든 직무 가능
+                          </span>
+                        )}
                         {[...candidate.roles].sort(compareRoles).map((item) => (
                           <Badge
                             key={item}
@@ -465,7 +483,7 @@ const StaffPickerModal = ({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {!candidate.isDocumentComplete && (
+                      {!candidate.isEmployee && !candidate.isDocumentComplete && (
                         <Badge tone={isDocumentBlocked ? "danger" : "warning"}>
                           서류 미제출
                         </Badge>

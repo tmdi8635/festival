@@ -52,7 +52,12 @@ const VENUES = [
   { venue: "일산 킨텍스 3홀", address: "경기 고양시 일산서구 킨텍스로 217" },
 ];
 
-const MANAGERS = ["김도윤", "박서진", "이가온"];
+/** 담당 매니저. 이름만으로는 현장에서 연락할 수 없어 번호를 함께 둔다. */
+const MANAGERS = [
+  { name: "김도윤", phone: "01023450917" },
+  { name: "박서진", phone: "01034561028" },
+  { name: "이가온", phone: "01045672139" },
+];
 
 const DRESS_CODES = [
   "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",
@@ -449,8 +454,14 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
         블랙리스트 화면이 무엇을 근거로 걸러 냈는지 설명할 수 있다.
         앞으로의 행사에는 당연히 부르지 않는다.
       */
+      /*
+        직원은 직무 조건을 보지 않는다.
+        대행사가 주는 자리에 따라 메인팀장도 스태프도 맡기 때문에
+        "가능 직무"라는 조건 자체가 뜻을 갖지 못한다.
+      */
       const pool = (dayOffset < 0 ? everWorkedStaff() : assignableStaff()).filter(
-        (staff) => staff.roles.includes(role),
+        (staff) =>
+          staff.employment === "EMPLOYEE" || staff.roles.includes(role),
       );
       const assignedSet = takeAssignedSet(date);
 
@@ -489,6 +500,8 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
           staffId: candidate.staffId,
           staffName: candidate.name,
           staffPhone: candidate.phoneNumber,
+          staffProfileImageUrl: candidate.profileImageUrl,
+          isEmployee: candidate.employment === "EMPLOYEE",
           role,
           status: assignmentStatus,
           wageType,
@@ -530,8 +543,13 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
                 seed * 11 + assignedCount,
               )
             : {}),
-          // 가까운 미래 행사 일부는 일부러 계약서 미서명으로 둔다. (대시보드 할 일 확인용)
-          isContractSigned: isDone ? true : assignedCount % 3 !== 0,
+          /*
+            가까운 미래 행사 일부는 일부러 계약서 미서명으로 둔다. (대시보드 할 일 확인용)
+            직원은 계약 대상이 아니라 언제나 완료로 둔다.
+          */
+          isContractSigned:
+            candidate.employment === "EMPLOYEE" ||
+            (isDone ? true : assignedCount % 3 !== 0),
           isPaid: dayOffset < -10,
           createdAt: toIsoDateTime(date, "09:00"),
         });
@@ -572,7 +590,35 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     endDayOffset: time.endDayOffset as DayOffset,
     venue: place.venue,
     address: place.address,
-    managerName: MANAGERS[index % MANAGERS.length],
+    managerName: MANAGERS[index % MANAGERS.length].name,
+    managerPhone: MANAGERS[index % MANAGERS.length].phone,
+    /*
+      메인팀장은 **직원이 있으면 직원**, 없으면 확정된 팀장 중 첫 사람이다.
+
+      실제 현장이 그렇게 돌아간다. 대행사가 슈퍼바이저 TO를 주면 우리 직원이
+      메인을 잡고, 그 아래를 프리랜서 팀장 · 시급제 알바가 채운다.
+      직원이 안 들어간 행사에서만 프리랜서 팀장이 메인을 맡는다.
+
+      실제로는 담당자가 행사 상세에서 지정하지만, 시드가 전부 비어 있으면
+      캘린더에서 이 자리가 무엇을 하는지 확인할 수 없다.
+    */
+    ...(() => {
+      const confirmed = assignments.filter(
+        (assignment) => assignment.status === "CONFIRMED",
+      );
+
+      const main =
+        confirmed.find((assignment) => assignment.isEmployee) ??
+        confirmed.find((assignment) => assignment.role === "SUPERVISOR");
+
+      return main
+        ? {
+            mainSupervisorStaffId: main.staffId,
+            mainSupervisorName: main.staffName,
+            mainSupervisorPhone: main.staffPhone,
+          }
+        : {};
+    })(),
     days,
     roles,
     totalRequired,

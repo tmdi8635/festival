@@ -405,6 +405,8 @@ export interface ContractRosterEvent {
  *
  * 행사 상세의 탭과 계약서 관리 화면이 **이 함수 하나를** 쓴다.
  * 두 곳에서 따로 세면 "행사에서는 6명인데 전체에서는 4명"이 된다.
+ *
+ * 우리 직원(`isEmployee`)은 빠진다. 계약서를 쓰는 대상이 아니다.
  */
 export const buildContractRoster = (
   event: ContractRosterEvent,
@@ -417,6 +419,8 @@ export const buildContractRoster = (
     workDate: string;
     wageType: WageType;
     wage: number;
+    /** 우리 직원이면 명단에 세우지 않는다. (아래 참조) */
+    isEmployee?: boolean;
   }[],
   contracts: readonly Contract[],
   /** 하루 실근무시간. 행사에서 한 번만 구해 넘긴다. */
@@ -426,6 +430,16 @@ export const buildContractRoster = (
 
   for (const assignment of assignments) {
     if (assignment.status !== "CONFIRMED") continue;
+
+    /*
+      직원은 세지 않는다.
+
+      직원은 회사와 이미 근로계약이 되어 있고 급여도 월급으로 나간다.
+      행사마다 다시 계약서를 쓰는 대상이 아니다. 명단에 세워 두면
+      아무리 처리해도 '발급 전'이 줄지 않아, 그 숫자가 뜻을 잃는다.
+      이 화면의 존재 이유가 "아직 못 쓴 사람 찾기"라 더더욱 섞이면 안 된다.
+    */
+    if (assignment.isEmployee) continue;
 
     byStaff.set(assignment.staffId, [
       ...(byStaff.get(assignment.staffId) ?? []),

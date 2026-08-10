@@ -72,6 +72,16 @@ export const eventSchema = z
     venue: z.string().min(1, "장소명을 입력해 주세요."),
     address: z.string().min(1, "주소를 입력해 주세요."),
     managerName: z.string().min(1, "담당 매니저를 입력해 주세요."),
+    /*
+      담당 매니저 연락처.
+
+      공지 문자에 담당자를 적어 보내 놓고 번호를 안 적으면, 현장에서 문제가 생긴
+      사람은 결국 아무 데도 연락하지 못한다. 그래서 필수로 받는다.
+    */
+    managerPhone: z
+      .string()
+      .min(1, "담당 매니저 연락처를 입력해 주세요.")
+      .regex(/^01[016789][0-9]{7,8}$/, "'-' 없이 숫자만 입력해 주세요."),
     description: z.string().max(500, "500자 이내로 입력해 주세요."),
     meetingPoint: z.string().min(1, "집합 장소와 시간을 입력해 주세요."),
     dressCode: z.string().min(1, "복장 규정을 입력해 주세요."),
@@ -160,6 +170,7 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
   venue: "",
   address: "",
   managerName: "",
+  managerPhone: "",
   description: "",
   meetingPoint: "",
   dressCode: "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",

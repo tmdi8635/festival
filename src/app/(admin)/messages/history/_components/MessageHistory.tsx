@@ -104,7 +104,19 @@ const MessageHistory = () => {
       header: "대상",
       align: "right",
       numeric: true,
-      render: (log) => `${log.targetCount}명`,
+      /*
+        직접 입력한 번호가 섞여 있으면 그 사실을 적는다.
+        "누구에게 보냈나"를 되짚을 때, 인력 기록에 없는 번호가 있다는 것부터 알아야
+        나머지를 찾아볼 수 있다.
+      */
+      render: (log) => (
+        <TableCellStack
+          primary={`${log.targetCount}명`}
+          secondary={
+            log.directCount ? `직접 입력 ${log.directCount}` : undefined
+          }
+        />
+      ),
     },
     {
       key: "result",

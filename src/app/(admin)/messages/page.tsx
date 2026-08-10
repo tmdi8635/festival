@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import PermissionGate from "@/components/domain/PermissionGate";
 import Skeleton from "@/components/ui/Skeleton";
-import MessageComposer from "./_components/MessageComposer";
+import MessageComposer from "@/components/domain/MessageComposer";
 
 export default function MessageSendPage() {
   return (

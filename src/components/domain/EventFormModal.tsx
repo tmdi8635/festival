@@ -67,6 +67,7 @@ const toFormValues = (event: EventDetail): EventSchemaInput => ({
   venue: event.venue,
   address: event.address,
   managerName: event.managerName,
+  managerPhone: event.managerPhone,
   description: event.description,
   meetingPoint: event.meetingPoint,
   dressCode: event.dressCode,
@@ -297,6 +298,20 @@ const EventFormModal = ({
             />
           </FormField>
         </div>
+
+        <FormField
+          label="담당 매니저 연락처"
+          required
+          hint="'-' 없이 숫자만. 출근 안내 문자의 {{담당자연락처}}로 들어갑니다."
+          error={errors.managerPhone?.message}
+        >
+          <Input
+            {...register("managerPhone")}
+            placeholder="01012345678"
+            inputBoxClassName="sm:max-w-60"
+            hasError={Boolean(errors.managerPhone)}
+          />
+        </FormField>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="시작일" required error={errors.startDate?.message}>

@@ -44,6 +44,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import PageHeader from "@/components/layout/PageHeader";
 import EventFormModal from "@/components/domain/EventFormModal";
+import MessageComposer from "@/components/domain/MessageComposer";
 import RoleSlotChips from "@/components/domain/RoleSlotChips";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
 import StaffPickerModal from "@/components/domain/StaffPickerModal";
@@ -60,6 +61,7 @@ export type EventTab =
   | "ATTENDANCE"
   | "CONTRACT"
   | "PAYROLL"
+  | "MESSAGE"
   | "NOTICE";
 
 const EVENT_TABS: EventTab[] = [
@@ -68,6 +70,7 @@ const EVENT_TABS: EventTab[] = [
   "ATTENDANCE",
   "CONTRACT",
   "PAYROLL",
+  "MESSAGE",
   "NOTICE",
 ];
 
@@ -160,6 +163,7 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const canReadContract = useHasPermission("contract:read");
   const canReadPayroll = useHasPermission("payroll:read");
   const canReadAssignment = useHasPermission("assignment:read");
+  const canReadMessage = useHasPermission("message:read");
 
   const { statusMutation, deleteMutation } = useEventMutation();
 
@@ -253,6 +257,13 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const { laborCost, revenue, margin, dailyWorkHours } =
     summarizeEventCost(event);
 
+  /* 문자 수신 대상은 **사람** 수다. 배치(사람×날짜)를 그대로 세면 부풀려진다. */
+  const messageTargetCount = new Set(
+    event.assignments
+      .filter((assignment) => assignment.status === "CONFIRMED")
+      .map((assignment) => assignment.staffId),
+  ).size;
+
   const rowActions: DropdownItem[] = [
     ...(canWriteEvent
       ? [
@@ -309,6 +320,23 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
             label: "정산",
             value: "PAYROLL" as const,
             count: payrollSummary?.totalCount ?? 0,
+          },
+        ]
+      : []),
+    /*
+      문자 발송.
+
+      메뉴의 문자 발송은 **행사를 골라서** 보내는 자리이고, 이 탭은
+      **지금 보고 있는 행사에** 바로 보내는 자리다. 행사를 다시 고르는 단계가
+      없어야 잘못된 행사 인원에게 나가는 사고가 생기지 않는다.
+    */
+    ...(canReadMessage
+      ? [
+          {
+            label: "문자 발송",
+            value: "MESSAGE" as const,
+            /* 문자는 사람당 한 통이다. 사흘 나오는 사람에게 세 번 보내지 않는다. */
+            count: messageTargetCount,
           },
         ]
       : []),
@@ -432,7 +460,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
           />
           <SummaryCell
             label="근로계약서"
-            value={`${progress.contractSignedCount} / ${progress.confirmedCount}건`}
+            /* 분모는 계약 대상만이다. 직원은 회사와 이미 계약이 되어 있어 빠진다. */
+            value={`${progress.contractSignedCount} / ${progress.contractTargetCount}건`}
             hint={
               progress.contractMissingCount > 0
                 ? `미완료 ${progress.contractMissingCount}건`
@@ -496,6 +525,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
       {visibleTab === "CONTRACT" && <EventContractPanel event={event} />}
 
       {visibleTab === "PAYROLL" && <EventPayrollPanel event={event} />}
+
+      {visibleTab === "MESSAGE" && <MessageComposer fixedEvent={event} />}
 
       {visibleTab === "NOTICE" && <EventNoticePanel event={event} />}
 

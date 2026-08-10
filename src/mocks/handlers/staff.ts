@@ -164,6 +164,15 @@ export const staffHandlers = [
     const sort = url.searchParams.get("sort") ?? "RECENT";
 
     const filtered = sortedStaff().filter((staff) => {
+      /*
+        직원은 인력풀 목록에 세우지 않는다.
+
+        인력풀은 "이번 행사에 누구를 부를까"를 고르는 자리이고, 그 판단의 축은
+        서류 · 평판 · 지급 이력이다. 직원은 그 축 어디에도 해당하지 않아서
+        섞여 있으면 서류 미제출 · 정산 없음으로만 읽힌다.
+        직원 명부는 운영 > 직원 관리다. (배치 후보에는 당연히 함께 나온다)
+      */
+      if (staff.employment === "EMPLOYEE") return false;
       if (status && staff.status !== status) return false;
       if (role && !staff.roles.includes(role)) return false;
       if (region && staff.region !== region) return false;
@@ -428,6 +437,8 @@ export const staffHandlers = [
       ...body,
       staffId: nextId(staffList, "staffId"),
       status: "ACTIVE",
+      /* 인력풀에서 만드는 사람은 프리랜서다. 직원은 운영 > 직원 관리에서 등록한다. */
+      employment: "FREELANCER",
       isDocumentComplete: Boolean(body.idCardImageUrl && body.bankBookImageUrl),
       workCount: 0,
       totalWorkHours: 0,

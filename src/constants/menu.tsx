@@ -223,6 +223,19 @@ export const ADMIN_MENU: AdminMenuGroup[] = [
     label: "운영",
     icon: <ShieldCheck size={ICON_SIZE} />,
     children: [
+      /*
+        직원 관리가 인사관리가 아니라 운영에 있는 이유.
+
+        인사관리(인력풀)는 "이번 행사에 누구를 부를까"를 고르는 자리다.
+        직원은 부르는 대상이 아니라 **이미 우리 사람**이고, 여기서 다루는 것은
+        직책과 이번 달 근무시간이라 담당자 관리와 성격이 같다.
+      */
+      {
+        label: "직원 관리",
+        href: "/ops/employees",
+        permission: "employee:read",
+        icon: <UserCheck size={SUB_ICON_SIZE} />,
+      },
       {
         label: "담당자 관리",
         href: "/ops/managers",

@@ -163,6 +163,7 @@ export const eventHandlers = [
         endDayOffset: event.endDayOffset,
         venue: event.venue,
         managerName: event.managerName,
+        mainSupervisorName: event.mainSupervisorName,
         roles: event.roles,
         days: event.days,
         totalRequired: event.totalRequired,
@@ -298,6 +299,56 @@ export const eventHandlers = [
 
     return HttpResponse.json(created, { status: 201 });
   }),
+
+  /**
+   * 메인팀장 지정.
+   *
+   * 확정 배치된 사람만 지정할 수 있다. 배치되지도 않은 사람을 메인으로 적어 두면
+   * 캘린더에는 이름이 뜨는데 현장에는 그 사람이 없다.
+   */
+  http.patch(
+    `${BASE_URI}/admin/events/:eventId/main-supervisor`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
+      const event = findEvent(Number(params.eventId));
+      const body = (await request.json()) as { staffId: number | null };
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      if (body.staffId === null) {
+        event.mainSupervisorStaffId = undefined;
+        event.mainSupervisorName = undefined;
+        event.mainSupervisorPhone = undefined;
+
+        await delay(MOCK_DELAY_MS);
+
+        return HttpResponse.json(event);
+      }
+
+      const assignment = event.assignments.find(
+        (item) =>
+          item.staffId === body.staffId && item.status === "CONFIRMED",
+      );
+
+      if (!assignment) {
+        return badRequest(
+          "이 행사에 확정 배치된 인력만 메인팀장으로 지정할 수 있습니다.",
+        );
+      }
+
+      event.mainSupervisorStaffId = assignment.staffId;
+      event.mainSupervisorName = assignment.staffName;
+      event.mainSupervisorPhone = assignment.staffPhone;
+      event.updatedAt = new Date().toISOString();
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(event);
+    },
+  ),
 
   http.put(`${BASE_URI}/admin/events/:eventId`, async ({ params, request }) => {
       const denied = requirePermission(request, "event:write");
@@ -492,7 +543,17 @@ export const eventHandlers = [
         dates.length > 0 ? dates : event.days.map((day) => day.date);
 
       const candidates: AssignmentCandidate[] = assignableStaff()
-        .filter((staff) => (role ? staff.roles.includes(role) : true))
+        /*
+          직원은 직무 조건에 걸리지 않는다.
+          대행사가 슈퍼바이저 TO를 주면 직원이 메인을 잡고, 다음 행사에서는
+          같은 사람이 스태프 자리에 서기도 한다. "가능 직무"로 좁히면
+          정작 어디에나 넣을 수 있는 사람이 후보에서 사라진다.
+        */
+        .filter((staff) =>
+          role
+            ? staff.employment === "EMPLOYEE" || staff.roles.includes(role)
+            : true,
+        )
         .filter((staff) =>
           matchesKeyword(keyword, staff.name, staff.phoneNumber, staff.region),
         )
@@ -549,6 +610,8 @@ export const eventHandlers = [
             lateCount: staff.lateCount,
             isFavorite: staff.isFavorite,
             isDocumentComplete: staff.isDocumentComplete,
+            isEmployee: staff.employment === "EMPLOYEE",
+            position: staff.position,
             clientWorkCount,
             conflictDates: conflicts.map((item) => item.date),
             conflictEventTitle: conflicts[0]?.conflictEvent?.title,
@@ -675,12 +738,15 @@ export const eventHandlers = [
             staffId: staff.staffId,
             staffName: staff.name,
             staffPhone: staff.phoneNumber,
+            staffProfileImageUrl: staff.profileImageUrl,
+            isEmployee: staff.employment === "EMPLOYEE",
             role: body.role,
             status: body.status,
             ...resolveAssignmentWage(event, date, body.role),
             attendance: "PENDING",
             lateMinutes: 0,
-            isContractSigned: false,
+            /* 직원은 회사와 이미 근로계약이 되어 있어 행사마다 다시 쓰지 않는다. */
+            isContractSigned: staff.employment === "EMPLOYEE",
             isPaid: false,
             createdAt: new Date().toISOString(),
           });

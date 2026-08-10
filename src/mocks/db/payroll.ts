@@ -25,9 +25,16 @@ let payrollSequence = 0;
 const isSettlementStage = (event: EventDetail) =>
   event.status === "SETTLEMENT" || event.status === "DONE";
 
-/** 노쇼 · 결근은 나오지 않은 것이므로 지급 대상이 아니다. */
+/**
+ * 노쇼 · 결근은 나오지 않은 것이므로 지급 대상이 아니다.
+ *
+ * 우리 직원도 아니다. 급여는 회사가 월급으로 내보내고 있어서,
+ * 여기에 세워 두면 **같은 근로에 대해 두 번 지급하는 목록**이 만들어진다.
+ * 직원의 근무는 돈이 아니라 시간으로 집계한다. (운영 > 직원 관리)
+ */
 const isPayable = (assignment: Assignment) =>
   assignment.status === "CONFIRMED" &&
+  !assignment.isEmployee &&
   assignment.attendance !== "NO_SHOW" &&
   assignment.attendance !== "ABSENT";
 

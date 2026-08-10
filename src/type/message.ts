@@ -73,13 +73,28 @@ export interface MessageLog {
   targetCount: number;
   successCount: number;
   failCount: number;
+  /**
+   * 이 중 직접 입력한 번호로 나간 건수.
+   *
+   * 이력에서 인력풀 발송과 구분되어야 한다. 나중에 "누구에게 보냈나"를 되짚을 때
+   * 인력 기록에는 없는 번호가 섞여 있다는 사실 자체를 알아야 하기 때문이다.
+   */
+  directCount?: number;
   status: MessageStatus;
   sender: string;
   sentAt?: string;
   createdAt: string;
 }
 
-/** 발송 요청 본문 */
+/**
+ * 발송 요청 본문.
+ *
+ * 수신 대상은 두 갈래다. 인력풀에서 고른 사람(`staffIds`)과
+ * **손으로 친 번호**(`phoneNumbers`)다. 둘 다 필요하다.
+ * 아직 인력으로 등록되지 않은 지원자, 거래처 담당자, 현장에서 급히 부른 사람에게
+ * 보내야 하는 일이 실제로 있는데, 그때마다 인력을 먼저 등록하게 하면
+ * 담당자는 결국 시스템 밖에서 문자를 보낸다. 그러면 이력도 남지 않는다.
+ */
 export interface SendMessageRequest {
   channel: MessageChannel;
   purpose: MessagePurpose;
@@ -88,21 +103,86 @@ export interface SendMessageRequest {
   content: string;
   /** 수신 대상 인력 ID 목록 */
   staffIds: number[];
+  /** 직접 입력한 휴대폰번호 ('-' 없는 숫자) */
+  phoneNumbers?: string[];
 }
 
-/** 메시지 본문에서 쓸 수 있는 변수 */
-export const MESSAGE_VARIABLES: { token: string; description: string }[] = [
-  { token: "{{이름}}", description: "수신자 성명" },
-  { token: "{{행사명}}", description: "행사 제목" },
-  { token: "{{근무일}}", description: "근무 일자" },
-  { token: "{{근무시간}}", description: "시작~종료 시각" },
-  { token: "{{집합장소}}", description: "집합 장소 · 시간" },
-  { token: "{{복장}}", description: "드레스코드" },
-  { token: "{{준비물}}", description: "지참물" },
-  { token: "{{직무}}", description: "배치된 직무" },
-  { token: "{{시급}}", description: "적용 시급" },
-  { token: "{{담당자}}", description: "담당 매니저" },
+/**
+ * 메시지 본문에서 쓸 수 있는 변수.
+ *
+ * `example`을 함께 둔다. 토큰만 나열하면 `{{시급}}`이 `12000`으로 들어가는지
+ * `시급 12,000원`으로 들어가는지 알 수 없어서, 담당자는 결국 자기에게 한 번
+ * 보내 보고 확인한다. 어떤 모양으로 박히는지를 화면에서 바로 보여 준다.
+ */
+export interface MessageVariable {
+  token: string;
+  description: string;
+  /** 실제로 치환됐을 때의 모양 */
+  example: string;
+}
+
+export const MESSAGE_VARIABLES: MessageVariable[] = [
+  { token: "{{이름}}", description: "수신자 성명", example: "김승우" },
+  {
+    token: "{{행사명}}",
+    description: "행사 제목",
+    example: "A 브랜드 성수 팝업스토어 운영",
+  },
+  { token: "{{근무일}}", description: "근무 일자", example: "12월 31일(수)" },
+  {
+    token: "{{근무시간}}",
+    description: "시작~종료 시각",
+    example: "09:00~18:00",
+  },
+  {
+    token: "{{집합장소}}",
+    description: "집합 장소 · 시간",
+    example: "정문 앞 / 시작 30분 전 집합",
+  },
+  {
+    token: "{{복장}}",
+    description: "드레스코드",
+    example: "상의 흰색 셔츠 · 하의 검정 슬랙스",
+  },
+  { token: "{{준비물}}", description: "지참물", example: "신분증" },
+  { token: "{{직무}}", description: "배치된 직무", example: "스태프" },
+  {
+    token: "{{시급}}",
+    description: "지급 기준 + 금액",
+    example: "시급 12,000원",
+  },
+  { token: "{{담당자}}", description: "담당 매니저", example: "김도윤" },
+  {
+    token: "{{담당자연락처}}",
+    description: "담당 매니저 휴대폰번호",
+    example: "010-2345-0917",
+  },
+  {
+    token: "{{메인팀장}}",
+    description: "이 행사의 메인팀장",
+    example: "장채원",
+  },
+  {
+    token: "{{메인팀장연락처}}",
+    description: "메인팀장 휴대폰번호",
+    example: "010-4574-3138",
+  },
 ];
+
+/**
+ * 변수의 예시 값만 모은 묶음.
+ *
+ * 수신 대상을 아직 고르지 않았을 때 미리보기를 채운다.
+ * 대상이 없다고 미리보기를 비워 두면, 문구를 다 쓰고 대상을 고른 **뒤에야**
+ * 문장이 어색한 것을 알게 된다. 그때는 이미 보낼 준비가 끝난 뒤다.
+ */
+export const MESSAGE_VARIABLE_SAMPLE: Record<string, string> =
+  Object.fromEntries(
+    MESSAGE_VARIABLES.map((variable) => [
+      variable.token.replace(/[{}]/g, ""),
+      variable.example,
+    ]),
+  );
 
 /** SMS 기준 바이트 수. 90바이트를 넘으면 LMS로 나간다. */
 export const SMS_BYTE_LIMIT = 90;

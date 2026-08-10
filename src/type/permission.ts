@@ -18,6 +18,7 @@ export type PermissionResource =
   | "staff"
   | "staffDocument"
   | "blacklist"
+  | "employee"
   | "contract"
   | "payroll"
   | "client"
@@ -112,6 +113,12 @@ export const PERMISSION_RESOURCES: Record<PermissionResource, ResourceDef> = {
     label: "모집",
     description: "공고 · 지원자",
     actions: ["read", "write", "delete"],
+  },
+  employee: {
+    label: "직원",
+    description: "우리 직원의 직책 · 기본 근무시간과 월 근무 집계",
+    actions: ["read", "write"],
+    isSensitive: true,
   },
   message: {
     label: "공지 · 발송",
@@ -216,7 +223,12 @@ export const PERMISSION_CATEGORIES = [
     label: "지우지 않는 자료",
     description:
       "받아 두거나 기준이 되는 자료라 삭제가 없습니다. 해제하거나 새로 받습니다.",
-    resources: ["staffDocument", "blacklist", "settings"],
+    /*
+      직원 명부에 삭제가 없는 이유.
+      퇴사해도 그 사람이 나간 행사 기록은 남아 있다. 명부에서 지우면
+      과거 배치가 이름 없는 줄이 되므로, 퇴사는 지우는 것이 아니라 끄는 것이다.
+    */
+    resources: ["staffDocument", "blacklist", "employee", "settings"],
   },
   {
     id: "outbound",

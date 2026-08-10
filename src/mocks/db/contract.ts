@@ -235,7 +235,11 @@ export const contracts: Contract[] = events
 
     /** 한 사람이 여러 날 나오면 배치가 여러 건이다. 사람 단위로 묶는다. */
     return groupAssignmentsByStaff(event.assignments)
-      .filter((assignments) => assignments[0].isContractSigned)
+      /* 직원은 계약 대상이 아니다. (회사와 이미 근로계약이 되어 있다) */
+      .filter(
+        (assignments) =>
+          !assignments[0].isEmployee && assignments[0].isContractSigned,
+      )
       .map((assignments, index) => {
       const [first] = assignments;
       const staff = findStaff(first.staffId);
