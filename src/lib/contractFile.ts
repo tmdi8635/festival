@@ -1,4 +1,5 @@
 import type { ContractDocument } from "@/type/contract";
+import { buildPdfFromJpegPages, type PdfPageImage } from "./pdfFile";
 import {
   A4_PAGE_HEIGHT,
   A4_PAGE_MARGIN_X,
@@ -156,7 +157,13 @@ const buildDocumentHtml = (document: ContractDocument): string => {
     </div>`;
 };
 
-/** 브라우저에 파일을 내려 준다. */
+/**
+ * 브라우저에 파일을 내려 준다.
+ *
+ * 주소는 **바로 되돌리지 않는다.** `click()` 직후에 해제하면 큰 파일은
+ * 내려받기가 시작되기 전에 원본이 사라져 중간에 끊긴다.
+ * (서른 명분을 잇달아 내려받을 때 실제로 몇 건씩 실패했다)
+ */
 const download = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -165,26 +172,22 @@ const download = (blob: Blob, fileName: string) => {
   anchor.download = fileName;
   anchor.click();
 
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
 /**
- * 서명 전 계약서를 PNG 한 장으로 내려받는다.
- *
- * 출력할 프린터가 없는 자리에서는 카톡으로 이미지를 보내 놓고
- * 현장에서 종이에 옮겨 서명받는 일이 실제로 있다.
+ * 계약서 문서를 캔버스에 굽는다. **이미지 · PDF가 함께 쓰는 자리다.**
  *
  * SVG의 `foreignObject`에 문서를 통째로 넣어 이미지로 읽힌 뒤 캔버스에 그린다.
  * 바깥 자원을 하나도 참조하지 않아야 캔버스가 오염되지 않고 저장이 된다.
  * (그래서 글꼴은 보는 컴퓨터에 깔린 것으로 그려진다. 지면 구성은 같다)
  */
-export const downloadContractAsImage = async (
+const renderContractCanvas = async (
   contractDocument: ContractDocument,
-  fileName: string,
-): Promise<void> => {
+): Promise<HTMLCanvasElement> => {
   /*
-    문서가 길면 A4 한 장을 넘어간다. 이미지는 잘라 붙일 수 없으므로
-    실제 높이를 재서 그 높이만큼 한 장으로 뽑는다. 장 경계는 인쇄(PDF)가 담당한다.
+    문서가 길면 A4 한 장을 넘어간다. 실제 높이를 재서 그만큼 그린 뒤,
+    장으로 자르는 일은 PDF 쪽이 한다.
   */
   const measure = document.createElement("div");
 
@@ -221,16 +224,146 @@ export const downloadContractAsImage = async (
 
   if (!context) throw new Error("계약서를 이미지로 만들지 못했습니다.");
 
-  // 배경을 깔지 않으면 투명 PNG가 되어 어두운 화면에서 글자가 보이지 않는다.
+  // 배경을 깔지 않으면 투명해져 어두운 화면·PDF 뷰어에서 글자가 보이지 않는다.
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
+  return canvas;
+};
+
+/** 캔버스를 blob으로. 실패 이유를 같은 문장으로 모아 준다. */
+const toBlob = async (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number,
+): Promise<Blob> => {
   const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/png"),
+    canvas.toBlob(resolve, type, quality),
   );
 
-  if (!blob) throw new Error("계약서를 이미지로 만들지 못했습니다.");
+  if (!blob) throw new Error("계약서 파일을 만들지 못했습니다.");
 
-  download(blob, fileName);
+  return blob;
+};
+
+/**
+ * 서명 전 계약서를 PNG 한 장으로 내려받는다.
+ *
+ * 출력할 프린터가 없는 자리에서는 카톡으로 이미지를 보내 놓고
+ * 현장에서 종이에 옮겨 서명받는 일이 실제로 있다.
+ */
+export const downloadContractAsImage = async (
+  contractDocument: ContractDocument,
+  fileName: string,
+): Promise<void> => {
+  const canvas = await renderContractCanvas(contractDocument);
+
+  download(await toBlob(canvas, "image/png"), fileName);
+};
+
+/* ------------------------------------------------------------------ */
+/* PDF 파일                                                             */
+/* ------------------------------------------------------------------ */
+
+/** PDF 안에 넣을 JPEG 품질. 글자가 뭉개지지 않으면서 파일이 너무 커지지 않는 선이다. */
+const PDF_JPEG_QUALITY = 0.92;
+
+/**
+ * 계약서 한 장을 **진짜 PDF 파일**로 만든다.
+ *
+ * 캔버스를 A4 높이만큼씩 잘라 여러 장으로 나눈다. 자르지 않고 긴 지면 하나로
+ * 두면 인쇄할 때 축소돼 글자가 읽히지 않는다.
+ */
+export const buildContractPdfBlob = async (
+  contractDocument: ContractDocument,
+): Promise<Blob> => {
+  const canvas = await renderContractCanvas(contractDocument);
+
+  /* 캔버스 픽셀 기준의 A4 한 장 높이 */
+  const pageHeight = Math.round(A4_PAGE_HEIGHT * IMAGE_SCALE);
+  const pageCount = Math.max(1, Math.ceil(canvas.height / pageHeight));
+
+  const pages: PdfPageImage[] = [];
+
+  for (let index = 0; index < pageCount; index += 1) {
+    const sliceHeight = Math.min(
+      pageHeight,
+      canvas.height - index * pageHeight,
+    );
+
+    const slice = document.createElement("canvas");
+
+    slice.width = canvas.width;
+    slice.height = pageHeight;
+
+    const context = slice.getContext("2d");
+
+    if (!context) throw new Error("계약서 파일을 만들지 못했습니다.");
+
+    /*
+      마지막 장은 내용이 지면보다 짧다. 흰 배경을 먼저 깔지 않으면
+      남는 부분이 검게 나온다. (JPEG에는 투명이 없다)
+    */
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, slice.width, slice.height);
+    context.drawImage(
+      canvas,
+      0,
+      index * pageHeight,
+      canvas.width,
+      sliceHeight,
+      0,
+      0,
+      canvas.width,
+      sliceHeight,
+    );
+
+    const blob = await toBlob(slice, "image/jpeg", PDF_JPEG_QUALITY);
+
+    pages.push({
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      width: slice.width,
+      height: slice.height,
+    });
+  }
+
+  return buildPdfFromJpegPages(pages);
+};
+
+/**
+ * 계약서를 PDF 파일로 내려받는다. **사람마다 한 파일이다.**
+ *
+ * 인쇄 대화상자를 거치지 않아 파일명 규칙(`261231_행사명_이름.pdf`)이
+ * 그대로 지켜지고, 여러 명을 잇달아 받아도 각자 따로 떨어진다.
+ */
+export const downloadContractAsPdf = async (
+  contractDocument: ContractDocument,
+  fileName: string,
+): Promise<void> => {
+  download(await buildContractPdfBlob(contractDocument), fileName);
+};
+
+/**
+ * 계약서를 새 창에서 연다.
+ *
+ * 미리보기는 "형식이 맞나"를 훑는 자리라 작게 보여 주고, 조항을 실제로
+ * 읽어야 할 때 여기로 넘어온다. 창을 먼저 열어 두는 이유는, 문서를 다 만든
+ * 뒤에 열면 사용자의 클릭과 멀어져 브라우저가 팝업으로 막기 때문이다.
+ */
+export const openContractPdf = async (
+  contractDocument: ContractDocument,
+): Promise<void> => {
+  const target = window.open("", "_blank");
+  const blob = await buildContractPdfBlob(contractDocument);
+  const url = URL.createObjectURL(blob);
+
+  if (target) {
+    target.location.href = url;
+  } else {
+    // 팝업이 막혔으면 내려받기로 떨어뜨린다. 아무 일도 안 일어나는 것보다 낫다.
+    window.location.href = url;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };

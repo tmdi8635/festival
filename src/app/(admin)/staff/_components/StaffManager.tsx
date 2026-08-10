@@ -6,6 +6,7 @@ import { REGION_FILTER_OPTIONS } from "@/constants/regionOptions";
 import {
   STAFF_SORT_OPTIONS,
   STAFF_STATUS_FILTER_OPTIONS,
+  STAFF_STATUS_HINT,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
@@ -25,9 +26,10 @@ import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   GENDER_LABEL,
-  calculateReputationScore,
+  REPUTATION_TIER_LABEL,
   formatPhoneNumber,
   formatRegion,
+  resolveReputationTier,
   type JobRole,
   type Staff,
   type StaffDetail,
@@ -77,9 +79,11 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
   { header: "누적 근무시간", value: (row) => row.totalWorkHours },
   { header: "지각", value: (row) => row.lateCount },
   { header: "노쇼", value: (row) => row.noShowCount },
+  { header: "평판 점수", value: (row) => row.reputationScore },
   {
-    header: "평판 점수",
-    value: (row) => calculateReputationScore(row.goodCount, row.badCount),
+    header: "평판 등급",
+    value: (row) =>
+      REPUTATION_TIER_LABEL[resolveReputationTier(row.reputationScore)],
   },
   { header: "좋아요", value: (row) => row.goodCount },
   { header: "별로예요", value: (row) => row.badCount },
@@ -103,7 +107,15 @@ const StaffManager = () => {
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
 
-  const [status, setStatus] = useState<StaffStatus | "">("");
+  /*
+    기본은 **활동중**이다.
+
+    이 화면을 여는 이유는 거의 언제나 "지금 부를 수 있는 사람 찾기"다.
+    전체를 기본으로 두면 서류가 없어 넣을 수 없는 사람과 블랙리스트가
+    검색 결과에 섞여 나오고, 담당자는 그중 누가 가능한지 배지를 하나씩
+    확인하게 된다. 대기중 · 블랙리스트를 보고 싶을 때만 필터를 바꾼다.
+  */
+  const [status, setStatus] = useState<StaffStatus | "">("ACTIVE");
   const [role, setRole] = useState<JobRole | "">("");
   const [region, setRegion] = useState("");
   const [onlyFavorite, setOnlyFavorite] = useState(false);
@@ -144,7 +156,7 @@ const StaffManager = () => {
       description:
         "인력풀에서 완전히 지웁니다. 등록 정보와 서류가 함께 사라집니다.",
       warning:
-        "근무 이력이 있는 인력은 삭제되지 않습니다. 더 이상 부르지 않을 사람이라면 '활동종료'로 상태만 바꿔 주세요.",
+        "근무 이력이 있는 인력은 삭제되지 않습니다. 다시 부를 일이 없는 사람이라면 서류를 지워 '대기중'으로 내리거나, 문제가 있었다면 블랙리스트로 지정해 주세요.",
       confirmText: "삭제",
       tone: "danger",
       onConfirm: () => deleteMutation.mutateAsync(staff.staffId),
@@ -191,18 +203,10 @@ const StaffManager = () => {
           name={staff.name}
           phoneNumber={staff.phoneNumber}
           profileImageUrl={staff.profileImageUrl}
+          gender={staff.gender}
           isFavorite={staff.isFavorite}
           staffId={staff.staffId}
         />
-      ),
-    },
-    {
-      key: "status",
-      header: "상태",
-      render: (staff) => (
-        <Badge tone={STAFF_STATUS_TONE[staff.status]}>
-          {STAFF_STATUS_LABEL[staff.status]}
-        </Badge>
       ),
     },
     {
@@ -251,6 +255,7 @@ const StaffManager = () => {
       align: "center",
       render: (staff) => (
         <RatingStat
+          reputationScore={staff.reputationScore}
           goodCount={staff.goodCount}
           badCount={staff.badCount}
           variant="badge"
@@ -280,6 +285,27 @@ const StaffManager = () => {
         <span className="text-[13px] text-font-2">
           {formatDate(staff.lastWorkedAt)}
         </span>
+      ),
+    },
+    {
+      /*
+        상태는 **맨 오른쪽**이다.
+
+        예전에는 이름 바로 다음이었는데, 목록을 여는 이유가 애초에
+        "지금 부를 수 있는 사람 찾기"라 기본 필터가 이미 활동중으로 걸려 있다.
+        그러면 거의 모든 줄이 같은 배지를 달고 있어서, 두 번째 칸이라는
+        가장 좋은 자리를 아무 정보도 없는 값이 차지하게 된다.
+        정작 훑어야 하는 직무 · 지역 · 평판은 그만큼 오른쪽으로 밀렸다.
+      */
+      key: "status",
+      header: "상태",
+      render: (staff) => (
+        <Badge
+          tone={STAFF_STATUS_TONE[staff.status]}
+          title={STAFF_STATUS_HINT[staff.status]}
+        >
+          {STAFF_STATUS_LABEL[staff.status]}
+        </Badge>
       ),
     },
     {

@@ -10,8 +10,11 @@ import type {
   StaffWorkHistory,
 } from "@/type/staff";
 import {
+  REPUTATION_BASE_SCORE,
+  calculateReputationDelta,
   resolveReputationCount,
-  resolveReputationScore,
+  resolveTagVerdict,
+  resolveStaffStatus,
 } from "@/type/staff";
 import {
   calculateBasePay,
@@ -197,13 +200,8 @@ export const staffHandlers = [
     // 배치할 사람을 고를 때와 관리 대상을 볼 때의 정렬 기준이 다르다.
     const sorted = [...filtered].sort((a, b) => {
       if (sort === "WORK_COUNT") return b.workCount - a.workCount;
-      /*
-        평판순은 평판 점수로 정렬한다.
-        단순 평균으로 줄 세우면 "딱 한 번 5.0을 받은 신입"이 목록 맨 위에 온다.
-      */
-      if (sort === "RATING") {
-        return resolveReputationScore(b) - resolveReputationScore(a);
-      }
+      /* 평판순은 누적 점수 그대로다. 오래 잘해 온 사람이 위로 온다. */
+      if (sort === "RATING") return b.reputationScore - a.reputationScore;
       if (sort === "RATING_COUNT") {
         return (
           resolveReputationCount(b) - resolveReputationCount(a)
@@ -368,7 +366,13 @@ export const staffHandlers = [
               role: assignment.role,
               verdict: assignment.reputationVerdict!,
               tags: assignment.reputationTags ?? [],
+              /* 점수 계산은 화면 · 집계와 같은 함수를 쓴다. */
+              points: calculateReputationDelta(
+                assignment.reputationTags ?? [],
+                assignment.reputationVerdict,
+              ),
               comment: assignment.reputationComment,
+              ratedAt: assignment.reputationRatedAt,
               ratedBy: event.managerName,
               /*
                 지금은 에이전시(담당 매니저)가 남기는 평가뿐이다.
@@ -392,7 +396,14 @@ export const staffHandlers = [
             return;
           }
 
-          tagMap.set(tag, { count: 1, verdict: item.verdict });
+          /*
+            방향은 **항목 자체**에서 온다. 평가의 방향(`item.verdict`)을 쓰면,
+            좋아요와 별로예요가 섞인 평가에서 항목 색이 통째로 한쪽으로 칠해진다.
+          */
+          tagMap.set(tag, {
+            count: 1,
+            verdict: resolveTagVerdict(tag) ?? item.verdict,
+          });
         }),
       );
 
@@ -433,17 +444,30 @@ export const staffHandlers = [
       );
     }
 
+    const isDocumentComplete = Boolean(
+      body.idCardImageUrl && body.bankBookImageUrl,
+    );
+
     const created: StaffDetail = {
       ...body,
       staffId: nextId(staffList, "staffId"),
-      status: "ACTIVE",
+      /*
+        새로 등록한 사람은 서류가 갖춰졌는지에 따라 갈린다.
+        서류를 함께 올렸으면 곧바로 활동중, 아니면 대기중이다.
+        (`resolveStaffStatus` — 화면·시드와 같은 함수)
+      */
+      status: resolveStaffStatus({
+        isDocumentComplete,
+        employment: "FREELANCER",
+      }),
       /* 인력풀에서 만드는 사람은 프리랜서다. 직원은 운영 > 직원 관리에서 등록한다. */
       employment: "FREELANCER",
-      isDocumentComplete: Boolean(body.idCardImageUrl && body.bankBookImageUrl),
+      isDocumentComplete,
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,
       lateCount: 0,
+      reputationScore: REPUTATION_BASE_SCORE,
       goodCount: 0,
       badCount: 0,
       isFavorite: false,
@@ -475,6 +499,8 @@ export const staffHandlers = [
     staff.isDocumentComplete = Boolean(
       staff.idCardImageUrl && staff.bankBookImageUrl,
     );
+    // 서류가 바뀌면 상태도 따라 움직인다. 판단은 한 함수에서만 한다.
+    staff.status = resolveStaffStatus(staff);
 
     await delay(MOCK_DELAY_MS);
 
@@ -486,7 +512,7 @@ export const staffHandlers = [
    *
    * 지금은 등록도 수정도 전부 손으로 하는 단계라, 잘못 넣은 사람을 지울 방법이 필요하다.
    * 다만 근무 이력이 있는 사람을 지우면 정산·계약서가 주인 없는 데이터가 되므로 막는다.
-   * (그런 경우는 '활동종료'로 상태만 바꾸는 것이 맞다)
+   * (그런 경우는 서류를 지워 '대기중'으로 내리거나 블랙리스트로 지정한다)
    */
   http.delete(`${BASE_URI}/admin/staff/:staffId`, async ({ params, request }) => {
     const denied = requirePermission(request, "staff:delete");
@@ -526,11 +552,12 @@ export const staffHandlers = [
       };
 
       /*
-        같은 주소지만 요구하는 권한이 둘이다.
-        '활동종료'로 바꾸는 것은 인력 정보 수정이고,
-        블랙리스트에 넣거나 빼는 것은 그 사람을 다시 부르지 못하게 하는 일이라
-        따로 뗀 권한(`blacklist:write`)이 있어야 한다.
-        해제도 마찬가지다 — 지정만 막고 해제를 열어 두면 막은 뜻이 없다.
+        이 주소로 오는 일은 사실상 **블랙리스트 지정과 해제** 둘뿐이다.
+        대기중 ↔ 활동중은 서류가 정하므로(`resolveStaffStatus`) 사람이 고를 값이 아니다.
+
+        블랙리스트는 그 사람을 다시 부르지 못하게 하는 일이라 따로 뗀
+        권한(`blacklist:write`)이 있어야 한다. 해제도 마찬가지다 —
+        지정만 막고 해제를 열어 두면 막은 뜻이 없다.
 
         **없는 대상이라도 권한부터 본다.** 404를 먼저 돌려주면
         권한이 없는 사람이 아무 번호나 넣어 보며 "몇 번이 존재하는지"를 알아낼 수 있다.
@@ -547,9 +574,8 @@ export const staffHandlers = [
 
       if (!staff) return notFound("존재하지 않는 인력입니다.");
 
-      staff.status = body.status;
-
       if (body.status === "BLACKLIST") {
+        staff.status = "BLACKLIST";
         staff.blacklistReason = body.reason;
         staff.blacklistedAt = new Date().toISOString();
         staff.isFavorite = false;
@@ -557,6 +583,12 @@ export const staffHandlers = [
         // 해제하면 사유를 남겨 두지 않는다. 이력은 메모로 관리한다.
         staff.blacklistReason = undefined;
         staff.blacklistedAt = undefined;
+        /*
+          해제한 뒤의 상태는 **요청 값이 아니라 서류가 정한다.**
+          '활동중'으로 되돌려 달라는 요청을 그대로 반영하면, 서류가 없는
+          사람이 활동중으로 올라가 확정 배치에서 막히는 상태가 만들어진다.
+        */
+        staff.status = resolveStaffStatus({ ...staff, status: undefined });
       }
 
       await delay(MOCK_DELAY_MS);
@@ -609,6 +641,12 @@ export const staffHandlers = [
       staff.isDocumentComplete = Boolean(
         staff.idCardImageUrl && staff.bankBookImageUrl,
       );
+      /*
+        상태는 서류가 정한다. 서류를 채우면 활동중, 지우면 대기중이다.
+        여기서 따라 움직이지 않으면 "서류를 지웠는데 목록은 활동중"이 남고,
+        그 사람을 배치하려다 확정 단계에서야 막힌다.
+      */
+      staff.status = resolveStaffStatus(staff);
 
       await delay(MOCK_DELAY_MS);
 

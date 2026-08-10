@@ -94,12 +94,13 @@ export const FEATURE_MODE_DESCRIPTION: Record<FeatureMode, string> = {
 };
 
 /** 모드를 지정할 수 있는 기능 단위 */
-export type FeatureKey = "RECRUIT" | "MESSAGE" | "CLIENT";
+export type FeatureKey = "RECRUIT" | "MESSAGE" | "CLIENT" | "HR_POLICY";
 
 export const FEATURE_LABEL: Record<FeatureKey, string> = {
   RECRUIT: "모집 (공고 · 지원자)",
   MESSAGE: "공지 · 문자 발송",
   CLIENT: "거래처 관리",
+  HR_POLICY: "인사 · 운영 기준 자동화",
 };
 
 export const FEATURE_HINT: Record<FeatureKey, string> = {
@@ -107,6 +108,14 @@ export const FEATURE_HINT: Record<FeatureKey, string> = {
     "앱 출시 전까지는 공고를 띄울 곳이 없습니다. 인력은 인력풀에서 직접 등록하세요.",
   MESSAGE: "문자 API 연동 전입니다. 문구만 만들어 기존 방식으로 보내야 합니다.",
   CLIENT: "발주처를 따로 관리하지 않는다면 꺼 두세요.",
+  /*
+    블랙리스트 자동 후보 · 출근 안내 자동 발송 · 계약서 기한 알림은
+    전부 "때가 되면 시스템이 먼저 알려 준다"는 기능인데, 그 알림을 내보낼
+    곳(문자 · 푸시)이 아직 없다. 숫자만 저장되고 아무 일도 일어나지 않으므로
+    켜 두면 "설정했으니 돌아가고 있겠지"라고 믿게 된다.
+  */
+  HR_POLICY:
+    "알림을 내보낼 곳이 아직 없어 기준값만 저장됩니다. 블랙리스트 후보 · 출근 안내 · 계약서 기한은 지금은 담당자가 직접 확인해야 합니다.",
 };
 
 /**

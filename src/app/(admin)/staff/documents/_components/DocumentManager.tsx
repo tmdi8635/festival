@@ -8,14 +8,13 @@ import {
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
 import { useListSearch } from "@/hooks/useListSearch";
-import { FileText, Upload, Wallet } from "@/icons";
+import { FileText, Wallet } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import { formatPhoneNumber, type Staff, type StaffDetail } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
-import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import CsvExportButton from "@/components/ui/CsvExportButton";
 import Pagination from "@/components/ui/Pagination";
@@ -90,6 +89,7 @@ const DocumentManager = () => {
           name={staff.name}
           phoneNumber={staff.phoneNumber}
           profileImageUrl={staff.profileImageUrl}
+          gender={staff.gender}
           isFavorite={staff.isFavorite}
         />
       ),
@@ -139,27 +139,6 @@ const DocumentManager = () => {
         <span className="text-[13px] text-font-2">
           {formatDate(staff.createdAt)}
         </span>
-      ),
-    },
-    {
-      key: "actions",
-      header: "",
-      width: "120px",
-      align: "right",
-      render: (staff) => (
-        <div
-          className="flex justify-end"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Button
-            size="sm"
-            variant="secondary"
-            leftIcon={<Upload size={14} />}
-            onClick={() => setDetailStaffId(staff.staffId)}
-          >
-            서류 확인
-          </Button>
-        </div>
       ),
     },
   ];

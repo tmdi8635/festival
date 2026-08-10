@@ -20,7 +20,12 @@ import type {
   JobRole,
   ReputationVerdict,
 } from "@/type/staff";
-import { REPUTATION_TAGS } from "@/type/staff";
+import {
+  buildReputationScore,
+  calculateReputationDelta,
+  reputationTagsOf,
+  resolveTagVerdict,
+} from "@/type/staff";
 import { clients } from "./client";
 import {
   EVENT_MANAGER_POOL,
@@ -134,6 +139,26 @@ export const defaultWageOf = (
   role: JobRole,
 ): { wageType: WageType; wage: number } =>
   DEFAULT_ROLE_WAGE[role] ?? { wageType: "HOURLY", wage: 12000 };
+
+/**
+ * 발주에 걸린 성별 조건. **대부분은 무관이다.**
+ *
+ * 조건이 붙는 자리는 현장에서 정해져 있다 — 몸을 쓰는 설치 · 철거는 남성만,
+ * 안내 · 응대가 중심인 모델 자리는 여성만으로 발주가 오는 일이 흔하다.
+ * 다만 늘 그런 것은 아니라서 일부만 조건을 달아 둔다.
+ * 조건이 전부 붙어 있으면 화면에서 '조건이 걸린 자리'가 눈에 띄지 않는다.
+ *
+ * 이 값은 표시일 뿐 배치를 막지 않는다.
+ */
+const resolveSeedGenderPreference = (
+  role: JobRole,
+  seed: number,
+): "ANY" | "MALE" | "FEMALE" => {
+  if (role === "SETUP" && seed % 3 !== 0) return "MALE";
+  if (role === "MODEL" && seed % 3 !== 1) return "FEMALE";
+
+  return "ANY";
+};
 
 /**
  * 행사 반복 패턴 목업.
@@ -269,13 +294,23 @@ const buildReputation = (
     seed % 11 === 0;
 
   const verdict: ReputationVerdict = isBad ? "BAD" : "GOOD";
-  const pool = REPUTATION_TAGS[verdict];
+  const pool = reputationTagsOf(verdict);
 
-  return {
-    reputationVerdict: verdict,
-    // 항목은 선택이라 절반 정도만 골라 둔 상태로 만든다.
-    reputationTags: seed % 2 === 0 ? [pool[seed % pool.length]] : [],
-  };
+  // 항목은 선택이라 절반 정도만 골라 둔 상태로 만든다.
+  const tags = seed % 2 === 0 ? [pool[seed % pool.length].tag] : [];
+
+  /*
+    가끔은 좋아요와 별로예요가 **한 평가에 함께** 담긴다.
+    ("지시 이해는 빠른데 복장 규정은 안 지켰다")
+    실제로 흔한 조합이라 화면이 그걸 그릴 수 있는지 목업에서 보여야 한다.
+  */
+  if (tags.length > 0 && seed % 7 === 0) {
+    const opposite = reputationTagsOf(isBad ? "GOOD" : "BAD");
+
+    tags.push(opposite[seed % opposite.length].tag);
+  }
+
+  return { reputationVerdict: verdict, reputationTags: tags };
 };
 
 /**
@@ -507,6 +542,7 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
           staffName: candidate.name,
           staffPhone: candidate.phoneNumber,
           staffProfileImageUrl: candidate.profileImageUrl,
+          staffGender: candidate.gender,
           isEmployee: candidate.employment === "EMPLOYEE",
           role,
           status: assignmentStatus,
@@ -567,6 +603,15 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
         assignedCount,
         wageType,
         wage,
+        /*
+          성별 조건.
+
+          대부분은 무관이다. 몸을 쓰는 설치 · 철거에 남성만, 안내 · 응대가
+          중심인 모델 자리에 여성만을 적어 둔 발주가 실제로 들어오므로
+          화면에서 그 표시가 어떻게 보이는지 확인할 수 있게 섞어 둔다.
+          어디까지나 **표시**이고 배치를 막지 않는다.
+        */
+        genderPreference: resolveSeedGenderPreference(role, seed),
       };
     });
 
@@ -689,6 +734,8 @@ export const recalculateEventCounts = (event: EventDetail) => {
           assignedCount: 0,
           wageType: sample.wageType,
           wage: sample.wage,
+          /* 발주에 없던 직무라 조건도 없다. */
+          genderPreference: "ANY" as const,
         };
       }),
     ];
@@ -792,16 +839,46 @@ export const findConflictEvent = (
  * 실제 서버라면 집계 컬럼을 두거나 조회 시점에 세면 된다.
  */
 export const syncStaffReputationCounts = () => {
-  const counts = new Map<number, { good: number; bad: number }>();
+  const counts = new Map<
+    number,
+    { good: number; bad: number; delta: number }
+  >();
 
   events.forEach((event) =>
     event.assignments.forEach((assignment) => {
       if (!assignment.reputationVerdict) return;
 
-      const current = counts.get(assignment.staffId) ?? { good: 0, bad: 0 };
+      const current = counts.get(assignment.staffId) ?? {
+        good: 0,
+        bad: 0,
+        delta: 0,
+      };
 
-      if (assignment.reputationVerdict === "GOOD") current.good += 1;
-      else current.bad += 1;
+      const tags = assignment.reputationTags ?? [];
+
+      /*
+        건수는 **항목 단위**로 센다. 한 평가에 좋아요와 별로예요가 함께
+        담기므로 평가 하나를 한쪽으로만 세면 "좋아요 5 · 별로 0"이라 적혀
+        있는데 목록에는 별로예요 항목이 보이는 상태가 된다.
+
+        항목을 하나도 안 고른 평가는 방향만 한 건으로 센다.
+      */
+      if (tags.length > 0) {
+        tags.forEach((tag) => {
+          if (resolveTagVerdict(tag) === "BAD") current.bad += 1;
+          else current.good += 1;
+        });
+      } else if (assignment.reputationVerdict === "GOOD") {
+        current.good += 1;
+      } else {
+        current.bad += 1;
+      }
+
+      // 점수 계산은 화면과 같은 함수를 쓴다. 따로 세면 모달의 예고와 어긋난다.
+      current.delta += calculateReputationDelta(
+        tags,
+        assignment.reputationVerdict,
+      );
 
       counts.set(assignment.staffId, current);
     }),
@@ -812,6 +889,7 @@ export const syncStaffReputationCounts = () => {
 
     staff.goodCount = current?.good ?? 0;
     staff.badCount = current?.bad ?? 0;
+    staff.reputationScore = buildReputationScore(current?.delta ?? 0);
   });
 };
 

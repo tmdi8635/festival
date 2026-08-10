@@ -107,34 +107,40 @@ const ContractFilePreview = ({
           이 건은 파일이 남아 있지 않습니다. 원본을 다시 올려 주세요.
         </p>
       ) : isImage ? (
+        /*
+          이미지는 **작게** 편다.
+
+          여기서 확인하는 것은 "엉뚱한 사람 것을 올리지 않았나"라서 이름과
+          서명 자리만 보이면 된다. 520px로 크게 펴 두면 상세 모달이 스캔본으로
+          가득 차 정작 그 아래의 차수 이력 · 재작성이 밀린다.
+          자세히 봐야 하면 '새 창'으로 연다.
+        */
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={file.url}
           alt={`${file.fileName} 미리보기`}
-          className="max-h-[520px] w-full rounded-field border border-border-main bg-subtle object-contain"
+          className="max-h-[260px] w-full rounded-field border border-border-main bg-subtle object-contain"
         />
       ) : isPdf ? (
-        viewUrl ? (
-          <>
-            <iframe
-              src={viewUrl}
-              title={`${file.fileName} 미리보기`}
-              className="h-[520px] w-full rounded-field border border-border-main bg-subtle"
-            />
-            {/*
-              PDF를 화면에 그리는 것은 브라우저가 하는 일이라, 뷰어가 꺼져 있으면
-              틀만 남고 아무것도 안 보인다. 그때 여기서 막히지 않도록 길을 적어 둔다.
-            */}
-            <p className="text-[12px] text-font-2">
-              위 칸이 비어 보이면 브라우저에 PDF 뷰어가 없는 것입니다.
-              &lsquo;새 창&rsquo; 또는 &lsquo;내려받기&rsquo;로 확인해 주세요.
-            </p>
-          </>
-        ) : (
-          <p className="rounded-field border border-border-main px-3 py-6 text-center text-[13px] text-font-2">
-            미리보기를 준비하고 있습니다…
-          </p>
-        )
+        /*
+          PDF는 펴지 않는다.
+
+          `<iframe>`으로 뷰어를 띄우면 상세 모달 안에 스크롤이 하나 더 생겨
+          어느 것이 문서의 스크롤인지 헷갈리고, 뷰어가 꺼진 브라우저에서는
+          빈 회색 틀만 남는다. 어차피 스캔본은 크게 봐야 읽히므로
+          **처음부터 새 창으로** 보낸다.
+        */
+        <p className="flex flex-wrap items-center justify-center gap-2 rounded-field border border-dashed border-border-strong px-3 py-6 text-center text-[13px] text-font-2">
+          PDF 서명본입니다.
+          <a
+            href={viewUrl || file.url}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-brand underline"
+          >
+            새 창에서 열기
+          </a>
+        </p>
       ) : (
         <p className="rounded-field border border-border-main px-3 py-6 text-center text-[13px] text-font-2">
           화면에서 펼쳐 볼 수 없는 형식입니다. 내려받아 확인해 주세요.

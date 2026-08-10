@@ -12,6 +12,7 @@ export { default as EventFormModal } from "./EventFormModal";
 export { default as EventPickerModal } from "./EventPickerModal";
 export { default as FavoriteToggle } from "./FavoriteToggle";
 export { default as FeatureNotice } from "./FeatureNotice";
+export { default as GenderMark } from "./GenderMark";
 export { default as PayrollAdjustModal } from "./PayrollAdjustModal";
 export { default as PayrollBasisCell } from "./PayrollBasisCell";
 export { default as RatingStat } from "./RatingStat";

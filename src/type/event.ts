@@ -1,4 +1,9 @@
-import type { AttendanceStatus, JobRole, ReputationVerdict } from "./staff";
+import type {
+  AttendanceStatus,
+  Gender,
+  JobRole,
+  ReputationVerdict,
+} from "./staff";
 
 /**
  * 행사 · 인력 배치 도메인 타입.
@@ -244,6 +249,36 @@ export const WAGE_TYPE_UNIT: Record<WageType, string> = {
   DAILY: "원 / 일",
 };
 
+/**
+ * 발주에 걸린 성별 조건.
+ *
+ * 컨퍼런스 안내는 여성만, 설치 · 철거는 남성만 뽑는 일이 실제로 있다.
+ * 보통은 무관이지만, 조건이 있는 날 그것을 모르고 사람을 넣으면
+ * 현장에서 되돌려야 한다. 그래서 발주에 미리 적어 둔다.
+ *
+ * **이 값은 아무것도 막지 않는다.** 현장은 유동적이라 '남성만'으로 받은 자리에
+ * 여성을 넣는 일도, 그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는
+ * 조건을 아예 안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
+ * 반드시 지켜야 하는 조건이라면 **내부 메모로 따로** 남긴다.
+ *
+ * 지금은 화면에 표시하고 배치 후보 필터의 초기값으로만 쓴다.
+ * 나중에 공고를 띄우게 되면 그때 공고문에 실린다.
+ */
+export type GenderPreference = "ANY" | "MALE" | "FEMALE";
+
+export const GENDER_PREFERENCE_LABEL: Record<GenderPreference, string> = {
+  ANY: "성별 무관",
+  MALE: "남성만",
+  FEMALE: "여성만",
+};
+
+/** 발주 슬롯에 배지로 붙일 짧은 말. '무관'은 붙이지 않으므로 없다. */
+export const GENDER_PREFERENCE_BADGE: Record<GenderPreference, string> = {
+  ANY: "",
+  MALE: "남성",
+  FEMALE: "여성",
+};
+
 /** 직무별 발주 · 확정 현황 */
 export interface EventRoleSlot {
   role: JobRole;
@@ -258,6 +293,8 @@ export interface EventRoleSlot {
    * 시급이면 시간당, 일급이면 하루치다. 등급 가산액은 시급일 때만 더해진다.
    */
   wage: number;
+  /** 성별 조건. 표시 · 추천용이고 **배치를 막지 않는다.** */
+  genderPreference: GenderPreference;
 }
 
 /**
@@ -402,6 +439,14 @@ export interface Assignment {
    */
   staffProfileImageUrl?: string;
   /**
+   * 성별.
+   *
+   * 발주에 성별 조건이 걸리는 자리가 있어(컨퍼런스 안내 · 설치 철거)
+   * 명단에서도 보여야 한다. 사진과 같은 이유로 배치에 함께 담는다 —
+   * 명단 한 장에 서른 번 인력 조회가 나가면 안 된다.
+   */
+  staffGender?: Gender;
+  /**
    * 이 사람이 우리 직원인가.
    *
    * 인력 쪽을 다시 조회하지 않고도 계약 · 정산에서 갈라낼 수 있어야 한다.
@@ -429,15 +474,19 @@ export interface Assignment {
   actualBreakMinutes?: number;
   lateMinutes: number;
   /**
-   * 행사 종료 후 평가.
+   * 행사 종료 후 평가. **한 번 남기면 고칠 수 없다.**
    *
-   * 별점이 아니라 **좋아요 / 별로예요** 한 번이다.
-   * 5단계는 남기는 사람마다 기준이 달라 모아 놓으면 뜻이 사라진다.
+   * 값이 있다는 것 자체가 "이 배치는 평가가 끝났다"는 뜻이다.
+   * 고칠 수 있게 두면 나중에 이해관계가 생겼을 때 지난 평가를 손보게 되고,
+   * 그 순간 쌓아 온 점수 전체가 근거를 잃는다. 잘못 남긴 평가는
+   * **최고관리자가 지우고 다시 남긴다.** 지운 사실도 로그에 남는다.
    */
   reputationVerdict?: ReputationVerdict;
-  /** 고른 평가 항목 (선택) */
+  /** 고른 평가 항목. 좋아요 · 별로예요가 **섞여 있을 수 있다.** */
   reputationTags?: string[];
   reputationComment?: string;
+  /** 평가를 남긴 시각. 고칠 수 없으므로 이 값도 바뀌지 않는다. */
+  reputationRatedAt?: string;
   /**
    * 근로계약서 서명 완료 여부. 미완료면 현장 투입 전에 처리해야 한다.
    *
@@ -538,6 +587,10 @@ export interface AssignmentCandidate {
   roles: JobRole[];
   region: string;
   district: string;
+  /** 발주에 성별 조건이 걸릴 수 있어 후보 목록에서도 보여야 한다. */
+  gender: Gender;
+  /** 누적 평판 점수 */
+  reputationScore: number;
   goodCount: number;
   badCount: number;
   workCount: number;
@@ -843,6 +896,16 @@ export const aggregateDayPlans = (days: EventDayPlan[]): EventRoleSlot[] => {
       current.requiredCount += slot.requiredCount;
       current.assignedCount += slot.assignedCount;
       // 같은 직무의 시급은 날마다 같다고 보고 첫 값을 유지한다.
+
+      /*
+        성별 조건이 날마다 다르면 합계에는 '무관'으로 적는다.
+        (설치는 첫날만 남성, 나머지 날은 무관인 식)
+        한쪽 값을 대표로 세우면 행사 요약이 실제 발주보다 좁게 읽혀,
+        조건이 없는 날까지 못 넣는 자리처럼 보인다.
+      */
+      if (current.genderPreference !== slot.genderPreference) {
+        current.genderPreference = "ANY";
+      }
     });
   });
 

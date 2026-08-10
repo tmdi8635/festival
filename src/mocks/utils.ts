@@ -167,6 +167,38 @@ export const requirePermission = (
 };
 
 /**
+ * 최고관리자인지 확인하고, 아니면 거부한다.
+ *
+ * **권한 키로 표현할 수 없는 일에만** 쓴다. 지금은 근무 평가 삭제 하나다.
+ * 평가는 한 번 남기면 고칠 수 없어야 공정한데, 잘못 남긴 것을 되돌릴 길은
+ * 있어야 한다. 그 길을 `staff:write` 같은 일상 권한에 붙이면 결국 아무나
+ * 지우게 되므로, 되돌릴 책임을 지는 한 사람에게만 연다.
+ */
+export const requireSuperAdmin = (request: Request): Response | null => {
+  const employee = findRequester(request);
+
+  if (!employee) {
+    return HttpResponse.json(
+      { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." },
+      { status: 401 },
+    );
+  }
+
+  const role = adminRoles.find((item) => item.roleId === employee.roleId);
+
+  if (role?.isSuperAdmin) return null;
+
+  return HttpResponse.json(
+    {
+      code: "FORBIDDEN",
+      message: `이 작업은 최고관리자만 할 수 있습니다. 현재 직책은 '${employee.roleName}'입니다.`,
+      fields: { roleName: employee.roleName },
+    },
+    { status: 403 },
+  );
+};
+
+/**
  * 권한을 갖고 있는지 **묻기만** 한다. 거부하지 않는다.
  *
  * `requirePermission`은 "이 요청을 통째로 막을까"를 정하는 자리에 쓰고,

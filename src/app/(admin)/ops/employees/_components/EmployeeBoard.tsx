@@ -150,20 +150,32 @@ const EmployeeBoard = () => {
   */
   const columns: TableColumn<Employee>[] = [
     {
+      /*
+        이름 옆에는 **퇴사 여부만** 붙인다.
+
+        직책까지 배지로 달아 두면 줄마다 색 있는 태그가 둘씩 붙어 시선이
+        그쪽으로 끌린다. 직책은 그렇게 중요한 값이 아니다 — 명부를 훑다가
+        가끔 확인하는 정도라 글자로 충분하고, 자기 칸에 있는 편이 낫다.
+        퇴사는 다르다. "지금 이 사람에게 일을 시킬 수 있는가"라서 눈에 띄어야 한다.
+      */
       key: "employee",
       header: "직원",
       render: (row) => (
         <StaffCell
           name={row.name}
           profileImageUrl={row.profileImageUrl}
+          gender={row.gender}
           secondary={formatPhoneNumber(row.phoneNumber)}
-          badge={
-            <>
-              <Badge tone="info">{row.position}</Badge>
-              {!row.isActive && <Badge tone="neutral">퇴사</Badge>}
-            </>
-          }
+          badge={!row.isActive ? <Badge tone="neutral">퇴사</Badge> : undefined}
         />
+      ),
+    },
+    {
+      /* 직책은 글자로만. 목록은 대표 → 사원 순으로 이미 서 있다. */
+      key: "position",
+      header: "직책",
+      render: (row) => (
+        <span className="text-[13px] text-font-1">{row.position}</span>
       ),
     },
     {

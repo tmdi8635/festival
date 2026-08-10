@@ -143,6 +143,7 @@ const BlacklistManager = () => {
       align: "center",
       render: (staff) => (
         <RatingStat
+          reputationScore={staff.reputationScore}
           goodCount={staff.goodCount}
           badCount={staff.badCount}
           variant="badge"
@@ -217,6 +218,7 @@ const BlacklistManager = () => {
       align: "center",
       render: (staff) => (
         <RatingStat
+          reputationScore={staff.reputationScore}
           goodCount={staff.goodCount}
           badCount={staff.badCount}
           variant="badge"

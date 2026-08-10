@@ -4,22 +4,18 @@ import {
   FILL_STATE_CHIP_CLASS,
   FILL_STATE_TEXT_CLASS,
 } from "@/constants/eventOptions";
+import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import {
-  useJobRoleComparator,
-  useJobRoleLabel,
-  useJobRoleShortLabel,
-} from "@/store/useOrgStore";
-import { resolveFillState, type EventRoleSlot } from "@/type/event";
+  GENDER_PREFERENCE_BADGE,
+  GENDER_PREFERENCE_LABEL,
+  resolveFillState,
+  type EventRoleSlot,
+} from "@/type/event";
 import { cn } from "@/lib/utils";
 
 interface RoleSlotChipsProps {
   roles: EventRoleSlot[];
-  /**
-   * 캘린더 칸처럼 좁은 곳에서 쓰는 축약 표기.
-   *
-   * 예전에는 `SV` `ST` `MD` 같은 영문 이니셜을 썼는데,
-   * 현장 담당자가 매번 무슨 뜻인지 되물었다. 축약도 한글로 둔다.
-   */
+  /** 캘린더 칸처럼 좁은 곳에서는 글자와 여백을 줄인다. */
   isCompact?: boolean;
   className?: string;
 }
@@ -40,7 +36,6 @@ const RoleSlotChips = ({
   className,
 }: RoleSlotChipsProps) => {
   const jobRoleLabel = useJobRoleLabel();
-  const jobRoleShortLabel = useJobRoleShortLabel();
   const compareRoles = useJobRoleComparator();
 
   const sortedRoles = [...roles].sort((a, b) => compareRoles(a.role, b.role));
@@ -56,7 +51,11 @@ const RoleSlotChips = ({
         return (
           <span
             key={slot.role}
-            title={`${jobRoleLabel(slot.role)} ${slot.assignedCount}/${slot.requiredCount}명`}
+            title={`${jobRoleLabel(slot.role)} ${slot.assignedCount}/${slot.requiredCount}명${
+              slot.genderPreference !== "ANY"
+                ? ` · ${GENDER_PREFERENCE_LABEL[slot.genderPreference]}`
+                : ""
+            }`}
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap tabular-nums",
               FILL_STATE_CHIP_CLASS[fillState],
@@ -64,10 +63,21 @@ const RoleSlotChips = ({
               !isCompact && "px-2 py-1 text-[12px]",
             )}
           >
-            {isCompact ? jobRoleShortLabel(slot.role) : jobRoleLabel(slot.role)}
+            {jobRoleLabel(slot.role)}
             <span>
               {slot.assignedCount}/{slot.requiredCount}
             </span>
+
+            {/*
+              성별 조건은 **있을 때만** 적는다. '무관'까지 그리면 거의 모든 칩에
+              같은 글자가 붙어, 정작 조건이 걸린 자리가 눈에 띄지 않는다.
+              강제하는 값이 아니므로 경고색을 쓰지 않는다.
+            */}
+            {slot.genderPreference !== "ANY" && (
+              <span className="text-font-2">
+                {GENDER_PREFERENCE_BADGE[slot.genderPreference]}
+              </span>
+            )}
           </span>
         );
       })}

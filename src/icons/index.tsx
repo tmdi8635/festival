@@ -62,6 +62,8 @@ export { default as Clock } from "./Clock";
 export { default as Eye } from "./Eye";
 export { default as EyeOff } from "./EyeOff";
 export { default as Gear } from "./Gear";
+export { default as GenderFemale } from "./GenderFemale";
+export { default as GenderMale } from "./GenderMale";
 export { default as Info } from "./Info";
 export { default as MapPin } from "./MapPin";
 export { default as Moon } from "./Moon";

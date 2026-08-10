@@ -17,6 +17,7 @@ import { ATTENDANCE_STATUS_LABEL, REPUTATION_VERDICT_LABEL } from "@/type/staff"
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
+import GenderMark from "@/components/domain/GenderMark";
 import WageText from "@/components/domain/WageText";
 import type { GroupMode } from "./AttendanceRosterGroup";
 import { useHasPermission } from "@/store/useAdminStore";
@@ -82,7 +83,10 @@ const AttendanceRosterRow = ({
           className="shrink-0 text-left text-[13px] text-font-1 transition hover:opacity-70 sm:w-40"
           title="인력 상세를 엽니다."
         >
-          {assignment.staffName}
+          <span className="inline-flex items-center gap-1">
+            {assignment.staffName}
+            <GenderMark gender={assignment.staffGender} size={12} />
+          </span>
           <span className="ml-1.5 text-[12px] text-font-2">
             {roleLabel(assignment.role)}
           </span>

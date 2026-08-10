@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { DEFAULT_BASE_MONTHLY_HOURS } from "@/type/employee";
+import {
+  DEFAULT_BASE_MONTHLY_HOURS,
+  EMPLOYEE_POSITIONS,
+  type EmployeePosition,
+} from "@/type/employee";
 
 /**
  * 직원 등록 · 수정 폼 스키마.
@@ -14,12 +18,22 @@ export const employeeSchema = z.object({
   phoneNumber: z
     .string()
     .regex(/^01[016789]\d{7,8}$/, "'-' 없이 숫자만 입력해 주세요."),
+  /**
+   * 얼굴 사진. 비워 둘 수 있다.
+   *
+   * 없으면 명부에 빈 동그라미가 뜰 뿐 아무것도 막히지 않는다.
+   * 계정부터 급히 만들어야 하는 일이 있어서 필수로 두지 않는다.
+   */
+  profileImageUrl: z.string(),
   /*
-    생년월일 · 주소는 비워 둘 수 있게 한다.
-    급하게 계정부터 만들어야 하는 일이 실제로 있고, 필수로 막으면
-    담당자는 아무 값이나 넣어 채운다. 그 값은 없느니만 못하다.
+    생년월일 · 성별은 필수다.
+
+    비워 둘 수 있게 했더니 대부분 비어 있었고, 그 상태로 계약서를 뽑으면
+    근로자 인적사항 칸이 '-'로 나간다. 근로계약서는 생년월일이 있어야
+    문서로서 뜻을 갖고, 성별은 발주 조건이 걸린 자리를 채울 때 본다.
+    주소는 그대로 선택으로 둔다. (계약서에 적히지만 나중에 채울 수 있다)
   */
-  birthDate: z.string(),
+  birthDate: z.string().min(1, "생년월일을 선택해 주세요."),
   gender: z.enum(["MALE", "FEMALE"]),
   address: z.string().max(200, "200자 이내로 입력해 주세요."),
   /** 비상 연락처. 현장에서 사고가 났을 때 회사가 찾을 번호다. */
@@ -30,8 +44,13 @@ export const employeeSchema = z.object({
       "'-' 없이 숫자만 입력해 주세요.",
     ),
   hireDate: z.string().min(1, "입사일을 선택해 주세요."),
-  /** 회사 직책. 행사에서 맡는 직무(JobRole)와 다르다. */
-  position: z.string().min(1, "직책을 입력해 주세요."),
+  /**
+   * 회사 직책. 행사에서 맡는 직무(JobRole)와 다르다.
+   *
+   * 고정 목록에서만 고른다. 자유 입력이면 같은 직책이 여러 표기로 쌓여
+   * 명부를 대표 → 사원 순으로 세울 수 없다.
+   */
+  position: z.enum(EMPLOYEE_POSITIONS, { message: "직책을 선택해 주세요." }),
   /** 시스템 권한 묶음 */
   roleId: z.coerce.number().int().min(1, "권한 직책을 선택해 주세요."),
   /*
@@ -66,12 +85,14 @@ export const EMPTY_EMPLOYEE_VALUES: EmployeeSchemaInput = {
   name: "",
   email: "",
   phoneNumber: "",
+  profileImageUrl: "",
   birthDate: "",
   gender: "FEMALE",
   address: "",
   emergencyContact: "",
   hireDate: "",
-  position: "",
+  /* 비워 두면 "선택하세요"가 뜬다. 아무 직책이나 기본으로 깔면 그대로 저장된다. */
+  position: "" as EmployeePosition,
   roleId: 0,
   tracksWorkHours: true,
   baseMonthlyHours: DEFAULT_BASE_MONTHLY_HOURS,

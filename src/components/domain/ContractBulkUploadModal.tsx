@@ -111,7 +111,18 @@ const ContractBulkUploadModal = ({
     );
 
     if (matched.length === 0) {
-      return { error: `명단에 '${parsed.staffName}'이(가) 없습니다.` };
+      /*
+        이름을 못 찾은 이유는 대개 둘이다.
+        ① 다른 행사 폴더를 올렸다 ② 파일명의 이름을 손댔다.
+        어느 쪽인지 알려면 **이 행사 명단에 누가 있는지**를 함께 봐야 한다.
+        "없습니다"만 적혀 있으면 담당자는 파일명만 노려보게 된다.
+      */
+      return {
+        error: `명단에 '${parsed.staffName}'이(가) 없습니다. (이 행사 명단: ${targets
+          .map((target) => target.staffName)
+          .slice(0, 5)
+          .join(", ")}${targets.length > 5 ? ` 외 ${targets.length - 5}명` : ""})`,
+      };
     }
 
     if (matched.length > 1) {
@@ -238,14 +249,37 @@ const ContractBulkUploadModal = ({
           이름을 읽어 명단과 맞춥니다. 동명이인은{" "}
           <span className="tabular-nums">이름(뒤 네 자리)</span>까지 봅니다.
           이름을 고친 파일은 주인을 찾지 못해 <b>실패로 남습니다.</b>
+          {targets.length > 0 && (
+            <>
+              <br />
+              지금 이 행사의 명단은 <b>{targets.length}명</b>입니다. 다른 행사에서
+              받은 파일은 이름이 맞아도 그 사람이 이 명단에 없으면 실패합니다.
+            </>
+          )}
         </Alert>
 
-        {!isRunning && (
-          <ContractUploadZone
-            multiple
-            onSelectFiles={handleFiles}
-            className="py-8"
-          />
+        {/*
+          명단이 비어 있으면 **올리기 전에 막는다.**
+
+          예전에는 그대로 받아 놓고 전건을 "명단에 없습니다"로 떨어뜨렸다.
+          담당자는 서른 장을 던진 뒤에야 실패 목록을 보고, 파일명이 잘못된
+          줄 알고 이름을 고쳐 가며 다시 올렸다. 실제 원인은 이 행사에
+          확정 배치가 없다는 것이었고, 그건 여기서 할 수 있는 일이 아니다.
+        */}
+        {targets.length === 0 ? (
+          <Alert tone="warning" title="등록할 대상이 없습니다.">
+            이 행사에 <b>확정 배치된 인력이 없어</b> 서명본을 붙일 사람을 찾을 수
+            없습니다. 일별 근무자 탭에서 인력을 배치하고 확정한 뒤에 올려 주세요.
+            (직원은 근로계약서를 쓰지 않아 명단에 오르지 않습니다)
+          </Alert>
+        ) : (
+          !isRunning && (
+            <ContractUploadZone
+              multiple
+              onSelectFiles={handleFiles}
+              className="py-8"
+            />
+          )
         )}
 
         {isRunning && (

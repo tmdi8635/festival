@@ -13,13 +13,15 @@ import {
 } from "@/schema/employee.schema";
 import {
   DEFAULT_BASE_MONTHLY_HOURS,
-  EMPLOYEE_POSITION_PRESETS,
+  EMPLOYEE_POSITION_OPTIONS,
   type Employee,
+  type EmployeePosition,
 } from "@/type/employee";
 import { GENDER_LABEL, type Gender } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
+import ImageUploadField from "@/components/ui/ImageUploadField";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
@@ -57,7 +59,6 @@ const EmployeeFormModal = ({
     control,
     handleSubmit,
     reset,
-    setValue,
     watch,
     formState: { errors, isSubmitting },
     // 입력 타입(coerce 전)과 출력 타입(coerce 후)이 달라 제네릭 세 개를 모두 넘긴다.
@@ -75,6 +76,7 @@ const EmployeeFormModal = ({
             name: employee.name,
             email: employee.email,
             phoneNumber: employee.phoneNumber,
+            profileImageUrl: employee.profileImageUrl,
             birthDate: employee.birthDate,
             gender: employee.gender,
             address: employee.address,
@@ -138,6 +140,36 @@ const EmployeeFormModal = ({
         <section className="flex flex-col gap-4">
           <p className="text-[13px] font-semibold text-font-1">인적사항</p>
 
+          {/*
+            얼굴 사진.
+
+            직원도 현장에 나가는 사람이라 배치 명부 · 출퇴근 명부에 얼굴로 선다.
+            명부를 보는 사람은 이름보다 얼굴로 사람을 기억하고, 동명이인이 있는
+            현장에서는 사진 한 장이 이름 두 줄보다 빠르다.
+
+            여기서 올린 사진은 **인력풀 레코드까지 함께** 바뀐다.
+            한쪽만 바꾸면 직원 관리와 현장 명부에 다른 얼굴이 남는다.
+          */}
+          <FormField
+            label="프로필 사진"
+            hint="배치 명부 · 출퇴근 명부에 함께 나옵니다."
+            error={errors.profileImageUrl?.message}
+          >
+            <Controller
+              control={control}
+              name="profileImageUrl"
+              render={({ field }) => (
+                <ImageUploadField
+                  value={field.value}
+                  onChange={field.onChange}
+                  fileType="STAFF_PROFILE"
+                  aspectRatio="1 / 1"
+                  className="sm:max-w-40"
+                />
+              )}
+            />
+          </FormField>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField label="이름" required error={errors.name?.message}>
               <Input {...register("name")} hasError={Boolean(errors.name)} />
@@ -164,11 +196,19 @@ const EmployeeFormModal = ({
               />
             </FormField>
 
-            <FormField label="생년월일" error={errors.birthDate?.message}>
-              <Input type="date" {...register("birthDate")} />
+            <FormField
+              label="생년월일"
+              required
+              error={errors.birthDate?.message}
+            >
+              <Input
+                type="date"
+                {...register("birthDate")}
+                hasError={Boolean(errors.birthDate)}
+              />
             </FormField>
 
-            <FormField label="성별">
+            <FormField label="성별" required>
               <Controller
                 control={control}
                 name="gender"
@@ -189,7 +229,6 @@ const EmployeeFormModal = ({
             */}
             <FormField
               label="비상 연락처"
-              hint="가족 등 본인 외 연락처"
               error={errors.emergencyContact?.message}
             >
               <Input
@@ -218,15 +257,28 @@ const EmployeeFormModal = ({
               회사 안에서의 자리다. 같은 직원이 이번 행사에서는 메인팀장을,
               다음 행사에서는 스태프를 맡는다.
             */}
-            <FormField
-              label="직책"
-              required
-              error={errors.position?.message}
-            >
-              <Input
-                {...register("position")}
-                placeholder="예: 대리"
-                hasError={Boolean(errors.position)}
+            {/*
+              직책은 **고르는 값**이다.
+
+              자유 입력이던 시절에 `팀장`과 `팀 장`과 `팀장님`이 함께 쌓였고,
+              그 순간 명부를 직책 순으로 세울 방법이 사라졌다. 문자열로는
+              대표가 사원보다 위라는 것을 알 방법이 없다.
+            */}
+            <FormField label="직책" required error={errors.position?.message}>
+              <Controller
+                control={control}
+                name="position"
+                render={({ field }) => (
+                  <Select
+                    options={EMPLOYEE_POSITION_OPTIONS}
+                    placeholder="직책을 선택하세요"
+                    value={field.value}
+                    onChange={(event) =>
+                      field.onChange(event.target.value as EmployeePosition)
+                    }
+                    hasError={Boolean(errors.position)}
+                  />
+                )}
               />
             </FormField>
 
@@ -238,21 +290,6 @@ const EmployeeFormModal = ({
               />
             </FormField>
 
-          </div>
-
-          <div className="-mt-1 flex flex-wrap gap-1.5">
-            {EMPLOYEE_POSITION_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() =>
-                  setValue("position", preset, { shouldValidate: true })
-                }
-                className="rounded-field border border-border-main px-2.5 py-1 text-[12px] text-font-2 transition hover:border-brand hover:text-brand"
-              >
-                {preset}
-              </button>
-            ))}
           </div>
 
           {/*

@@ -102,6 +102,20 @@ export const deleteAssignment = async (assignmentId: number) => {
   await adminAxios.delete(`/admin/assignments/${assignmentId}`);
 };
 
+/**
+ * 근무 평가만 지운다. 배치는 그대로 남는다.
+ *
+ * 평가를 고칠 수 없게 막아 둔 대신 두는 유일한 되돌리기다.
+ * 서버도 최고관리자인지 확인한다 — 화면에서만 감추면 주소를 아는 사람은 통과한다.
+ */
+export const deleteAssignmentReputation = async (assignmentId: number) => {
+  const response = await adminAxios.delete<Assignment>(
+    `/admin/assignments/${assignmentId}/reputation`,
+  );
+
+  return response.data;
+};
+
 /** 배치 추가 · 변경 · 해제 후 행사 상세와 캘린더를 함께 갱신합니다. */
 export const useAssignmentMutation = () => {
   const queryClient = useQueryClient();
@@ -113,6 +127,19 @@ export const useAssignmentMutation = () => {
     queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
     queryClient.invalidateQueries({ queryKey: ["get-assignment-candidates"] });
     queryClient.invalidateQueries({ queryKey: ["get-dashboard-summary"] });
+  };
+
+  /*
+    평가를 남기거나 지우면 그 사람의 평판 점수가 바뀌고, 평판은 배치 후보
+    추천 순서를 결정한다. 인력 목록 · 상세 · 평판 · 이력을 함께 무효화하지
+    않으면 화면마다 다른 점수가 남는다.
+  */
+  const invalidateReputation = () => {
+    invalidateAssignment();
+    queryClient.invalidateQueries({ queryKey: ["get-staff-list"] });
+    queryClient.invalidateQueries({ queryKey: ["get-staff-detail"] });
+    queryClient.invalidateQueries({ queryKey: ["get-staff-reputations"] });
+    queryClient.invalidateQueries({ queryKey: ["get-staff-histories"] });
   };
 
   const createMutation = useMutation<
@@ -326,19 +353,29 @@ export const useAssignmentMutation = () => {
         reputationTags: tags,
         reputationComment: comment,
       }),
-    onSuccess: (assignment) => {
-      showAppToast(
-        "success",
-        assignment.reputationVerdict === "BAD"
-          ? "'별로예요'로 평가했습니다."
-          : "'좋아요'로 평가했습니다.",
-        { description: "평판 점수와 배치 후보 추천에 반영됩니다." },
-      );
-      invalidateAssignment();
-      queryClient.invalidateQueries({ queryKey: ["get-staff-list"] });
-      queryClient.invalidateQueries({ queryKey: ["get-staff-detail"] });
-      queryClient.invalidateQueries({ queryKey: ["get-staff-reputations"] });
-      queryClient.invalidateQueries({ queryKey: ["get-staff-histories"] });
+    onSuccess: () => {
+      showAppToast("success", "평가를 남겼습니다.", {
+        description: "평판 점수와 배치 후보 추천에 반영됩니다. 평가는 고칠 수 없습니다.",
+      });
+      invalidateReputation();
+    },
+  });
+
+  /**
+   * 근무 평가 삭제. **최고관리자만 쓴다.**
+   *
+   * 평가는 고칠 수 없다. 고칠 수 있게 두면 나중에 이해관계가 생겼을 때
+   * 지난 평가를 손보게 되고, 그 순간 쌓아 온 점수 전체가 근거를 잃는다.
+   * 그래도 잘못 남긴 것을 되돌릴 길은 있어야 해서, 되돌릴 책임을 지는
+   * 한 사람에게만 연다. 지운 뒤 다시 남길 수 있다.
+   */
+  const deleteReputationMutation = useMutation<Assignment, AppError, number>({
+    mutationFn: deleteAssignmentReputation,
+    onSuccess: () => {
+      showAppToast("success", "평가를 지웠습니다.", {
+        description: "평판 점수에서 함께 빠졌습니다. 다시 남길 수 있습니다.",
+      });
+      invalidateReputation();
     },
   });
 
@@ -369,6 +406,7 @@ export const useAssignmentMutation = () => {
     bulkAttendanceMutation,
     wageMutation,
     reputationMutation,
+    deleteReputationMutation,
     statusMutation,
     deleteMutation,
   };

@@ -473,10 +473,13 @@ const AssignmentManager = () => {
         onClose={() => setReputationTarget(null)}
       />
 
+      {/*
+        인력 상세 안의 행사 링크는 스스로 새 탭으로 연다.
+        모달 안에서 같은 탭으로 넘어가면 보고 있던 이력이 통째로 사라진다.
+      */}
       <StaffDetailModal
         staffId={detailStaffId}
         onClose={() => setDetailStaffId(null)}
-        onOpenEvent={openEventDetail}
       />
     </>
   );

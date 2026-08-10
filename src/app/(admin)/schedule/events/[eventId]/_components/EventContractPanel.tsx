@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useContractListQuery } from "@/api/contract/getContractList";
-import {
-  getContractDrafts,
-  type ContractDraftResponse,
-} from "@/api/contract/getContractDraft";
+import { getContractDrafts } from "@/api/contract/getContractDraft";
 import { useContractTemplateListQuery } from "@/api/contract/getContractTemplateList";
 import { useContractMutation } from "@/api/contract/mutateContract";
 import { useHasPermission } from "@/store/useAdminStore";
@@ -22,7 +19,7 @@ import { Download, FileText, ImageIcon, Upload } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import {
   downloadContractAsImage,
-  printContractAsPdf,
+  downloadContractAsPdf,
 } from "@/lib/contractFile";
 import { formatDate } from "@/lib/dayjs";
 import { showAppToast, showErrorToast } from "@/lib/toast";
@@ -60,7 +57,6 @@ import ContractBulkUploadModal, {
 import ContractDetailModal, {
   type ContractDetailTarget,
 } from "@/components/domain/ContractDetailModal";
-import ContractDocumentView from "@/components/domain/ContractDocumentView";
 import ContractUploadZone from "@/components/domain/ContractUploadZone";
 
 const CONTRACT_CSV_COLUMNS: CsvColumn<Contract>[] = [
@@ -128,18 +124,6 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   const [isPreparing, setIsPreparing] = useState(false);
   // 고르기 전에는 기본 템플릿을 그대로 쓰고, 고르면 draft가 화면을 담당한다.
   const [draftTemplateId, setDraftTemplateId] = useState<string | null>(null);
-
-  /*
-    묶음 인쇄를 기다리는 문서들.
-
-    화면에는 그리지 않고 인쇄 지면에만 세운다. (`contract-print-batch`)
-    담아 두는 이유는 인쇄 창을 **다 그린 뒤에** 열어야 하기 때문이다.
-    먼저 열면 절반만 채워진 지면이 나간다.
-  */
-  const [printQueue, setPrintQueue] = useState<{
-    items: ContractDraftResponse[];
-    fileName: string;
-  } | null>(null);
 
   const { data, isLoading } = useContractListQuery({
     page: 1,
@@ -280,42 +264,17 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   };
 
   /**
-   * 고른 사람들의 계약서를 **한 번의 인쇄**로 낸다.
+   * 고른 사람들의 계약서를 내려받는다. **사람마다 파일 하나다.**
    *
-   * 사람마다 장을 넘기므로 그대로 잘라 나눠 주면 된다.
-   * (한 명씩 인쇄 창을 서른 번 여는 것은 아무도 하지 않는다)
-   */
-  const handleBulkPrint = async () => {
-    const items = await fetchSelectedDrafts();
-
-    if (!items) return;
-
-    setPrintQueue({
-      items,
-      fileName: `${event.startDate.replaceAll("-", "").slice(2)}_${event.title}_근로계약서_${items.length}명`,
-    });
-  };
-
-  /*
-    인쇄 창은 문서를 다 그린 뒤에 연다.
-    렌더가 끝난 것을 보장하려면 상태가 반영된 다음 겹(effect)에서 불러야 한다.
-
-    치우는 것은 **인쇄가 끝난 뒤**다. 먼저 치우면 빈 종이가 나가고,
-    그렇다고 남겨 두면 다음에 한 명짜리 계약서를 인쇄할 때 이 묶음이 따라 나간다.
-  */
-  useEffect(() => {
-    if (!printQueue) return;
-
-    printContractAsPdf(printQueue.fileName, () => setPrintQueue(null));
-  }, [printQueue]);
-
-  /**
-   * 고른 사람들의 계약서를 이미지로 각각 내려받는다.
+   * 예전에는 인쇄 대화상자로 한 파일에 묶어 냈다. 인쇄는 한 번에 파일을
+   * 하나만 만들 수 있어서 그럴 수밖에 없었는데, 계약서는 각자에게 나눠 주는
+   * 문서라 결국 담당자가 PDF를 열어 사람 수만큼 쪼개고 있었다.
    *
-   * 인쇄가 한 파일인 것과 반대로, 이쪽은 **사람마다 한 장**이다.
-   * 카톡으로 개인에게 보낼 때 필요한 형태라 파일명 규칙이 그대로 지켜져야 한다.
+   * 지금은 지면을 이미지로 구워 PDF를 직접 만든다. 인쇄 창을 거치지 않으니
+   * 파일명 규칙(`261231_행사명_이름.pdf`)이 그대로 지켜지고, 서른 명을
+   * 골라도 서른 개 파일이 각자 이름을 달고 떨어진다.
    */
-  const handleBulkImage = async () => {
+  const handleBulkDownload = async (extension: "pdf" | "png") => {
     const items = await fetchSelectedDrafts();
 
     if (!items) return;
@@ -323,25 +282,44 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
     let failed = 0;
 
     for (const item of items) {
+      const contractDocument = buildContractDocument(
+        item.contract,
+        item.template,
+        roleLabel(item.contract.role),
+      );
+
       try {
-        await downloadContractAsImage(
-          buildContractDocument(
-            item.contract,
-            item.template,
-            roleLabel(item.contract.role),
-          ),
-          draftFileName(item.contract, "png"),
-        );
+        if (extension === "pdf") {
+          await downloadContractAsPdf(
+            contractDocument,
+            draftFileName(item.contract, "pdf"),
+          );
+        } else {
+          await downloadContractAsImage(
+            contractDocument,
+            draftFileName(item.contract, "png"),
+          );
+        }
       } catch {
         failed += 1;
       }
     }
 
+    /*
+      실패 수를 성공 수와 같은 크기로 알린다.
+      "완료"만 뜨면 두 장이 조용히 빠져도 담당자는 다 된 줄 안다.
+    */
     showAppToast(
       failed > 0 ? "warning" : "success",
       failed > 0
-        ? `${items.length - failed}장을 내려받고 ${failed}장이 실패했습니다.`
-        : `${items.length}장을 내려받았습니다.`,
+        ? `${items.length - failed}건을 내려받고 ${failed}건이 실패했습니다.`
+        : `${items.length}건을 각각 내려받았습니다.`,
+      {
+        description:
+          failed > 0
+            ? "실패한 인원은 명단에서 한 명씩 열어 내려받아 주세요."
+            : "파일명은 261231_행사명_이름 형식입니다. 그대로 두면 서명본을 일괄 등록할 수 있습니다.",
+      },
     );
   };
 
@@ -609,10 +587,10 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
               variant="secondary"
               leftIcon={<Download size={14} />}
               isLoading={isPreparing}
-              onClick={handleBulkPrint}
-              title="선택한 인원의 계약서를 한 번의 인쇄로 냅니다. 사람마다 장이 넘어갑니다."
+              onClick={() => handleBulkDownload("pdf")}
+              title="선택한 인원의 계약서를 한 명당 한 파일씩 PDF로 내려받습니다."
             >
-              계약서 일괄 발급 (PDF · 인쇄)
+              PDF로 각각 내려받기
             </Button>
 
             <Button
@@ -620,8 +598,8 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
               variant="secondary"
               leftIcon={<ImageIcon size={14} />}
               isLoading={isPreparing}
-              onClick={handleBulkImage}
-              title="선택한 인원의 계약서를 한 명당 한 장씩 이미지로 내려받습니다."
+              onClick={() => handleBulkDownload("png")}
+              title="카톡으로 개인에게 보낼 때 씁니다. 한 명당 이미지 한 장입니다."
             >
               이미지로 각각
             </Button>
@@ -664,27 +642,6 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
         onClose={() => setIsBulkUploadOpen(false)}
       />
 
-      {/*
-        묶음 인쇄용 지면.
-
-        화면에는 나타나지 않고 인쇄에서만 세워진다. (`contract-print-batch`)
-        `ContractSheetView`가 아니라 문서만 그리는 이유는, 지면 경계선 · 안내 문구처럼
-        화면에서 도움이 되는 것들이 종이에서는 그냥 잉크이기 때문이다.
-      */}
-      {printQueue && (
-        <div className="contract-print-batch">
-          {printQueue.items.map((item) => (
-            <ContractDocumentView
-              key={item.contract.staffId}
-              document={buildContractDocument(
-                item.contract,
-                item.template,
-                roleLabel(item.contract.role),
-              )}
-            />
-          ))}
-        </div>
-      )}
     </>
   );
 };

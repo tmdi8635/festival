@@ -11,9 +11,9 @@ import type {
   WageType,
 } from "@/type/event";
 import { aggregateDayPlans, resolveEventDates } from "@/type/event";
-import type { AttendanceStatus, JobRole } from "@/type/staff";
+import type { AttendanceStatus, Gender, JobRole } from "@/type/staff";
 import {
-  calculateReputationScore,
+  REPUTATION_BASE_SCORE,
   canConfirmAssignment,
   DOCUMENT_BLOCK_MESSAGE,
 } from "@/type/staff";
@@ -41,6 +41,7 @@ import {
   notFound,
   paginate,
   requirePermission,
+  requireSuperAdmin,
 } from "../utils";
 
 /** 목록 응답에는 배치 · 일자별 계획을 내려주지 않는다. 표에서 쓰지 않는 데이터라 무겁다. */
@@ -84,8 +85,7 @@ const resolveAssignmentWage = (
 const calculateMatchScore = (params: {
   isFavorite: boolean;
   clientWorkCount: number;
-  goodCount: number;
-  badCount: number;
+  reputationScore: number;
   workCount: number;
   noShowCount: number;
   lateCount: number;
@@ -95,11 +95,13 @@ const calculateMatchScore = (params: {
   if (params.hasConflict) return -1;
 
   /*
-    평가가 적은 사람의 높은 평판은 덜 믿는다. (좋아요 1건이 전부인 경우)
-    표본 수를 반영한 평판 점수가 이미 그 일을 하고 있으므로 그대로 쓴다.
+    평판은 기준점에서 얼마나 움직였는지로 본다.
+
+    누적 점수(1000 언저리)를 그대로 더하면 다른 조건이 전부 묻힌다.
+    즐겨찾기 30점, 노쇼 -25점과 나란히 놓으려면 같은 크기여야 한다.
+    한쪽으로 40점 넘게 벌어지는 일은 드물어서 그 폭을 그대로 쓴다.
   */
-  const ratingScore =
-    calculateReputationScore(params.goodCount, params.badCount) * 8;
+  const ratingScore = params.reputationScore - REPUTATION_BASE_SCORE;
 
   return (
     (params.isFavorite ? 30 : 0) +
@@ -536,6 +538,15 @@ export const eventHandlers = [
         url.searchParams.get("dates")?.split(",").filter(Boolean) ?? [];
       const includeUnavailable =
         url.searchParams.get("includeUnavailable") === "true";
+      /*
+        성별 필터.
+
+        **화면이 고른 값으로만 건다.** 발주의 성별 조건은 이 값의 초기값을
+        정할 뿐이고, 담당자가 '전체 성별'로 되돌리면 조건과 다른 사람도
+        그대로 후보에 오른다. 현장은 조건과 다르게 뽑는 일이 늘 있어서,
+        여기서 발주 조건을 강제하면 후보가 아예 안 보이는 날이 생긴다.
+      */
+      const gender = url.searchParams.get("gender") as Gender | null;
 
       if (!event) return notFound("존재하지 않는 행사입니다.");
 
@@ -554,6 +565,7 @@ export const eventHandlers = [
             ? staff.employment === "EMPLOYEE" || staff.roles.includes(role)
             : true,
         )
+        .filter((staff) => (gender ? staff.gender === gender : true))
         .filter((staff) =>
           matchesKeyword(keyword, staff.name, staff.phoneNumber, staff.region),
         )
@@ -603,6 +615,9 @@ export const eventHandlers = [
             roles: staff.roles,
             region: staff.region,
             district: staff.district,
+            /* 성별 조건이 걸린 발주가 있어 후보 목록에서도 보여야 한다. */
+            gender: staff.gender,
+            reputationScore: staff.reputationScore,
             goodCount: staff.goodCount,
             badCount: staff.badCount,
             workCount: staff.workCount,
@@ -619,8 +634,7 @@ export const eventHandlers = [
             matchScore: calculateMatchScore({
               isFavorite: staff.isFavorite,
               clientWorkCount,
-              goodCount: staff.goodCount,
-              badCount: staff.badCount,
+              reputationScore: staff.reputationScore,
               workCount: staff.workCount,
               noShowCount: staff.noShowCount,
               lateCount: staff.lateCount,
@@ -739,6 +753,7 @@ export const eventHandlers = [
             staffName: staff.name,
             staffPhone: staff.phoneNumber,
             staffProfileImageUrl: staff.profileImageUrl,
+            staffGender: staff.gender,
             isEmployee: staff.employment === "EMPLOYEE",
             role: body.role,
             status: body.status,
@@ -825,6 +840,8 @@ export const eventHandlers = [
           requiredCount: Math.max(0, body.requiredCount),
           assignedCount: 0,
           ...defaultWageOf(body.role),
+          /* 급히 늘리는 자리라 조건은 없다. 필요하면 발주 수정에서 고른다. */
+          genderPreference: "ANY",
         });
       }
 
@@ -893,9 +910,33 @@ export const eventHandlers = [
         }
       }
 
+      /*
+        평가는 **한 번만** 남길 수 있다.
+
+        화면에서만 막으면 주소를 아는 사람은 그대로 통과하고, 서버가 붙는 날
+        동작이 달라진다. 고칠 수 있게 두면 나중에 이해관계가 생겼을 때
+        지난 평가를 손보게 되고 쌓아 온 점수가 근거를 잃는다.
+        지우고 다시 남기는 길만 열어 둔다. (최고관리자)
+      */
+      if (body.reputationVerdict && assignment.reputationVerdict) {
+        return HttpResponse.json(
+          {
+            code: "REPUTATION_ALREADY_RATED",
+            message:
+              "이미 평가를 남긴 근무입니다. 고칠 수 없으며, 최고관리자만 삭제할 수 있습니다.",
+          },
+          { status: 409 },
+        );
+      }
+
       const { checkInAt, checkOutAt, actualBreakMinutes, ...rest } = body;
 
       Object.assign(assignment, rest);
+
+      // 평가를 남긴 시각. 고칠 수 없으므로 이 값도 한 번만 찍힌다.
+      if (body.reputationVerdict) {
+        assignment.reputationRatedAt = new Date().toISOString();
+      }
 
       /*
         출퇴근 기록은 세 상태를 구분해야 한다.
@@ -939,6 +980,46 @@ export const eventHandlers = [
       syncPayrollWithAssignment(assignment, event);
 
       recalculateEventCounts(event);
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(assignment);
+    },
+  ),
+
+  /**
+   * 근무 평가만 지운다. 배치는 그대로 남는다.
+   *
+   * 평가를 고칠 수 없게 막아 둔 대신 두는 유일한 되돌리기라,
+   * **최고관리자만** 할 수 있다. 화면에서 버튼을 감추는 것만으로는
+   * 주소를 아는 사람이 그대로 통과한다.
+   */
+  http.delete(
+    `${BASE_URI}/admin/assignments/:assignmentId/reputation`,
+    async ({ params, request }) => {
+      const denied = requireSuperAdmin(request);
+
+      if (denied) return denied;
+
+      const assignmentId = Number(params.assignmentId);
+      const event = events.find((item) =>
+        item.assignments.some(
+          (assignment) => assignment.assignmentId === assignmentId,
+        ),
+      );
+      const assignment = event?.assignments.find(
+        (item) => item.assignmentId === assignmentId,
+      );
+
+      if (!event || !assignment) return notFound("존재하지 않는 배치입니다.");
+
+      assignment.reputationVerdict = undefined;
+      assignment.reputationTags = undefined;
+      assignment.reputationComment = undefined;
+      assignment.reputationRatedAt = undefined;
+
+      // 지운 만큼 평판 점수에서도 빠져야 한다. 집계는 한 곳에서만 한다.
+      syncStaffReputationCounts();
+
       await delay(MOCK_DELAY_MS);
 
       return HttpResponse.json(assignment);

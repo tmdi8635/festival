@@ -23,6 +23,11 @@ export const eventRoleSlotSchema = z
       .number()
       .int("정수로 입력해 주세요.")
       .min(1, "금액을 입력해 주세요."),
+    /*
+      성별 조건. 검증하지 않는다 — 어떤 값이든 배치를 막지 않는 표시일 뿐이다.
+      기본값을 둬서 예전 데이터나 빠뜨린 요청도 '무관'으로 떨어지게 한다.
+    */
+    genderPreference: z.enum(["ANY", "MALE", "FEMALE"]).default("ANY"),
   })
   .superRefine((slot, ctx) => {
     /*
@@ -185,6 +190,7 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
       assignedCount: 0,
       wageType: "HOURLY" as const,
       wage: 18000,
+      genderPreference: "ANY" as const,
     },
     {
       role: "STAFF",
@@ -192,6 +198,7 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
       assignedCount: 0,
       wageType: "HOURLY" as const,
       wage: 12000,
+      genderPreference: "ANY" as const,
     },
   ],
 };

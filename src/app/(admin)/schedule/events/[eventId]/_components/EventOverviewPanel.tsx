@@ -15,6 +15,7 @@ import { formatDate } from "@/lib/dayjs";
 import { cn, formatCurrency, formatWithCommas } from "@/lib/utils";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import {
+  GENDER_PREFERENCE_LABEL,
   WAGE_TYPE_LABEL,
   byMainSupervisorFirst,
   describeRecurrence,
@@ -28,6 +29,7 @@ import { useEventMutation } from "@/api/event/mutateEvent";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Select from "@/components/ui/Select";
+import GenderMark from "@/components/domain/GenderMark";
 import { useHasPermission } from "@/store/useAdminStore";
 
 /** 라벨 · 값 한 줄. 개요에서만 쓴다. */
@@ -285,17 +287,21 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
               >
                 {/*
                   펼침 버튼과 '채우기'는 **형제**다.
+                  버튼 안의 버튼은 유효하지 않은 HTML이라 하이드레이션이 깨진다.
 
-                  예전에는 줄 전체를 `<button>`으로 감싸고 그 안에 채우기 단추를
-                  넣었는데, 버튼 안의 버튼은 유효하지 않은 HTML이라 하이드레이션이
-                  깨졌다. 좁은 카드에서 채우기가 글자를 밀어 "시급 12,000원"이
-                  두 줄로 접히는 문제도 같은 원인이었다.
+                  다만 형제로 떼어 놓으니 이번엔 hover가 어색해졌다.
+                  펼침 버튼에만 배경이 깔려서 '채우기' 왼쪽까지만 색이 차고
+                  단추 자리는 그대로 남아, 한 줄이 두 조각으로 보였다.
+
+                  그래서 **hover를 바깥 줄에 건다.** 어디에 커서를 올려도 줄
+                  전체가 한 덩어리로 반응하고, 안쪽 버튼은 자기 배경을 갖지 않는다.
+                  실제로 눌리는 자리는 그대로 둘이라 HTML도 멀쩡하다.
                 */}
-                <div className="flex items-center gap-1">
+                <div className="group flex items-center gap-1 rounded-field transition-colors hover:bg-surface-hover">
                   <button
                     type="button"
                     onClick={() => toggleRole(slot.role)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-field px-3 py-2 text-left transition hover:bg-surface-hover"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-field px-3 py-2 text-left"
                   >
                     <ChevronRight
                       size={14}
@@ -329,16 +335,25 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                       <p className="truncate text-[12px] text-font-2 tabular-nums">
                         {WAGE_TYPE_LABEL[slot.wageType]}{" "}
                         {formatWithCommas(slot.wage)}원
+                        {/* 조건이 걸린 발주만 적는다. 강제가 아니라 안내다. */}
+                        {slot.genderPreference !== "ANY" && (
+                          <span className="ml-1.5">
+                            · {GENDER_PREFERENCE_LABEL[slot.genderPreference]}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </button>
 
-                  {/* 부족한 직무는 여기서 바로 채운다. 배치 화면으로 나갈 이유가 없다. */}
+                  {/*
+                    부족한 직무는 여기서 바로 채운다. 배치 화면으로 나갈 이유가 없다.
+                    줄 배경 위에 얹히므로 자기 배경을 따로 갖는다. (`relative`)
+                  */}
                   {canAssign && isShort && (
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="mr-2 shrink-0"
+                      className="relative mr-2 shrink-0"
                       onClick={() => onFillRole(slot.role)}
                     >
                       채우기
@@ -386,6 +401,7 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                                   />
                                 )}
                                 {member.staffName}
+                                <GenderMark gender={member.staffGender} size={11} />
                               </p>
                               <p className="truncate text-[12px] text-font-2 tabular-nums">
                                 {formatPhoneNumber(member.staffPhone)}

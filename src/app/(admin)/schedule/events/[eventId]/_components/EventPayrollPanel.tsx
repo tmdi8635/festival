@@ -5,8 +5,10 @@ import { useSelection } from "@/hooks/useSelection";
 import { usePayrollListQuery } from "@/api/payroll/getPayrollList";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import { usePayrollMutation } from "@/api/payroll/mutatePayroll";
+import { useEventMutation } from "@/api/event/mutateEvent";
 import {
   PAYROLL_STATUS_FILTER_OPTIONS,
+  PAYROLL_STATUS_HINT,
   PAYROLL_STATUS_TONE,
 } from "@/constants/payrollOptions";
 import { Check, Download } from "@/icons";
@@ -17,7 +19,11 @@ import { formatCurrency } from "@/lib/utils";
 import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { jobRoleLabel, useJobRoleLabel } from "@/store/useOrgStore";
-import { WAGE_TYPE_LABEL, type EventDetail } from "@/type/event";
+import {
+  EVENT_STATUS_LABEL,
+  WAGE_TYPE_LABEL,
+  type EventDetail,
+} from "@/type/event";
 import {
   PAYROLL_STATUS_LABEL,
   formatPayrollDates,
@@ -106,6 +112,8 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   const canWrite = useHasPermission("payroll:write");
   const canApprove = useHasPermission("payroll:approve");
   const canPay = useHasPermission("payroll:pay");
+  /* 행사 상태를 넘기는 것은 정산이 아니라 행사를 고치는 일이다. */
+  const canWriteEvent = useHasPermission("event:write");
 
   const [status, setStatus] = useState<PayrollStatus | "">("");
   const [workDate, setWorkDate] = useState("");
@@ -126,8 +134,91 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
   });
   const { data: summary } = usePayrollSummaryQuery(filterParams);
   const { statusMutation, allowanceMutation } = usePayrollMutation();
+  const { statusMutation: statusEventMutation } = useEventMutation();
+
+  /**
+   * 행사를 정산 단계로 넘긴다.
+   *
+   * 정산 항목은 이 순간 배치에서 만들어진다. 화면이 비어 있는 이유가
+   * "아직 안 넘겼다"일 때, 다른 탭으로 나가 상태를 바꾸고 돌아오게 하지 않는다.
+   */
+  const handleMoveToSettlement = () =>
+    statusEventMutation.mutate({
+      eventId: event.eventId,
+      status: "SETTLEMENT",
+    });
 
   const rows = data?.content ?? [];
+
+  /**
+   * 정산 건이 하나도 없을 때 **왜 없는지**를 짚는다.
+   *
+   * 예전에는 "행사가 끝나면 배치별로 정산 항목이 자동으로 만들어집니다"라고만
+   * 적어 뒀는데, 담당자 입장에서는 행사를 완료로 바꾸고 근태까지 다 찍었는데도
+   * 화면이 비어 있으면 무엇을 더 해야 하는지 알 방법이 없었다.
+   *
+   * 정산 건이 생기는 조건은 둘뿐이다.
+   * **① 행사가 정산 단계(정산대기 · 완료)로 넘어갔는가 ② 지급 대상 배치가 있는가.**
+   *
+   * 발주 인원을 못 채운 것은 조건이 아니다. 현장 일은 발주보다 적게 뽑고
+   * 진행하는 경우가 흔하고, 그래도 나온 사람에게는 돈이 나가야 한다.
+   */
+  const isSettlementStage =
+    event.status === "SETTLEMENT" || event.status === "DONE";
+
+  /* 지급 대상 = 확정 배치 · 직원 아님 · 노쇼/결근 아님. 목업의 `isPayable`과 같은 규칙이다. */
+  const confirmedAssignments = event.assignments.filter(
+    (assignment) => assignment.status === "CONFIRMED",
+  );
+  const payableAssignments = confirmedAssignments.filter(
+    (assignment) =>
+      !assignment.isEmployee &&
+      assignment.attendance !== "NO_SHOW" &&
+      assignment.attendance !== "ABSENT",
+  );
+
+  const emptyReason = (() => {
+    if (confirmedAssignments.length === 0) {
+      return {
+        title: "확정 배치가 없습니다.",
+        description:
+          "정산은 확정 배치에서 만들어집니다. 일별 근무자 탭에서 인력을 배치하고 확정해 주세요.",
+      };
+    }
+
+    if (payableAssignments.length === 0) {
+      const isAllEmployee = confirmedAssignments.every(
+        (assignment) => assignment.isEmployee,
+      );
+
+      return isAllEmployee
+        ? {
+            title: "시급 정산 대상이 없습니다.",
+            description:
+              "확정 배치가 전부 우리 직원입니다. 직원은 월급으로 급여가 나가 시급 정산을 하지 않고, 근무시간만 운영 > 직원 근무에서 셉니다.",
+          }
+        : {
+            title: "지급할 근무가 없습니다.",
+            description:
+              "확정 배치가 모두 노쇼 · 결근으로 기록돼 있습니다. 근태가 잘못됐다면 출퇴근 명부 탭에서 고쳐 주세요.",
+          };
+    }
+
+    if (!isSettlementStage) {
+      return {
+        title: `행사가 아직 '${EVENT_STATUS_LABEL[event.status]}' 단계입니다.`,
+        description:
+          "정산 항목은 행사를 '정산대기'로 넘기는 순간 배치에서 만들어집니다. 발주 인원을 다 못 채웠어도 상관없습니다 — 나온 사람 기준으로 계산됩니다.",
+      };
+    }
+
+    return {
+      title: "아직 정산할 건이 없습니다.",
+      description:
+        "필터를 바꿔서 다시 찾아보세요. 그래도 비어 있으면 행사 상태를 '정산대기'로 다시 넘겨 주세요.",
+    };
+  })();
+
   const { selectedIds, isAllSelected, isSelected, toggle, toggleAll, clear } =
     useSelection(rows.map((row) => row.payrollId));
   const selectedRows = rows.filter((row) => isSelected(row.payrollId));
@@ -375,7 +466,11 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
       key: "status",
       header: "상태",
       render: (item) => (
-        <Badge tone={PAYROLL_STATUS_TONE[item.status]}>
+        /* 배지 하나로는 무슨 단계인지 모른다. 뜻을 커서에 붙여 둔다. */
+        <Badge
+          tone={PAYROLL_STATUS_TONE[item.status]}
+          title={PAYROLL_STATUS_HINT[item.status]}
+        >
           {PAYROLL_STATUS_LABEL[item.status]}
         </Badge>
       ),
@@ -411,6 +506,31 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         <Alert tone="info" title="정산 금액을 볼 권한이 없습니다.">
           이 행사의 지급액과 계좌를 보려면 &lsquo;정산 &gt; 조회&rsquo; 권한이
           필요합니다.
+        </Alert>
+      )}
+
+      {/*
+        상태가 무슨 뜻인지 화면에 적어 둔다.
+
+        `정산대기 → 지급승인 → 지급완료`는 글자만 봐서는 누가 무엇을 하는
+        단계인지 알 수 없다. 특히 '지급완료'는 "시스템이 돈을 보냈다"로
+        읽히기 쉬운데 실제로는 **사람이 이체를 끝낸 뒤 눌러 두는 기록**이다.
+        그 오해가 남으면 아무도 안 누르거나, 이체 전에 눌러 두고 잊는다.
+      */}
+      {rows.length > 0 && (
+        <Alert tone="info" title="정산은 세 단계로 넘어갑니다.">
+          <span className="flex flex-col gap-0.5">
+            {(["PENDING", "APPROVED", "PAID"] as const).map((status) => (
+              <span key={status}>
+                <b>{PAYROLL_STATUS_LABEL[status]}</b> —{" "}
+                {PAYROLL_STATUS_HINT[status]}
+              </span>
+            ))}
+            <span className="mt-1 text-font-2">
+              발주 인원을 다 못 채웠어도 정산은 그대로 됩니다. 나온 사람 기준으로
+              계산됩니다.
+            </span>
+          </span>
         </Alert>
       )}
 
@@ -600,8 +720,22 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
           rows={rows}
           getRowKey={(item) => String(item.payrollId)}
           isLoading={isLoading}
-          emptyTitle="아직 정산할 건이 없습니다."
-          emptyDescription="행사가 끝나면 배치별로 정산 항목이 자동으로 만들어집니다."
+          emptyTitle={emptyReason.title}
+          emptyDescription={emptyReason.description}
+          emptyAction={
+            /* 상태만 넘기면 되는 상황이면 그 자리에서 처리한다. */
+            !isSettlementStage &&
+            payableAssignments.length > 0 &&
+            canWriteEvent ? (
+              <Button
+                variant="primary"
+                isLoading={statusEventMutation.isPending}
+                onClick={handleMoveToSettlement}
+              >
+                정산대기로 넘기기
+              </Button>
+            ) : undefined
+          }
         />
       </Card>
 

@@ -325,6 +325,7 @@ export const recruitHandlers = [
           staffName: staff.name,
           staffPhone: staff.phoneNumber,
           staffProfileImageUrl: staff.profileImageUrl,
+          staffGender: staff.gender,
           isEmployee: staff.employment === "EMPLOYEE",
           role: application.role,
           status: "CONFIRMED",

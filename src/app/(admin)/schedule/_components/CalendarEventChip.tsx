@@ -2,7 +2,7 @@
 
 import { EVENT_STATUS_TONE } from "@/constants/eventOptions";
 import { Star } from "@/icons";
-import { useJobRoleShortLabel } from "@/store/useOrgStore";
+import { useJobRoleLabel } from "@/store/useOrgStore";
 import { cn } from "@/lib/utils";
 import {
   EVENT_STATUS_LABEL,
@@ -39,7 +39,7 @@ const CalendarEventChip = ({
   date,
   onStaffClick,
 }: CalendarEventChipProps) => {
-  const jobRoleShortLabel = useJobRoleShortLabel();
+  const jobRoleLabel = useJobRoleLabel();
 
 
   /** 이 날짜에 배치된 인력. 날짜를 안 주면 전체를 본다. */
@@ -131,7 +131,7 @@ const CalendarEventChip = ({
               <button
                 type="button"
                 onClick={() => onStaffClick?.(assignment.staffId)}
-                title={`${assignment.staffName} · ${jobRoleShortLabel(assignment.role)}`}
+                title={`${assignment.staffName} · ${jobRoleLabel(assignment.role)}`}
                 className={cn(
                   "rounded-full border border-border-main px-1.5 py-0.5 text-[11px] text-font-2 transition",
                   "hover:border-brand hover:text-brand",
@@ -140,7 +140,7 @@ const CalendarEventChip = ({
               >
                 {assignment.staffName}
                 <span className="ml-1 text-font-disabled">
-                  {jobRoleShortLabel(assignment.role)}
+                  {jobRoleLabel(assignment.role)}
                 </span>
               </button>
             </li>

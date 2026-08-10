@@ -57,23 +57,53 @@ export const isEmployee = (source: {
 }): boolean => source.employment === "EMPLOYEE";
 
 /**
- * 흔한 회사 직책.
+ * 회사 직책. **고정 목록이고, 이 배열의 순서가 곧 서열이다.**
  *
- * 고정 목록이 아니라 **거들어 주는 보기**다. 에이전시마다 부르는 이름이 달라서
- * (실장 · PM · 매니저) 고정하면 반드시 안 맞는 곳이 생긴다.
- * 직접 칠 수 있게 두고, 자주 쓰는 것만 눌러 넣게 한다.
+ * 예전에는 자유 입력이었다. 에이전시마다 부르는 이름이 다르니 열어 두는 편이
+ * 낫다고 봤는데, 실제로는 `팀장`과 `팀 장`과 `팀장님`이 함께 쌓였고 그 순간
+ * **명부를 직책 순으로 세울 방법이 사라졌다.** 문자열로는 대표가 사원보다
+ * 위라는 것을 알 방법이 없다.
+ *
+ * 목록을 늘리고 줄이는 일은 코드에서 한다. 자주 있는 일이 아니고,
+ * 여기 한 줄을 고치면 드롭다운 · 정렬 · CSV가 한꺼번에 따라온다.
  */
-export const EMPLOYEE_POSITION_PRESETS = [
-  "사원",
-  "주임",
-  "대리",
-  "과장",
-  "차장",
-  "부장",
-  "실장",
-  "이사",
+export const EMPLOYEE_POSITIONS = [
   "대표",
-];
+  "이사",
+  "실장",
+  "부장",
+  "차장",
+  "팀장",
+  "과장",
+  "대리",
+  "주임",
+  "사원",
+] as const;
+
+export type EmployeePosition = (typeof EMPLOYEE_POSITIONS)[number];
+
+/** 직책 드롭다운 선택지 */
+export const EMPLOYEE_POSITION_OPTIONS = EMPLOYEE_POSITIONS.map(
+  (position) => ({ label: position, value: position }),
+);
+
+/**
+ * 직책 순서 비교. **대표가 맨 위, 사원이 맨 아래다.**
+ *
+ * 명부를 훑는 사람은 위에서부터 읽는다. 결정권이 있는 사람이 위에 있어야
+ * "누구에게 물어야 하나"가 목록 첫 줄에서 끝난다.
+ * 목록에 없는 값(과거 데이터)은 맨 뒤로 보낸다. 사라진 직책 때문에
+ * 지금 쓰는 직책의 순서가 밀리면 안 된다.
+ */
+export const comparePositions = (a: string, b: string): number => {
+  const indexOf = (position: string) => {
+    const index = (EMPLOYEE_POSITIONS as readonly string[]).indexOf(position);
+
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+
+  return indexOf(a) - indexOf(b) || a.localeCompare(b);
+};
 
 /**
  * 기본 근무시간의 기본값 (시간/월).
@@ -117,7 +147,7 @@ export interface Employee {
   /* -------------------------------- 자리 -------------------------------- */
 
   /** 회사 직책. 행사에서 맡는 직무(JobRole)와 다르다. */
-  position: string;
+  position: EmployeePosition;
   /**
    * 시스템 권한 묶음(직책).
    *
@@ -157,12 +187,20 @@ export interface EmployeeFormValues {
   name: string;
   email: string;
   phoneNumber: string;
+  /**
+   * 얼굴 사진.
+   *
+   * 직원도 명부 · 배치 · 출퇴근 명부에 사람으로 선다. 여기서 올린 사진이
+   * **인력풀 레코드까지 함께** 바뀐다. 한쪽만 바꾸면 직원 관리와 현장 명부에
+   * 다른 얼굴이 남는다.
+   */
+  profileImageUrl: string;
   birthDate: string;
   gender: Gender;
   address: string;
   emergencyContact: string;
   hireDate: string;
-  position: string;
+  position: EmployeePosition;
   roleId: number;
   tracksWorkHours: boolean;
   baseMonthlyHours: number;
@@ -213,9 +251,10 @@ export interface EmployeeWorkRow {
   employeeId: number;
   staffId: number;
   name: string;
-  position: string;
+  position: EmployeePosition;
   phoneNumber: string;
   profileImageUrl: string;
+  gender: Gender;
   isActive: boolean;
 
   /** 집계 기준 달 (`YYYY-MM`) */

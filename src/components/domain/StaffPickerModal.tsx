@@ -13,16 +13,20 @@ import { Sparkle, Star, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
   formatTimeRange,
+  GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
   describeRecurrence,
   type AssignmentStatus,
   type EventDetail,
+  type GenderPreference,
 } from "@/type/event";
 import {
   formatRegion,
   REQUIRED_DOCUMENT_LABEL,
+  type Gender,
   type JobRole,
 } from "@/type/staff";
+import { GENDER_FILTER_OPTIONS } from "@/constants/staffOptions";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -32,6 +36,7 @@ import Modal from "@/components/ui/Modal";
 import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
 import Skeleton from "@/components/ui/Skeleton";
+import GenderMark from "./GenderMark";
 import RatingStat from "./RatingStat";
 
 interface StaffPickerModalProps {
@@ -84,6 +89,15 @@ const StaffPickerModal = ({
     draftRole ?? initialRole ?? jobRoleOptions[0]?.value ?? "STAFF";
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<AssignmentStatus>("CONFIRMED");
+  /*
+    성별 필터.
+
+    발주에 조건이 있으면 그것이 **초기값**이 되고, 담당자가 '전체 성별'로
+    되돌리면 조건과 다른 사람도 그대로 후보에 오른다.
+    현장은 '남성만' 자리에 여성을 넣는 일도 늘 있어서, 필터가 그것을 막으면
+    후보가 아예 안 보이는 날이 생긴다. 강제하지 않는다.
+  */
+  const [draftGender, setDraftGender] = useState<Gender | "" | null>(null);
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
@@ -98,12 +112,33 @@ const StaffPickerModal = ({
   const eventDates = event?.dates ?? [];
   const targetDates = draftDates ?? initialDates ?? eventDates;
 
+  /*
+    고른 근무일의 발주에 걸린 성별 조건.
+    날마다 다르면(첫날만 남성) '무관'으로 떨어뜨린다. 한쪽을 대표로 세우면
+    조건이 없는 날까지 좁혀 놓고 고르게 된다.
+  */
+  const targetSlots = (event?.days ?? [])
+    .filter((day) => targetDates.includes(day.date))
+    .flatMap((day) => day.roles.filter((item) => item.role === role));
+
+  const orderGender: GenderPreference =
+    targetSlots.length > 0 &&
+    targetSlots.every(
+      (slot) => slot.genderPreference === targetSlots[0].genderPreference,
+    )
+      ? targetSlots[0].genderPreference
+      : "ANY";
+
+  const gender =
+    draftGender ?? (orderGender === "ANY" ? "" : (orderGender as Gender));
+
   const { data, isLoading } = useAssignmentCandidateQuery(
     {
       eventId: event?.eventId ?? 0,
       role,
       keyword: keyword || undefined,
       includeUnavailable,
+      gender: gender || undefined,
       // 고른 날 기준으로 겹침을 계산해야 "이 날만 가능한 사람"이 걸러지지 않는다.
       dates: targetDates.join(","),
     },
@@ -119,9 +154,6 @@ const StaffPickerModal = ({
     행사 전체 합계로 안내하면, 일자별 근무자에서 "그 날 그 직무"를 눌러 열었을 때
     "이 날은 다 찼는데 6명이 더 필요합니다"처럼 엇갈린 말이 나온다.
   */
-  const targetSlots = (event?.days ?? [])
-    .filter((day) => targetDates.includes(day.date))
-    .flatMap((day) => day.roles.filter((item) => item.role === role));
   const hasOrder = targetSlots.length > 0;
   const shortage = targetSlots.reduce(
     (sum, item) => sum + Math.max(0, item.requiredCount - item.assignedCount),
@@ -150,6 +182,7 @@ const StaffPickerModal = ({
     setSelectedIds([]);
     setDraftDates(null);
     setDraftRole(null);
+    setDraftGender(null);
     setKeyword("");
     onClose();
   };
@@ -325,6 +358,21 @@ const StaffPickerModal = ({
               selectBoxClassName="w-36"
             />
 
+            {/*
+              성별 필터. 발주 조건이 초기값을 정할 뿐 **막지 않는다.**
+              '전체 성별'로 되돌리면 조건과 다른 사람도 그대로 보인다.
+            */}
+            <Select
+              aria-label="성별 필터"
+              options={GENDER_FILTER_OPTIONS}
+              value={gender}
+              onChange={(changeEvent) => {
+                setDraftGender(changeEvent.target.value as Gender | "");
+                setSelectedIds([]);
+              }}
+              selectBoxClassName="w-28"
+            />
+
             <Select
               aria-label="배치 상태"
               options={ASSIGNMENT_STATUS_OPTIONS}
@@ -336,6 +384,25 @@ const StaffPickerModal = ({
             />
           </div>
         </div>
+
+        {/*
+          발주에 성별 조건이 있으면 알려 준다. **막지는 않는다.**
+
+          현장은 유동적이라 '남성만'으로 받은 자리에 여성을 넣는 일도,
+          그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는 조건을 아예
+          안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
+          반드시 지켜야 하는 조건이라면 내부 메모로 따로 남긴다.
+        */}
+        {orderGender !== "ANY" && (
+          <Alert
+            tone="info"
+            title={`이 발주에는 '${GENDER_PREFERENCE_LABEL[orderGender]}' 조건이 적혀 있습니다.`}
+          >
+            참고용 표시입니다. 조건과 다른 인력도 그대로 배치할 수 있고 경고도
+            뜨지 않습니다. 위 성별 필터를 &lsquo;전체 성별&rsquo;로 바꾸면 모든
+            후보가 보입니다.
+          </Alert>
+        )}
 
         <Checkbox
           label="같은 날 다른 행사에 확정된 인력도 보기"
@@ -425,6 +492,8 @@ const StaffPickerModal = ({
                         <p className="truncate text-[14px] font-medium text-font-1">
                           {candidate.name}
                         </p>
+                        {/* 성별 조건이 걸린 발주가 있어 이름 옆에 늘 함께 보인다. */}
+                        <GenderMark gender={candidate.gender} />
                         {candidate.isFavorite && (
                           <Star size={14} className="shrink-0 text-warning" />
                         )}
@@ -498,6 +567,7 @@ const StaffPickerModal = ({
                       )}
 
                       <RatingStat
+                        reputationScore={candidate.reputationScore}
                         goodCount={candidate.goodCount}
                         badCount={candidate.badCount}
                         variant="badge"

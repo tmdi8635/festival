@@ -186,6 +186,8 @@ export const operationSettings: OperationSettings = {
     RECRUIT: "MOCK",
     MESSAGE: "MOCK",
     CLIENT: "ENABLED",
+    /* 알림을 내보낼 곳이 없어 기준값만 저장된다. 켜 두되 체험으로 표시한다. */
+    HR_POLICY: "MOCK",
   },
 
   updatedAt: daysAgo(14),

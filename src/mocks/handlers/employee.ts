@@ -6,9 +6,14 @@ import type {
   EmployeeWorkRow,
   EmployeeWorkSummary,
 } from "@/type/employee";
-import { monthKey, summarizeEmployeeHours } from "@/type/employee";
+import {
+  comparePositions,
+  monthKey,
+  summarizeEmployeeHours,
+} from "@/type/employee";
 import { resolveWorkHours } from "@/type/event";
 import type { StaffDetail } from "@/type/staff";
+import { REPUTATION_BASE_SCORE } from "@/type/staff";
 import { events } from "../db/event";
 import {
   adminRoles,
@@ -129,6 +134,8 @@ const applyForm = (
   */
   staff.name = body.name;
   staff.phoneNumber = body.phoneNumber;
+  /* 사진은 직원 폼에서만 올린다. 여기서 흘려보내지 않으면 명부와 얼굴이 갈린다. */
+  staff.profileImageUrl = body.profileImageUrl;
   staff.birthDate = body.birthDate;
   staff.gender = body.gender;
   staff.address = body.address;
@@ -137,8 +144,15 @@ const applyForm = (
   staff.position = body.position;
   staff.hireDate = body.hireDate;
   staff.baseMonthlyHours = body.tracksWorkHours ? body.baseMonthlyHours : 0;
-  /* 퇴사자는 앞으로 배치되지 않아야 한다. 지나간 기록은 그대로 남는다. */
-  staff.status = body.isActive ? "ACTIVE" : "RETIRED";
+  /*
+    퇴사 여부는 인력 상태로 옮기지 않는다.
+
+    인력 상태는 셋(대기중 · 활동중 · 블랙리스트)뿐이고, 그중 무엇도
+    "회사를 그만뒀다"를 뜻하지 않는다. 퇴사는 직원 레코드의 `isActive`가
+    들고 있고, 배치에서 거르는 것도 그 값이다. (`assignableStaff`는
+    직원의 재직 여부를 따로 본다) 여기서 상태를 건드리면 퇴사 처리 한 번에
+    인력풀에서 사람이 사라져, 지난 행사의 그 사람이 설명되지 않는다.
+  */
 };
 
 /** 이미 잡혀 있는 배치에도 이름이 박혀 있다. 함께 고치지 않으면 옛 이름이 남는다. */
@@ -189,7 +203,21 @@ export const employeeHandlers = [
           employee.roleName,
         ),
       )
-      .map((employee) => ({ ...employee, eventCount: countEvents(employee) }));
+      .map((employee) => ({ ...employee, eventCount: countEvents(employee) }))
+      /*
+        **대표 → 사원 순.**
+
+        명부를 훑는 사람은 위에서부터 읽는다. 결정권이 있는 사람이 위에 있어야
+        "누구에게 물어야 하나"가 목록 첫 줄에서 끝난다.
+        시스템 권한(직책)으로 세우지 않는다. 그건 "무엇을 할 수 있나"의 축이라
+        회사 안에서의 자리와 다르고, 최고관리자가 사원인 경우도 있다.
+        같은 직책끼리는 이름순이다.
+      */
+      .sort(
+        (a, b) =>
+          comparePositions(a.position, b.position) ||
+          a.name.localeCompare(b.name),
+      );
 
     await delay(MOCK_DELAY_MS);
 
@@ -219,7 +247,7 @@ export const employeeHandlers = [
     const url = new URL(request.url);
     const month = url.searchParams.get("month") || monthKey();
     const keyword = url.searchParams.get("keyword") ?? "";
-    const includeRetired = url.searchParams.get("includeRetired") === "true";
+    const sort = url.searchParams.get("sort") ?? "HOURS";
 
     const rows: EmployeeWorkRow[] = employees
       /*
@@ -229,7 +257,15 @@ export const employeeHandlers = [
         묻힌다. 직원 관리에서 켜고 끈다. (`tracksWorkHours`)
       */
       .filter((employee) => employee.tracksWorkHours)
-      .filter((employee) => includeRetired || employee.isActive)
+      /*
+        퇴사자도 **항상** 센다.
+
+        이 화면이 답하는 질문은 "그 달에 누가 얼마나 일했나"다. 지난 달을
+        열면 그때 일한 사람 중 지금은 퇴사한 사람이 당연히 섞여 있고,
+        그 사람의 근무는 실제로 있었던 근무다. 걸러 내면 합계가 틀린다.
+        지금 재직 중인지는 이름 옆 '(퇴사)' 표시로 충분하다.
+        '지금 이 사람이 재직 중인가'는 직원 관리가 답하는 질문이다.
+      */
       .filter((employee) =>
         matchesKeyword(keyword, employee.name, employee.position),
       )
@@ -240,22 +276,39 @@ export const employeeHandlers = [
         position: employee.position,
         phoneNumber: employee.phoneNumber,
         profileImageUrl: employee.profileImageUrl,
+        gender: employee.gender,
         isActive: employee.isActive,
         month,
         baseMonthlyHours: employee.baseMonthlyHours,
         ...summarizeMonth(employee.staffId, month),
       }))
       /*
-        많이 뛴 사람이 위다. 이 화면에서 먼저 손이 가야 하는 쪽이
+        기본은 **채움률 높은 순**이다. 이 화면에서 먼저 손이 가야 하는 쪽이
         "기준을 넘긴 사람"이고, 그 사람의 다음 달 배치를 덜어 주는 것이
         여기서 내리는 판단이기 때문이다.
+
+        절대 시간순 · 직책순도 필요하다. 기준 시간이 사람마다 달라서
+        (단축근무 120시간) 채움률만으로는 "실제로 오래 뛴 사람"이 안 보이고,
+        직책순은 팀 단위로 훑을 때 쓴다.
       */
-      .sort(
-        (a, b) =>
+      .sort((a, b) => {
+        if (sort === "HOURS") {
+          return b.workedHours - a.workedHours || a.name.localeCompare(b.name);
+        }
+
+        if (sort === "POSITION") {
+          return (
+            comparePositions(a.position, b.position) ||
+            a.name.localeCompare(b.name)
+          );
+        }
+
+        return (
           b.workedHours / (b.baseMonthlyHours || 1) -
             a.workedHours / (a.baseMonthlyHours || 1) ||
-          a.name.localeCompare(b.name),
-      );
+          a.name.localeCompare(b.name)
+        );
+      });
 
     const summary: EmployeeWorkSummary = {
       totalCount: rows.length,
@@ -315,10 +368,11 @@ export const employeeHandlers = [
       staffId,
       name: body.name,
       phoneNumber: body.phoneNumber,
-      profileImageUrl: "",
+      profileImageUrl: body.profileImageUrl,
       birthDate: body.birthDate,
       gender: body.gender,
-      status: body.isActive ? "ACTIVE" : "RETIRED",
+      /* 직원은 입사할 때 서류를 이미 냈다. 인력풀 기준으로는 늘 활동중이다. */
+      status: "ACTIVE",
       employment: "EMPLOYEE",
       /* 직원은 직무 조건 없이 모든 자리에 들어간다. (후보 조회가 건너뛴다) */
       roles: [],
@@ -330,6 +384,7 @@ export const employeeHandlers = [
       totalWorkHours: 0,
       noShowCount: 0,
       lateCount: 0,
+      reputationScore: REPUTATION_BASE_SCORE,
       goodCount: 0,
       badCount: 0,
       isFavorite: false,

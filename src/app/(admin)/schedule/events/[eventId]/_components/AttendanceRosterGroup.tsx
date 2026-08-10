@@ -106,6 +106,8 @@ const AttendanceRosterGroup = ({
             <StaffCell
               name={first.staffName}
               phoneNumber={first.staffPhone}
+              profileImageUrl={first.staffProfileImageUrl}
+              gender={first.staffGender}
               badge={<Badge tone="neutral">{roleLabel(first.role)}</Badge>}
             />
           </button>

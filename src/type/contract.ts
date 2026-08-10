@@ -6,6 +6,7 @@ import {
   type WageType,
 } from "./event";
 import type { JobRole } from "./staff";
+import { formatPhoneNumber } from "./staff";
 
 /**
  * 근로계약서 도메인 타입.
@@ -830,7 +831,7 @@ export const buildContractValues = (
 ): Record<string, string> => ({
   이름: contract.staffName,
   생년월일: contract.staffBirthDate || "-",
-  연락처: contract.staffPhone,
+  연락처: formatPhoneNumber(contract.staffPhone),
   주소: contract.staffAddress || "-",
   행사명: contract.eventTitle,
   근무일: formatWorkDates(contract.workDates),
@@ -888,7 +889,7 @@ const buildAutoFields = (
         { label: "사업장 주소", value: template.companyAddress },
         { label: "근로자(을) 성명", value: contract.staffName },
         { label: "생년월일", value: contract.staffBirthDate || "-" },
-        { label: "연락처", value: contract.staffPhone },
+        { label: "연락처", value: formatPhoneNumber(contract.staffPhone) },
         { label: "주소", value: contract.staffAddress || "-" },
       ];
 

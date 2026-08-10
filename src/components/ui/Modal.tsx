@@ -106,6 +106,7 @@ const Modal = ({
 
   /* 겹쳐 열린 창들 사이에서 자기를 알아보는 표식. 값 자체에는 뜻이 없다. */
   const idRef = useRef<symbol>(Symbol("modal"));
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -144,6 +145,34 @@ const Modal = ({
     };
   }, [isOpen, onClose, onSubmit]);
 
+  /*
+    창이 열리면 포커스를 창 안으로 들여온다.
+
+    이걸 하지 않으면 창을 연 단추에 포커스가 그대로 남고, `shouldIgnoreEnter`가
+    "버튼 위에서의 Enter"로 보아 걸러 버린다. 그래서 '배치를 해제할까요?' 같은
+    확인창에서 Enter가 아무 일도 하지 않았다. 지금 키를 받아야 하는 것은
+    **맨 위에 뜬 이 창**이다.
+
+    열고 닫을 때 **한 번씩만** 움직여야 하므로 키 처리와 효과를 나눠 둔다.
+    `onSubmit`은 대개 렌더마다 새로 만들어지는 함수라, 한 효과에 묶으면
+    글자를 한 자 칠 때마다 포커스가 입력칸에서 창 바깥틀로 튕겨 나간다.
+  */
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // 돌려줄 곳은 열기 직전에 잡아 둔다. 안 되돌리면 닫는 순간 문서 맨 앞으로 튕긴다.
+    const previousFocus = document.activeElement as HTMLElement | null;
+
+    panelRef.current?.focus({ preventScroll: true });
+
+    return () => {
+      // 이미 화면에서 사라진 요소로 되돌리면 포커스가 body로 떨어진다.
+      if (previousFocus?.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, [isOpen]);
+
   if (!isClient || !isOpen) return null;
 
   return createPortal(
@@ -152,11 +181,14 @@ const Modal = ({
       className="animate-fade-in fixed inset-0 z-100 flex items-center justify-center bg-overlay p-3 backdrop-blur-[2px] sm:p-6"
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        /* 포커스를 받을 수 있어야 Enter · Escape가 이 창의 것이 된다. (탭 순서에는 끼지 않는다) */
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
         className={cn(
-          "animate-slide-up flex max-h-[calc(100dvh-24px)] w-full max-w-full flex-col overflow-hidden rounded-modal bg-surface shadow-modal sm:max-h-[calc(100dvh-96px)]",
+          "animate-slide-up flex max-h-[calc(100dvh-24px)] w-full max-w-full flex-col overflow-hidden rounded-modal bg-surface shadow-modal outline-none sm:max-h-[calc(100dvh-96px)]",
           SIZE_CLASS[size],
           className,
         )}

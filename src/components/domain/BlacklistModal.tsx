@@ -5,7 +5,11 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { blacklistSchema, type BlacklistSchema } from "@/schema/staff.schema";
-import { calculateReputationScore, type StaffDetail } from "@/type/staff";
+import {
+  REPUTATION_TIER_LABEL,
+  resolveReputationTier,
+  type StaffDetail,
+} from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
@@ -81,11 +85,8 @@ const BlacklistModal = ({ staff, onClose }: BlacklistModalProps) => {
         {staff && staff.noShowCount > 0 && (
           <div className="rounded-field border border-border-main bg-subtle px-4 py-3 text-[13px] text-font-2">
             누적 기록: 노쇼 {staff.noShowCount}회 · 지각 {staff.lateCount}회 ·
-            평판{" "}
-            {calculateReputationScore(
-              staff.goodCount,
-              staff.badCount,
-            ).toFixed(1)}{" "}
+            평판 {staff.reputationScore}점{" "}
+            {REPUTATION_TIER_LABEL[resolveReputationTier(staff.reputationScore)]}{" "}
             (좋아요 {staff.goodCount} · 별로 {staff.badCount}) ·
             누적 근무 {staff.workCount}회
           </div>

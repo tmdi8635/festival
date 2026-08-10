@@ -2,7 +2,9 @@ import type { BadgeTone, SelectOption } from "@/components/ui";
 import {
   ATTENDANCE_STATUS_LABEL,
   GENDER_LABEL,
+  resolveReputationTier,
   type AttendanceStatus,
+  type ReputationTier,
   type StaffStatus,
 } from "@/type/staff";
 
@@ -14,17 +16,28 @@ import {
  * `@/store/useOrgStore`의 `useJobRoleOptions()`에서 가져온다.
  */
 export const STAFF_STATUS_LABEL: Record<StaffStatus, string> = {
+  PENDING: "대기중",
   ACTIVE: "활동중",
-  DORMANT: "휴면",
   BLACKLIST: "블랙리스트",
-  RETIRED: "활동종료",
 };
 
+/**
+ * 대기중이 `warning`인 이유.
+ *
+ * 서류가 없어 **지금 부를 수 없는 사람**이다. 중립색으로 두면 목록에서
+ * 활동중과 구분되지 않고, 배치하려다 확정 단계에서야 막힌다.
+ */
 export const STAFF_STATUS_TONE: Record<StaffStatus, BadgeTone> = {
+  PENDING: "warning",
   ACTIVE: "success",
-  DORMANT: "warning",
   BLACKLIST: "danger",
-  RETIRED: "neutral",
+};
+
+/** 상태별로 지금 무엇을 뜻하는지. 배지 옆·필터 안내에 그대로 쓴다. */
+export const STAFF_STATUS_HINT: Record<StaffStatus, string> = {
+  PENDING: "신분증 · 통장사본이 없어 확정 배치할 수 없습니다.",
+  ACTIVE: "필요한 서류를 모두 냈습니다. 배치할 수 있습니다.",
+  BLACKLIST: "에이전시가 지정했습니다. 배치 대상에서 빠집니다.",
 };
 
 export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatus, BadgeTone> = {
@@ -39,20 +52,25 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatus, BadgeTone> = {
 export const STAFF_STATUS_FILTER_OPTIONS: SelectOption[] = [
   { label: "전체 상태", value: "" },
   { label: STAFF_STATUS_LABEL.ACTIVE, value: "ACTIVE" },
-  { label: STAFF_STATUS_LABEL.DORMANT, value: "DORMANT" },
+  { label: STAFF_STATUS_LABEL.PENDING, value: "PENDING" },
   { label: STAFF_STATUS_LABEL.BLACKLIST, value: "BLACKLIST" },
-  { label: STAFF_STATUS_LABEL.RETIRED, value: "RETIRED" },
-];
-
-export const STAFF_STATUS_OPTIONS: SelectOption[] = [
-  { label: STAFF_STATUS_LABEL.ACTIVE, value: "ACTIVE" },
-  { label: STAFF_STATUS_LABEL.DORMANT, value: "DORMANT" },
-  { label: STAFF_STATUS_LABEL.RETIRED, value: "RETIRED" },
 ];
 
 export const GENDER_OPTIONS: SelectOption[] = [
   { label: GENDER_LABEL.FEMALE, value: "FEMALE" },
   { label: GENDER_LABEL.MALE, value: "MALE" },
+];
+
+/**
+ * 배치 후보를 성별로 좁힐 때 쓰는 선택지.
+ *
+ * 발주에 성별 조건이 있으면 이 값의 **초기값**이 그 조건으로 깔린다.
+ * 다만 언제든 '전체 성별'로 되돌릴 수 있어야 한다. 현장은 조건과 다르게
+ * 뽑는 일이 늘 있고, 필터가 그것을 막으면 후보가 아예 안 보인다.
+ */
+export const GENDER_FILTER_OPTIONS: SelectOption[] = [
+  { label: "전체 성별", value: "" },
+  ...GENDER_OPTIONS,
 ];
 
 /** 서류 제출 여부 필터. 정산 계좌를 확정할 수 있는지와 직결된다. */
@@ -109,20 +127,21 @@ export const BULK_ATTENDANCE_OPTIONS: {
 ];
 
 /**
- * 평판 점수 구간별 색.
+ * 평판 등급별 색.
  *
- * 색은 **평판 점수**로 고른다. 단순 평균으로 고르면 1건 5.0이
- * 40건 4.3보다 진한 색을 달고 목록에서 더 좋아 보인다.
- * 평판 점수는 이미 표본 수를 반영하고 있어 건수를 따로 볼 필요가 없다.
+ * 구간 판정은 `resolveReputationTier`(`type/staff.ts`) 한 곳이 하고,
+ * 여기서는 그 결과를 색으로만 옮긴다. 두 곳에서 각각 숫자를 비교하면
+ * 배지 색과 옆에 적힌 등급 이름이 서로 다른 말을 하는 날이 온다.
  *
- * 구간은 기본 점수(3.6)를 가운데 두고 나눈다.
- * 기본선 근처는 '아직 판단할 근거가 없다'는 뜻이라 색을 죽인다.
+ * 기준점(1000) 근처는 '아직 판단할 근거가 없다'는 뜻이라 색을 죽인다.
  */
-export const resolveRatingTone = (reputationScore: number): BadgeTone => {
-  if (reputationScore >= 4.3) return "success";
-  if (reputationScore >= 4) return "info";
-  if (reputationScore >= 3.5) return "neutral";
-  if (reputationScore >= 3.2) return "warning";
-
-  return "danger";
+export const REPUTATION_TIER_TONE: Record<ReputationTier, BadgeTone> = {
+  GREAT: "success",
+  GOOD: "info",
+  NORMAL: "neutral",
+  CAUTION: "warning",
+  RISK: "danger",
 };
+
+export const resolveRatingTone = (reputationScore: number): BadgeTone =>
+  REPUTATION_TIER_TONE[resolveReputationTier(reputationScore)];

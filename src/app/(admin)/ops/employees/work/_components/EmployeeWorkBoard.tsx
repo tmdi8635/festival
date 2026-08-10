@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useEmployeeWorkQuery } from "@/api/employee/getEmployeeWork";
+import {
+  useEmployeeWorkQuery,
+  type EmployeeWorkSort,
+} from "@/api/employee/getEmployeeWork";
 import { Clock, TrendUp, Users, Warning } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { cn } from "@/lib/utils";
@@ -15,10 +18,10 @@ import {
 import { formatPhoneNumber } from "@/type/staff";
 import Badge from "@/components/ui/Badge";
 import Card from "@/components/ui/Card";
-import Checkbox from "@/components/ui/Checkbox";
 import CsvExportButton from "@/components/ui/CsvExportButton";
 import MonthPicker from "@/components/ui/MonthPicker";
 import SearchInput from "@/components/ui/SearchInput";
+import Select from "@/components/ui/Select";
 import Table, { type TableColumn } from "@/components/ui/Table";
 import StaffCell from "@/components/domain/StaffCell";
 import StatTile from "@/components/domain/StatTile";
@@ -37,6 +40,13 @@ const BAR_TONE_CLASS = {
   warning: "bg-warning",
   danger: "bg-danger",
 } as const;
+
+/** 정렬 선택지. 기본은 채움률이다. */
+const WORK_SORT_OPTIONS = [
+  { label: "채움률 높은순", value: "RATE" },
+  { label: "근무시간 많은순", value: "HOURS" },
+  { label: "직책순", value: "POSITION" },
+];
 
 const WORK_CSV_COLUMNS: CsvColumn<EmployeeWorkRow>[] = [
   { header: "이름", value: (row) => row.name },
@@ -83,14 +93,14 @@ const WORK_CSV_COLUMNS: CsvColumn<EmployeeWorkRow>[] = [
 const EmployeeWorkBoard = () => {
   const [month, setMonth] = useState(monthKey());
   const [keyword, setKeyword] = useState("");
-  const [includeRetired, setIncludeRetired] = useState(false);
+  const [sort, setSort] = useState<EmployeeWorkSort>("RATE");
   /** 상세를 열어 둔 줄. 표 아래에 펴는 대신 모달로 올린다. */
   const [detailRow, setDetailRow] = useState<EmployeeWorkRow | null>(null);
 
   const { data, isLoading } = useEmployeeWorkQuery({
     month,
     keyword: keyword || undefined,
-    includeRetired,
+    sort,
   });
 
   const rows = data?.items ?? [];
@@ -101,16 +111,17 @@ const EmployeeWorkBoard = () => {
       key: "employee",
       header: "직원",
       render: (row) => (
+        /*
+          퇴사자도 이 표에 그대로 선다. 지난 달을 열면 그때 일한 사람이
+          지금은 퇴사자일 뿐이고, 그 근무는 실제로 있었던 근무다.
+          체크박스로 걸러 내면 합계가 틀린다.
+        */
         <StaffCell
           name={row.name}
           profileImageUrl={row.profileImageUrl}
-          secondary={formatPhoneNumber(row.phoneNumber)}
-          badge={
-            <>
-              <Badge tone="info">{row.position}</Badge>
-              {!row.isActive && <Badge tone="neutral">퇴사</Badge>}
-            </>
-          }
+          gender={row.gender}
+          secondary={`${row.position} · ${formatPhoneNumber(row.phoneNumber)}`}
+          badge={!row.isActive ? <Badge tone="neutral">퇴사</Badge> : undefined}
         />
       ),
     },
@@ -120,6 +131,13 @@ const EmployeeWorkBoard = () => {
         숫자만 적으면 "82시간"이 많은지 적은지 읽는 사람마다 다르게 보므로,
         기준 대비 어디쯤인지를 막대로 함께 그린다.
       */
+      /*
+        **이 칸이 화면의 본문이다.**
+
+        "82시간"이라는 숫자만으로는 많은지 적은지 읽는 사람마다 다르게 보므로
+        기준 대비 어디쯤인지를 막대로 함께 그린다. 자리를 넉넉히 주고 막대를
+        두껍게 둔다 — 이 표에서 눈이 가장 먼저 닿아야 하는 곳이다.
+      */
       key: "hours",
       header: "근무시간 / 기준",
       render: (row) => {
@@ -128,26 +146,31 @@ const EmployeeWorkBoard = () => {
         const tone = resolveEmployeeHourTone(rate);
 
         return (
-          <div className="flex min-w-44 flex-col gap-1">
+          <div className="flex min-w-64 flex-col gap-1.5">
             <div className="flex items-baseline justify-between gap-2">
               <span
                 className={cn(
-                  "text-[14px] font-medium tabular-nums",
+                  "text-[16px] font-semibold tabular-nums",
                   HOUR_TONE_CLASS[tone],
                 )}
               >
                 {row.workedHours}
-                <span className="text-font-2">
+                <span className="text-[13px] font-normal text-font-2">
                   {" "}
                   / {row.baseMonthlyHours}시간
                 </span>
               </span>
-              <span className="text-[12px] text-font-2 tabular-nums">
+              <span
+                className={cn(
+                  "text-[13px] font-medium tabular-nums",
+                  HOUR_TONE_CLASS[tone],
+                )}
+              >
                 {rate}%
               </span>
             </div>
 
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-subtle">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-subtle">
               <div
                 className={cn("h-full rounded-full", BAR_TONE_CLASS[tone])}
                 style={{ width: `${Math.min(100, rate)}%` }}
@@ -175,18 +198,6 @@ const EmployeeWorkBoard = () => {
       align: "right",
       numeric: true,
       render: (row) => <span className="tabular-nums">{row.workedDays}일</span>,
-    },
-    {
-      key: "events",
-      header: "참여 행사",
-      align: "right",
-      numeric: true,
-      render: (row) =>
-        row.events.length > 0 ? (
-          <span className="tabular-nums">{row.events.length}건</span>
-        ) : (
-          <span className="text-font-disabled">-</span>
-        ),
     },
   ];
 
@@ -244,10 +255,21 @@ const EmployeeWorkBoard = () => {
               placeholder="이름 · 직책 검색"
             />
 
-            <Checkbox
-              label="퇴사자 포함"
-              checked={includeRetired}
-              onChange={(event) => setIncludeRetired(event.target.checked)}
+            {/*
+              정렬.
+
+              기본은 채움률이지만 기준 시간이 사람마다 달라(단축근무 120시간)
+              "실제로 오래 뛴 사람"은 절대 시간으로 봐야 보인다.
+              직책순은 팀 단위로 훑을 때 쓴다.
+            */}
+            <Select
+              aria-label="정렬 기준"
+              options={WORK_SORT_OPTIONS}
+              value={sort}
+              onChange={(event) =>
+                setSort(event.target.value as EmployeeWorkSort)
+              }
+              selectBoxClassName="w-36"
             />
 
             <CsvExportButton

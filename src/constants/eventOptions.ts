@@ -3,6 +3,7 @@ import {
   ASSIGNMENT_STATUS_LABEL,
   EVENT_STATUS_FLOW,
   EVENT_STATUS_LABEL,
+  GENDER_PREFERENCE_LABEL,
   RECURRENCE_PRESET_HINT,
   RECURRENCE_PRESET_LABEL,
   WAGE_TYPE_LABEL,
@@ -137,3 +138,16 @@ export const RECURRENCE_BADGE_TONE: BadgeTone = "info";
 export const WAGE_TYPE_OPTIONS: SelectOption[] = (
   ["HOURLY", "DAILY"] as const
 ).map((wageType) => ({ label: WAGE_TYPE_LABEL[wageType], value: wageType }));
+
+/**
+ * 발주의 성별 조건 선택지.
+ *
+ * '무관'이 맨 앞이자 기본값이다. 대부분의 발주에 조건이 없고,
+ * 조건을 고르는 것이 예외라는 사실이 목록 순서에서도 읽혀야 한다.
+ */
+export const GENDER_PREFERENCE_OPTIONS: SelectOption[] = (
+  ["ANY", "MALE", "FEMALE"] as const
+).map((preference) => ({
+  label: GENDER_PREFERENCE_LABEL[preference],
+  value: preference,
+}));

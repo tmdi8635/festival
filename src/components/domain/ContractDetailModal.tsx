@@ -12,7 +12,8 @@ import { Download, ImageIcon, Refresh, Trash } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import {
   downloadContractAsImage,
-  printContractAsPdf,
+  downloadContractAsPdf,
+  openContractPdf,
 } from "@/lib/contractFile";
 import { showErrorToast } from "@/lib/toast";
 import { openConfirm } from "@/store/useConfirmStore";
@@ -33,7 +34,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import ContractAmendModal from "./ContractAmendModal";
 import ContractFilePreview from "./ContractFilePreview";
-import ContractSheetView from "./ContractSheetView";
+import ContractPreviewCard from "./ContractPreviewCard";
 import ContractUploadZone from "./ContractUploadZone";
 import CopyButton from "./CopyButton";
 
@@ -82,6 +83,9 @@ const ContractDetailModal = ({
   onClose,
 }: ContractDetailModalProps) => {
   const [amendTarget, setAmendTarget] = useState<Contract | null>(null);
+  /* PDF는 지면을 이미지로 굽는 과정이 있어 잠깐 걸린다. 눌린 것이 보여야 한다. */
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isOpeningPdf, setIsOpeningPdf] = useState(false);
   /** 보고 있는 차수. 비우면 지금 유효한 차수를 본다. */
   const [viewingContractId, setViewingContractId] = useState<number | null>(
     null,
@@ -199,6 +203,35 @@ const ContractDetailModal = ({
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!document) return;
+
+    setIsDownloadingPdf(true);
+
+    try {
+      await downloadContractAsPdf(document, fileName("pdf"));
+    } catch (error) {
+      showErrorToast(error, "계약서를 PDF로 만들지 못했습니다.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  /** 조항을 실제로 읽어야 할 때. 보고 있던 화면은 그대로 남는다. */
+  const handleOpenPdf = async () => {
+    if (!document) return;
+
+    setIsOpeningPdf(true);
+
+    try {
+      await openContractPdf(document);
+    } catch (error) {
+      showErrorToast(error, "계약서를 열지 못했습니다.");
+    } finally {
+      setIsOpeningPdf(false);
+    }
+  };
+
   const handleRegister = (file: {
     fileUrl: string;
     fileName: string;
@@ -285,13 +318,19 @@ const ContractDetailModal = ({
                   이미지
                 </Button>
 
+                {/*
+                  인쇄 대화상자를 거치지 않고 파일을 직접 만든다.
+                  대화상자를 거치면 사람이 'PDF로 저장'을 고르지 않는 한
+                  파일이 남지 않고, 파일명도 매번 확인해 줘야 했다.
+                */}
                 <Button
                   variant="primary"
                   leftIcon={<Download size={15} />}
-                  onClick={() => printContractAsPdf(fileName("pdf"))}
-                  title="인쇄 대화상자에서 'PDF로 저장'을 고르면 파일로 남습니다."
+                  isLoading={isDownloadingPdf}
+                  onClick={handleDownloadPdf}
+                  title={`${fileName("pdf")} 으로 저장됩니다.`}
                 >
-                  PDF · 인쇄
+                  PDF 내려받기
                 </Button>
               </div>
             </div>
@@ -484,11 +523,18 @@ const ContractDetailModal = ({
             )}
 
             {/*
-              문서 본문.
-              내려받는 것도, 인쇄하는 것도 이 문서 그대로다.
-              (`printContractAsPdf`가 `.contract-print-area`만 인쇄한다)
+              미리보기.
+
+              A4 지면을 전부 그려 두면 조항이 많은 문서에서 모달이 문서로
+              가득 차고, 정작 여기서 할 일(내려받아 배부 · 서명본 등록)이
+              스크롤 저 아래로 밀린다. 첫 장만 작게 보여 주고,
+              조항을 실제로 읽어야 할 때는 새 창에서 PDF로 연다.
             */}
-            <ContractSheetView document={document} />
+            <ContractPreviewCard
+              document={document}
+              isOpening={isOpeningPdf}
+              onOpenPdf={handleOpenPdf}
+            />
           </div>
         )}
       </Modal>

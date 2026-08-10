@@ -63,6 +63,21 @@ export const useHasPermission = (required: PermissionKey): boolean =>
     hasPermission(state.admin?.permissions, required, state.admin?.isSuperAdmin),
   );
 
+/**
+ * 최고관리자인가.
+ *
+ * **권한 키로 표현할 수 없는 일에만** 쓴다. 지금은 근무 평가 삭제 하나다.
+ * 평가는 한 번 남기면 고칠 수 없어야 공정한데(그래야 나중에 이해관계가
+ * 생겼을 때 지난 평가를 손보지 못한다), 잘못 남긴 것을 되돌릴 길은 있어야 한다.
+ * 그 길을 `staff:write` 같은 일상 권한에 붙이면 결국 아무나 지우게 되므로
+ * 되돌릴 책임을 지는 한 사람에게만 연다.
+ *
+ * 다른 곳에서는 쓰지 않는다. 직책 이름이나 계정 종류로 판단하기 시작하면
+ * 직책을 새로 만드는 순간 규칙이 어긋난다.
+ */
+export const useIsSuperAdmin = (): boolean =>
+  useAdminStore((state) => Boolean(state.admin?.isSuperAdmin));
+
 /** 여러 권한 중 하나라도 있는지. 메뉴처럼 "무엇이든 볼 수 있으면 연다"에 쓴다. */
 export const useHasAnyPermission = (required: PermissionKey[]): boolean =>
   useAdminStore((state) =>

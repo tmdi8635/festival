@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Calendar, ChevronRight, Clock } from "@/icons";
+import { Calendar, Clock, ExternalLink } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { cn } from "@/lib/utils";
 import {
@@ -201,8 +201,19 @@ const EmployeeWorkDetailModal = ({
               <ul className="flex flex-col gap-2">
                 {row.events.map((event) => (
                   <li key={event.eventId}>
+                    {/*
+                      행사는 **새 탭**으로 연다.
+
+                      이 목록은 모달 안에 있다. 같은 탭에서 넘어가면 보고 있던
+                      근무 상세가 통째로 사라지고, 돌아오려면 달을 다시 고르고
+                      사람을 다시 찾아야 한다. 여기서 하는 일은 "어느 현장이
+                      길었나"를 훑는 것이라 원래 화면이 남아 있어야 한다.
+                    */}
                     <Link
                       href={`/schedule/events/${event.eventId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="새 탭에서 행사 상세를 엽니다."
                       className="flex items-center gap-3 rounded-card border border-border-main px-4 py-3 transition hover:-translate-y-px hover:border-brand hover:bg-surface-hover hover:shadow-card"
                     >
                       <div className="min-w-0 flex-1">
@@ -236,7 +247,7 @@ const EmployeeWorkDetailModal = ({
                         </p>
                       </div>
 
-                      <ChevronRight size={16} className="shrink-0 text-font-2" />
+                      <ExternalLink size={15} className="shrink-0 text-font-2" />
                     </Link>
                   </li>
                 ))}

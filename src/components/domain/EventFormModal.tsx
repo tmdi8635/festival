@@ -8,6 +8,7 @@ import { useHasPermission } from "@/store/useAdminStore";
 import { useEventMutation } from "@/api/event/mutateEvent";
 import {
   BREAK_MINUTE_OPTIONS,
+  GENDER_PREFERENCE_OPTIONS,
   WAGE_TYPE_OPTIONS,
 } from "@/constants/eventOptions";
 import { Plus, Trash } from "@/icons";
@@ -31,6 +32,7 @@ import {
   type DayOffset,
   type EventDetail,
   type EventRecurrence,
+  type GenderPreference,
   type WageType,
 } from "@/type/event";
 import type { JobRole } from "@/type/staff";
@@ -136,6 +138,8 @@ const EventFormModal = ({
               assignedCount: 0,
               wageType: role.defaultWageType,
               wage: role.defaultWage,
+              /* 조건이 있는 발주가 예외다. 기본은 언제나 무관이다. */
+              genderPreference: "ANY" as const,
             })),
           },
     );
@@ -635,6 +639,32 @@ const EventFormModal = ({
                       </span>
                     }
                     inputBoxClassName="min-w-28 flex-1"
+                  />
+
+                  {/*
+                    성별 조건.
+
+                    컨퍼런스 안내는 여성만, 설치 · 철거는 남성만으로 발주가 오는
+                    일이 실제로 있다. **적어 두기만 한다** — 배치에서 막지 않고,
+                    조건과 다른 사람을 넣어도 경고조차 띄우지 않는다.
+                    현장은 유동적이고, 강제하는 순간 아무도 안 적게 된다.
+                  */}
+                  <Controller
+                    control={control}
+                    name={`roles.${index}.genderPreference`}
+                    render={({ field: genderField }) => (
+                      <Select
+                        aria-label="성별 조건"
+                        options={GENDER_PREFERENCE_OPTIONS}
+                        value={genderField.value}
+                        onChange={(changeEvent) =>
+                          genderField.onChange(
+                            changeEvent.target.value as GenderPreference,
+                          )
+                        }
+                        selectBoxClassName="w-28 shrink-0"
+                      />
+                    )}
                   />
 
                   <IconButton

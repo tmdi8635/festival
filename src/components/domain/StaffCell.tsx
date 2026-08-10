@@ -1,14 +1,22 @@
 import { ReactNode } from "react";
 import Image from "next/image";
 import { Star } from "@/icons";
-import { formatPhoneNumber } from "@/type/staff";
+import { formatPhoneNumber, type Gender } from "@/type/staff";
 import { TableCellStack } from "@/components/ui/Table";
 import FavoriteToggle from "./FavoriteToggle";
+import GenderMark from "./GenderMark";
 
 interface StaffCellProps {
   name: string;
   phoneNumber?: string;
   profileImageUrl?: string;
+  /**
+   * 성별.
+   *
+   * 행사에 성별 조건이 걸리는 자리가 있어(컨퍼런스 안내 · 설치 철거)
+   * 사람을 고르는 화면에서는 늘 함께 보여야 한다. 없으면 그리지 않는다.
+   */
+  gender?: Gender;
   /** 즐겨찾기면 이름 옆에 별을 붙인다. */
   isFavorite?: boolean;
   /**
@@ -36,6 +44,7 @@ const StaffCell = ({
   name,
   phoneNumber,
   profileImageUrl,
+  gender,
   isFavorite = false,
   staffId,
   secondary,
@@ -61,6 +70,9 @@ const StaffCell = ({
           primary={
             <span className="flex items-center gap-1.5">
               {name}
+
+              {/* 성별은 이름에 가장 가까이. 곁가지지만 이름과 함께 읽혀야 한다. */}
+              <GenderMark gender={gender} />
 
               {staffId !== undefined ? (
                 <FavoriteToggle
