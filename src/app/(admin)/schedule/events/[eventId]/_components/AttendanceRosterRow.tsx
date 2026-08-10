@@ -84,6 +84,13 @@ const AttendanceRosterRow = ({
           title="인력 상세를 엽니다."
         >
           <span className="inline-flex items-center gap-1">
+            {/*
+              메인팀장은 직무 순서보다 앞에 세운다. 그 사실을 표시하지 않으면
+              스태프가 팀장 위에 있는 것처럼 보여 정렬이 깨진 줄 안다.
+            */}
+            {assignment.staffId === event.mainSupervisorStaffId && (
+              <Star size={11} className="shrink-0 text-brand" />
+            )}
             {assignment.staffName}
             <GenderMark gender={assignment.staffGender} size={12} />
           </span>

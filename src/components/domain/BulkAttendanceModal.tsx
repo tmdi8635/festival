@@ -309,7 +309,8 @@ const BulkAttendanceModal = ({
                     />
                   </FormField>
 
-                  <FormField label="휴게시간">
+                  {/* 출퇴근 사이에 포함된 시간이다. 09~18시에 60분이면 실근무 8시간. */}
+                  <FormField label="휴게시간" hint="출퇴근 시간 안에 포함">
                     <Input
                       type="number"
                       min={0}

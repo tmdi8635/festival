@@ -25,9 +25,21 @@ export interface RegisterContractRequest {
   fileUrl: string;
   fileName: string;
   mimeType: string;
+  /**
+   * 결과를 토스트로 알리지 않는다. **일괄 등록에서만 켠다.**
+   *
+   * 서른 장을 올리면 성공 토스트가 서른 개 쌓여 결과 화면을 덮는다.
+   * 일괄은 자기 화면에 성공 · 실패를 나란히 세워 보여 주므로 토스트가 필요 없다.
+   */
+  isSilent?: boolean;
 }
 
-export const registerContract = async (body: RegisterContractRequest) => {
+export const registerContract = async ({
+  isSilent,
+  ...body
+}: RegisterContractRequest) => {
+  void isSilent;
+
   const response = await adminAxios.post<Contract>(
     "/admin/contracts/register",
     body,
@@ -125,7 +137,20 @@ export const useContractMutation = () => {
     RegisterContractRequest
   >({
     mutationFn: registerContract,
-    onSuccess: (contract) => {
+    onSuccess: (contract, variables) => {
+      /*
+        일괄 등록에서는 토스트를 띄우지 않는다.
+
+        서른 장을 올리면 토스트가 서른 개 쌓여 화면을 덮고, 정작 결과를
+        읽어야 하는 모달이 그 뒤로 가려진다. 게다가 성공만 알리므로
+        실패한 두 장은 그 더미 속에서 아예 보이지 않는다.
+        일괄은 자기 화면에 성공 · 실패를 나란히 세워 보여 준다.
+      */
+      if (variables.isSilent) {
+        invalidateContract();
+        return;
+      }
+
       showAppToast(
         "success",
         `${contract.staffName}님의 근로계약서를 등록했습니다.`,

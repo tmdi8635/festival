@@ -410,9 +410,16 @@ const EventFormModal = ({
             />
           </FormField>
 
+          {/*
+            휴게시간은 **근무 시간 안에 포함된 시간**이다.
+
+            09:00~18:00에 휴게 1시간이면 그 아홉 시간 중 한 시간을 쉰 것이라
+            실근무는 8시간이다. 아홉 시간을 일하고 한 시간을 더 쉬는 것이 아니다.
+            숫자만 적어 두면 어느 쪽인지 읽는 사람마다 다르게 보므로 못 박아 둔다.
+          */}
           <FormField
             label="휴게시간"
-            hint={`실근무 ${workHoursLabel}`}
+            hint={`근무 시간 안에 포함 · 실근무 ${workHoursLabel}`}
             error={errors.breakMinutes?.message}
           >
             <Controller

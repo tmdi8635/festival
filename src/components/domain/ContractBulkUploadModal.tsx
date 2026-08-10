@@ -211,6 +211,8 @@ const ContractBulkUploadModal = ({
           fileUrl: uploaded.originalUrl,
           fileName: file.name,
           mimeType: file.type,
+          /* 결과는 이 화면이 한 번에 보여 준다. 낱건 토스트는 화면만 덮는다. */
+          isSilent: true,
         });
 
         push("SUCCESS", `${resolved.target.staffName}님에게 등록했습니다.`);

@@ -644,23 +644,30 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     managerName: MANAGERS[index % MANAGERS.length].name,
     managerPhone: MANAGERS[index % MANAGERS.length].phoneNumber,
     /*
-      메인팀장은 **직원이 있으면 직원**, 없으면 확정된 팀장 중 첫 사람이다.
+      메인팀장은 **팀장으로 배치된 사람 중 한 명**이다.
 
-      실제 현장이 그렇게 돌아간다. 대행사가 슈퍼바이저 TO를 주면 우리 직원이
-      메인을 잡고, 그 아래를 프리랜서 팀장 · 시급제 알바가 채운다.
-      직원이 안 들어간 행사에서만 프리랜서 팀장이 메인을 맡는다.
+      대행사가 슈퍼바이저 TO를 주면 우리 직원이 메인을 잡고, 그 아래를
+      프리랜서 팀장 · 시급제 알바가 채운다. 그래서 팀장 중에서도 직원을 먼저 본다.
 
-      실제로는 담당자가 행사 상세에서 지정하지만, 시드가 전부 비어 있으면
-      캘린더에서 이 자리가 무엇을 하는지 확인할 수 없다.
+      직무를 보지 않고 '직원이면 무조건'으로 고르면 안 된다. 직원이 그날
+      스태프 자리에 들어간 행사에서 그 사람이 메인팀장이 되고, 명단은
+      메인팀장을 맨 앞에 세우므로(`byMainSupervisorFirst`) **스태프 한 명이
+      팀장 위에 서서 직무 순서가 깨져 보인다.** 실제로 그렇게 깨져 있었다.
+
+      실제로는 담당자가 행사 상세에서 지정한다. (거기서는 설치 팀장처럼
+      다른 직무도 고를 수 있다 — 현장에 그런 경우가 있다)
+      시드가 전부 비어 있으면 캘린더에서 이 자리가 무엇을 하는지 확인할 수 없어
+      여기서 그럴듯한 값을 깔아 둔다.
     */
     ...(() => {
-      const confirmed = assignments.filter(
-        (assignment) => assignment.status === "CONFIRMED",
+      const supervisors = assignments.filter(
+        (assignment) =>
+          assignment.status === "CONFIRMED" && assignment.role === "SUPERVISOR",
       );
 
       const main =
-        confirmed.find((assignment) => assignment.isEmployee) ??
-        confirmed.find((assignment) => assignment.role === "SUPERVISOR");
+        supervisors.find((assignment) => assignment.isEmployee) ??
+        supervisors[0];
 
       return main
         ? {

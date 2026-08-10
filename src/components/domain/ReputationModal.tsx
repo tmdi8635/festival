@@ -75,19 +75,17 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
     항목을 하나도 고르지 않았을 때의 기본 방향으로도 쓰인다.
   */
   const [palette, setPalette] = useState<ReputationVerdict>("GOOD");
-  const [draft, setDraft] = useState<{
-    tags: string[];
-    comment: string;
-  } | null>(null);
-
-  const tags = draft?.tags ?? [];
-  const comment = draft?.comment ?? "";
-
-  const patch = (next: Partial<{ tags: string[]; comment: string }>) =>
-    setDraft({ tags, comment, ...next });
+  /*
+    여기는 **새로 쓰는 화면이라** 서버 값을 비출 일이 없다.
+    (이미 평가가 있으면 읽기 전용으로 갈라진다) 그래서 draft 패턴 없이
+    평범한 상태를 쓴다.
+  */
+  const [tags, setTags] = useState<string[]>([]);
+  const [comment, setComment] = useState("");
 
   const handleClose = () => {
-    setDraft(null);
+    setTags([]);
+    setComment("");
     setPalette("GOOD");
     onClose();
   };
@@ -96,13 +94,17 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
     팔레트를 바꿔도 **고른 항목은 그대로 둔다.**
     예전에는 여기서 비웠는데, 좋아요를 고른 뒤 별로예요를 보려고 누르는
     순간 앞서 고른 것이 사라져 두 방향을 함께 남길 방법이 없었다.
+
+    갱신은 반드시 **이전 값을 받아서** 한다. 바깥의 `tags`를 읽어 새 배열을
+    만들면, 한 번의 렌더 안에서 두 개를 잇달아 누를 때 둘 다 같은 옛 배열을
+    보고 계산해 **먼저 고른 것이 사라진다.** (실제로 그렇게 빠졌다)
   */
   const handleToggleTag = (tag: string) =>
-    patch({
-      tags: tags.includes(tag)
-        ? tags.filter((item) => item !== tag)
-        : [...tags, tag],
-    });
+    setTags((prev) =>
+      prev.includes(tag)
+        ? prev.filter((item) => item !== tag)
+        : [...prev, tag],
+    );
 
   /** 이번 평가가 점수를 얼마나 움직이는지. 목업 · 집계와 같은 함수를 쓴다. */
   const delta = calculateReputationDelta(tags, palette);
@@ -364,9 +366,7 @@ const ReputationModal = ({ assignment, onClose }: ReputationModalProps) => {
             <Textarea
               rows={3}
               value={comment}
-              onChange={(changeEvent) =>
-                patch({ comment: changeEvent.target.value })
-              }
+              onChange={(changeEvent) => setComment(changeEvent.target.value)}
               placeholder="현장에서 확인한 내용을 남겨 주세요. (선택)"
             />
           </FormField>

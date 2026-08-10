@@ -197,8 +197,21 @@ export const staffHandlers = [
       );
     });
 
-    // 배치할 사람을 고를 때와 관리 대상을 볼 때의 정렬 기준이 다르다.
+    /*
+      **즐겨찾기가 언제나 맨 위다.**
+
+      에이전시는 결국 부르던 사람을 또 부른다. 검색을 하든 정렬을 바꾸든
+      그 사람들이 먼저 보여야 하고, 그러지 않으면 담당자는 스크롤을 내리다가
+      결국 이름으로 다시 검색한다. 고른 정렬 기준은 **그다음**에 적용된다.
+
+      화면이 아니라 여기서 정렬한다. 화면에서 다시 세우면 페이지가 넘어갈 때
+      "2페이지 맨 위에 또 즐겨찾기"가 되어 순서가 통째로 어긋난다.
+    */
     const sorted = [...filtered].sort((a, b) => {
+      const byFavorite = Number(b.isFavorite) - Number(a.isFavorite);
+
+      if (byFavorite !== 0) return byFavorite;
+
       if (sort === "WORK_COUNT") return b.workCount - a.workCount;
       /* 평판순은 누적 점수 그대로다. 오래 잘해 온 사람이 위로 온다. */
       if (sort === "RATING") return b.reputationScore - a.reputationScore;
