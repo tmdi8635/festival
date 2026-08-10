@@ -1,11 +1,11 @@
 /**
  * 권한 모델.
  *
- * **직책(`AdminRole`)에 권한을 붙이고, 담당자를 직책에 넣는다.**
- * 담당자 한 명씩 권한을 주는 방식이 아니다. 권한은 "이 사람이 무엇을 할 수 있나"가
+ * **직책(`AdminRole`)에 권한을 붙이고, 직원을 직책에 넣는다.**
+ * 직원 한 명씩 권한을 주는 방식이 아니다. 권한은 "이 사람이 무엇을 할 수 있나"가
  * 아니라 **"이 일을 하는 사람에게 무엇이 필요한가"** 로 정해지기 때문이다.
  *
- * 사람마다 주면 담당자가 열 명일 때 설정도 열 번, 점검도 열 번이다.
+ * 사람마다 주면 직원이 열 명일 때 설정도 열 번, 점검도 열 번이다.
  * 규칙이 바뀌면 열 곳을 고쳐야 하고 한 곳만 빠뜨리면 그 사람만 조용히 다른 권한을 갖는다.
  * "정산을 승인할 수 있는 사람이 누구인가"를 물었을 때, 직책이면 하나만 열어 보면 되고
  * 사람마다면 전원을 훑어야 한다.
@@ -24,7 +24,6 @@ export type PermissionResource =
   | "client"
   | "recruit"
   | "message"
-  | "admin"
   | "role"
   | "settings"
   | "log";
@@ -114,20 +113,15 @@ export const PERMISSION_RESOURCES: Record<PermissionResource, ResourceDef> = {
     description: "공고 · 지원자",
     actions: ["read", "write", "delete"],
   },
-  employee: {
-    label: "직원",
-    description: "우리 직원의 직책 · 기본 근무시간과 월 근무 집계",
-    actions: ["read", "write"],
-    isSensitive: true,
-  },
   message: {
     label: "공지 · 발송",
     description: "문자 문구 작성과 발송",
     actions: ["read", "write", "send"],
   },
-  admin: {
-    label: "담당자",
-    description: "담당자 계정 관리",
+  employee: {
+    label: "직원",
+    description:
+      "우리 직원의 인적사항 · 회사 직책 · 시스템 권한, 그리고 월 근무 집계",
     actions: ["read", "write", "delete"],
     isSensitive: true,
   },
@@ -214,7 +208,7 @@ export const PERMISSION_CATEGORIES = [
       */
       "contract",
       "client",
-      "admin",
+      "employee",
       "role",
     ],
   },
@@ -223,12 +217,7 @@ export const PERMISSION_CATEGORIES = [
     label: "지우지 않는 자료",
     description:
       "받아 두거나 기준이 되는 자료라 삭제가 없습니다. 해제하거나 새로 받습니다.",
-    /*
-      직원 명부에 삭제가 없는 이유.
-      퇴사해도 그 사람이 나간 행사 기록은 남아 있다. 명부에서 지우면
-      과거 배치가 이름 없는 줄이 되므로, 퇴사는 지우는 것이 아니라 끄는 것이다.
-    */
-    resources: ["staffDocument", "blacklist", "employee", "settings"],
+    resources: ["staffDocument", "blacklist", "settings"],
   },
   {
     id: "outbound",

@@ -22,7 +22,12 @@ import type {
 } from "@/type/staff";
 import { REPUTATION_TAGS } from "@/type/staff";
 import { clients } from "./client";
-import { assignableStaff, everWorkedStaff, staffList } from "./staff";
+import {
+  EVENT_MANAGER_POOL,
+  assignableStaff,
+  everWorkedStaff,
+  staffList,
+} from "./staff";
 import { dateFromToday, randomInt, toIsoDateTime } from "../utils";
 
 /** 행사 제목은 거래처 성격과 맞아야 화면이 실제처럼 읽힌다. */
@@ -52,12 +57,13 @@ const VENUES = [
   { venue: "일산 킨텍스 3홀", address: "경기 고양시 일산서구 킨텍스로 217" },
 ];
 
-/** 담당 매니저. 이름만으로는 현장에서 연락할 수 없어 번호를 함께 둔다. */
-const MANAGERS = [
-  { name: "김도윤", phone: "01023450917" },
-  { name: "박서진", phone: "01034561028" },
-  { name: "이가온", phone: "01045672139" },
-];
+/**
+ * 담당 매니저.
+ *
+ * 직원 명부에서 그대로 가져온다. 여기에 이름 · 번호를 따로 적어 두면
+ * 문자의 `{{담당자연락처}}`와 직원 명부의 번호가 서로 다른 값이 된다.
+ */
+const MANAGERS = EVENT_MANAGER_POOL;
 
 const DRESS_CODES = [
   "상의 흰색 셔츠 · 하의 검정 슬랙스 · 검정 단화",
@@ -591,7 +597,7 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     venue: place.venue,
     address: place.address,
     managerName: MANAGERS[index % MANAGERS.length].name,
-    managerPhone: MANAGERS[index % MANAGERS.length].phone,
+    managerPhone: MANAGERS[index % MANAGERS.length].phoneNumber,
     /*
       메인팀장은 **직원이 있으면 직원**, 없으면 확정된 팀장 중 첫 사람이다.
 

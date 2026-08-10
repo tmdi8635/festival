@@ -94,7 +94,7 @@ const onRequest = (
   */
   const { admin } = useAdminStore.getState();
 
-  if (admin) config.headers.set("X-Admin-Id", String(admin.managerId));
+  if (admin) config.headers.set("X-Admin-Id", String(admin.employeeId));
 
   return config;
 };

@@ -6,8 +6,14 @@ import {
   type PermissionResource,
 } from "@/type/permission";
 
+/**
+ * 현재 로그인한 직원.
+ *
+ * 예전 이름은 '담당자'였는데, 담당자와 직원이 같은 사람이라 하나로 합쳤다.
+ * (`type/employee.ts`)
+ */
 export interface AdminProfile {
-  managerId: number;
+  employeeId: number;
   name: string;
   email: string;
   roleId: number;
@@ -23,13 +29,12 @@ interface AdminState {
 }
 
 /**
- * 현재 로그인한 담당자.
+ * 서버 인증이 붙기 전까지 쓰는 고정 목업 계정.
  *
- * 서버 인증이 붙기 전까지는 고정 목업 값을 쓴다.
  * 로그인이 붙으면 `setAdmin`을 부르는 지점만 바꾸면 되고, 권한 판정은 그대로 산다.
  */
 const MOCK_ADMIN: AdminProfile = {
-  managerId: 1,
+  employeeId: 1,
   name: "김도윤",
   email: "dy.kim@agency.co.kr",
   roleId: 1,

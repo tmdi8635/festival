@@ -5,14 +5,13 @@ import type {
   AdminRoleFormValues,
   LogDomain,
   LogLevel,
-  Manager,
-  ManagerFormValues,
   OperationSettings,
 } from "@/type/ops";
 import {
   adminRoles,
+  employees,
   findAdminRole,
-  managers,
+  findEmployee,
   operationLogs,
   operationSettings,
   recalculateRoleMemberCounts,
@@ -30,27 +29,26 @@ import {
 
 export const opsHandlers = [
   /**
-   * 지금 로그인한 담당자와 그 권한.
+   * 지금 로그인한 직원과 그 권한.
    *
    * 권한 목록을 화면이 들고 있게 하지 않고 **서버가 내려 준다.**
    * 직책이 바뀌면 다음 조회에서 곧바로 반영되고, 화면은 그것을 그대로 쓴다.
    */
   http.get(`${BASE_URI}/admin/me`, async ({ request }) => {
-    const managerId = Number(request.headers.get("X-Admin-Id"));
-    const manager = managers.find((item) => item.managerId === managerId);
+    const employee = findEmployee(Number(request.headers.get("X-Admin-Id")));
 
-    if (!manager) return notFound("존재하지 않는 담당자입니다.");
+    if (!employee) return notFound("존재하지 않는 직원입니다.");
 
-    const role = findAdminRole(manager.roleId);
+    const role = findAdminRole(employee.roleId);
 
     await delay(MOCK_DELAY_MS);
 
     return HttpResponse.json({
-      managerId: manager.managerId,
-      name: manager.name,
-      email: manager.email,
-      roleId: manager.roleId,
-      roleName: role?.name ?? manager.roleName,
+      employeeId: employee.employeeId,
+      name: employee.name,
+      email: employee.email,
+      roleId: employee.roleId,
+      roleName: role?.name ?? employee.roleName,
       isSuperAdmin: Boolean(role?.isSuperAdmin),
       permissions: role?.permissions ?? [],
     });
@@ -133,11 +131,11 @@ export const opsHandlers = [
     role.description = body.description?.trim() ?? "";
     role.permissions = normalizePermissions(body.permissions ?? []);
 
-    // 직책 이름이 바뀌면 담당자 목록에 박아 둔 이름도 함께 맞춘다.
-    managers
-      .filter((manager) => manager.roleId === role.roleId)
-      .forEach((manager) => {
-        manager.roleName = role.name;
+    // 직책 이름이 바뀌면 직원 목록에 박아 둔 이름도 함께 맞춘다.
+    employees
+      .filter((employee) => employee.roleId === role.roleId)
+      .forEach((employee) => {
+        employee.roleName = role.name;
       });
 
     await delay(MOCK_DELAY_MS);
@@ -170,7 +168,7 @@ export const opsHandlers = [
     */
     if (role.memberCount > 0) {
       return badRequest(
-        `이 직책에 담당자 ${role.memberCount}명이 있습니다. 다른 직책으로 먼저 옮겨 주세요.`,
+        `이 직책에 직원 ${role.memberCount}명이 있습니다. 다른 직책으로 먼저 옮겨 주세요.`,
         "ROLE_HAS_MEMBERS",
       );
     }
@@ -181,134 +179,6 @@ export const opsHandlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-
-  http.get(`${BASE_URI}/admin/managers`, async ({ request }) => {
-    const denied = requirePermission(request, "admin:read");
-
-    if (denied) return denied;
-
-    const url = new URL(request.url);
-    const keyword = url.searchParams.get("keyword") ?? "";
-
-    const filtered = managers.filter((manager) =>
-      matchesKeyword(keyword, manager.name, manager.email, manager.phoneNumber),
-    );
-
-    await delay(MOCK_DELAY_MS);
-
-    return HttpResponse.json({ items: filtered });
-  }),
-
-  http.post(`${BASE_URI}/admin/managers`, async ({ request }) => {
-      const denied = requirePermission(request, "admin:write");
-
-      if (denied) return denied;
-
-    const body = (await request.json()) as ManagerFormValues;
-
-    const isDuplicated = managers.some(
-      (manager) => manager.email === body.email,
-    );
-
-    if (isDuplicated) {
-      return HttpResponse.json(
-        { code: "DUPLICATED_EMAIL", message: "이미 등록된 이메일입니다." },
-        { status: 409 },
-      );
-    }
-
-    const role = findAdminRole(body.roleId);
-
-    if (!role) return badRequest("직책을 선택해 주세요.");
-
-    const created: Manager = {
-      ...body,
-      managerId: nextId(managers, "managerId"),
-      roleName: role.name,
-      isSuperAdmin: role.isSuperAdmin,
-      eventCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-
-    managers.push(created);
-    recalculateRoleMemberCounts();
-    await delay(MOCK_DELAY_MS);
-
-    return HttpResponse.json(created, { status: 201 });
-  }),
-
-  http.put(
-    `${BASE_URI}/admin/managers/:managerId`,
-    async ({ params, request }) => {
-      const denied = requirePermission(request, "admin:write");
-
-      if (denied) return denied;
-
-      const manager = managers.find(
-        (item) => item.managerId === Number(params.managerId),
-      );
-      const body = (await request.json()) as ManagerFormValues;
-
-      if (!manager) return notFound("존재하지 않는 담당자입니다.");
-
-      const role = findAdminRole(body.roleId);
-
-      if (!role) return badRequest("직책을 선택해 주세요.");
-
-      /*
-        최고관리자를 다른 직책으로 내리면 권한을 되돌릴 사람이 사라질 수 있다.
-        마지막 한 명일 때만 막는다. 두 명 이상이면 한 명은 내려도 된다.
-      */
-      if (manager.isSuperAdmin && !role.isSuperAdmin) {
-        const superAdminCount = managers.filter(
-          (item) => item.isSuperAdmin && item.isActive,
-        ).length;
-
-        if (superAdminCount <= 1) {
-          return badRequest(
-            "마지막 최고관리자입니다. 다른 담당자를 최고관리자로 올린 뒤에 바꿔 주세요.",
-            "LAST_SUPER_ADMIN",
-          );
-        }
-      }
-
-      Object.assign(manager, body, {
-        roleName: role.name,
-        isSuperAdmin: role.isSuperAdmin,
-      });
-      recalculateRoleMemberCounts();
-      await delay(MOCK_DELAY_MS);
-
-      return HttpResponse.json(manager);
-    },
-  ),
-
-  http.delete(`${BASE_URI}/admin/managers/:managerId`, async ({ params, request }) => {
-      const denied = requirePermission(request, "admin:delete");
-
-      if (denied) return denied;
-
-    const managerId = Number(params.managerId);
-    const manager = managers.find((item) => item.managerId === managerId);
-
-    if (!manager) return notFound("존재하지 않는 담당자입니다.");
-
-    if (manager.isSuperAdmin) {
-      return badRequest(
-        "최고관리자 계정은 삭제할 수 없습니다.",
-        "SUPER_ADMIN_LOCKED",
-      );
-    }
-
-    managers.splice(
-      managers.findIndex((item) => item.managerId === managerId),
-      1,
-    );
-
-    await delay(MOCK_DELAY_MS);
-
-    return new HttpResponse(null, { status: 204 });
-  }),
 
   http.get(`${BASE_URI}/admin/logs`, async ({ request }) => {
     const denied = requirePermission(request, "log:read");

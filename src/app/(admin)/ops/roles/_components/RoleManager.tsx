@@ -76,8 +76,8 @@ const GRID_TEMPLATE = `minmax(180px,1fr) repeat(${ACTION_COLUMN_COUNT}, 76px)`;
 /**
  * 직책 · 권한 설정.
  *
- * **권한은 사람이 아니라 직책이 갖는다.** 담당자는 직책에 들어갈 뿐이다.
- * 사람마다 권한을 주면 담당자가 열 명일 때 설정도 열 번, 점검도 열 번이고,
+ * **권한은 사람이 아니라 직책이 갖는다.** 직원은 직책에 들어갈 뿐이다.
+ * 사람마다 권한을 주면 직원이 열 명일 때 설정도 열 번, 점검도 열 번이고,
  * 규칙이 바뀌면 열 곳을 고쳐야 한다. 한 곳만 빠뜨리면 그 사람만 조용히 다른 권한을 갖는다.
  *
  * "정산을 승인할 수 있는 사람이 누구인가"를 물었을 때
@@ -181,7 +181,7 @@ const RoleManager = () => {
   const handleDelete = (role: AdminRole) =>
     openConfirm({
       title: `'${role.name}' 직책을 삭제할까요?`,
-      description: "이 직책에 속한 담당자가 없어야 지울 수 있습니다.",
+      description: "이 직책에 속한 직원이 없어야 지울 수 있습니다.",
       warning: "삭제한 직책은 되돌릴 수 없습니다.",
       confirmText: "삭제",
       tone: "danger",
@@ -341,7 +341,7 @@ const RoleManager = () => {
                   rows={2}
                   value={editing.description}
                   disabled={!canWrite}
-                  placeholder="이 직책이 무슨 일을 하는지 적어 두면 담당자를 배정할 때 헷갈리지 않습니다."
+                  placeholder="이 직책이 무슨 일을 하는지 적어 두면 직원을 배정할 때 헷갈리지 않습니다."
                   onChange={(event) =>
                     patch({ description: event.target.value })
                   }

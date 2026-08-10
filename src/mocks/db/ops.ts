@@ -1,6 +1,8 @@
-import type { AdminRole, Manager, OperationLog, OperationSettings } from "@/type/ops";
+import type { AdminRole, OperationLog, OperationSettings } from "@/type/ops";
+import type { Employee } from "@/type/employee";
 import { normalizePermissions, type PermissionKey } from "@/type/permission";
 import { DEFAULT_JOB_ROLES } from "@/type/staff";
+import { EMPLOYEE_SEED, employeeStaff } from "./staff";
 import { daysAgo } from "../utils";
 
 /**
@@ -17,7 +19,7 @@ export const adminRoles: AdminRole[] = [
   {
     roleId: 1,
     name: "최고관리자",
-    description: "모든 권한을 갖습니다. 직책과 담당자를 관리합니다.",
+    description: "모든 권한을 갖습니다. 직책과 직원을 관리합니다.",
     permissions: [],
     isSuperAdmin: true,
     memberCount: 0,
@@ -76,101 +78,64 @@ export const adminRoles: AdminRole[] = [
 export const findAdminRole = (roleId: number) =>
   adminRoles.find((role) => role.roleId === roleId);
 
-/** 직책별 인원은 담당자 목록이 원본이다. 따로 세어 두면 둘이 어긋난다. */
+/**
+ * 직원 목업.
+ *
+ * **인력 레코드에서 만든다.** (`EMPLOYEE_SEED` · `employeeStaff()`)
+ * 예전에는 담당자 목록을 여기 손으로 적어 뒀는데, 같은 사람이 인력풀에도 있어서
+ * 이름을 한쪽만 고치면 두 화면이 다른 사람을 가리켰다.
+ * 이제 사람은 인력풀 한 곳에 있고, 여기서는 **계정 · 권한만** 얹는다.
+ */
+export const employees: Employee[] = employeeStaff().map((staff, index) => {
+  const seed = EMPLOYEE_SEED[index];
+  const role = findAdminRole(seed.roleId) ?? adminRoles[adminRoles.length - 1];
+
+  return {
+    employeeId: index + 1,
+    staffId: staff.staffId,
+
+    name: staff.name,
+    email: seed.email,
+    phoneNumber: staff.phoneNumber,
+    profileImageUrl: staff.profileImageUrl,
+    birthDate: staff.birthDate,
+    gender: staff.gender,
+    address: staff.address,
+    emergencyContact: staff.emergencyContact,
+    hireDate: staff.hireDate ?? daysAgo(seed.months * 30).slice(0, 10),
+    memo: "",
+
+    position: seed.position,
+    roleId: role.roleId,
+    roleName: role.name,
+    isSuperAdmin: role.isSuperAdmin,
+    baseMonthlyHours: staff.baseMonthlyHours ?? seed.baseHours,
+    isActive: seed.isActive !== false,
+
+    /* 담당 행사 수는 행사 목업이 아직 없을 수도 있어 조회 시점에 다시 센다. */
+    eventCount: 0,
+    lastLoginAt: seed.isActive === false
+      ? daysAgo(140, 11)
+      : daysAgo(index % 7, 9 + (index % 8)),
+    createdAt: daysAgo(seed.months * 30),
+  };
+});
+
+export const findEmployee = (employeeId: number) =>
+  employees.find((employee) => employee.employeeId === employeeId);
+
+/** 인력 쪽에서 거꾸로 찾는다. 배치 화면이 "이 사람 우리 직원인가"를 물을 때 쓴다. */
+export const findEmployeeByStaffId = (staffId: number) =>
+  employees.find((employee) => employee.staffId === staffId);
+
+/** 직책별 인원은 직원 목록이 원본이다. 따로 세어 두면 둘이 어긋난다. */
 export const recalculateRoleMemberCounts = () => {
   adminRoles.forEach((role) => {
-    role.memberCount = managers.filter(
-      (manager) => manager.roleId === role.roleId,
+    role.memberCount = employees.filter(
+      (employee) => employee.roleId === role.roleId,
     ).length;
   });
 };
-
-/**
- * 내부 담당자 목업.
- *
- * 대표 한 사람이 전부 쥐고 있던 업무를 나누는 것이 이 시스템의 목적이라
- * 매니저 · 조회전용 계정을 처음부터 만들어 둔다.
- */
-export const managers: Manager[] = [
-  {
-    managerId: 1,
-    name: "김도윤",
-    email: "dy.kim@agency.co.kr",
-    phoneNumber: "01033910284",
-    roleId: 1,
-    roleName: "최고관리자",
-    isSuperAdmin: true,
-    isActive: true,
-    eventCount: 14,
-    lastLoginAt: daysAgo(0, 9),
-    createdAt: daysAgo(900),
-  },
-  {
-    managerId: 2,
-    name: "박서진",
-    email: "sj.park@agency.co.kr",
-    phoneNumber: "01048820137",
-    roleId: 2,
-    roleName: "운영 매니저",
-    isSuperAdmin: false,
-    isActive: true,
-    eventCount: 13,
-    lastLoginAt: daysAgo(0, 8),
-    createdAt: daysAgo(420),
-  },
-  {
-    managerId: 3,
-    name: "이가온",
-    email: "gaon.lee@agency.co.kr",
-    phoneNumber: "01072640918",
-    roleId: 2,
-    roleName: "운영 매니저",
-    isSuperAdmin: false,
-    isActive: true,
-    eventCount: 11,
-    lastLoginAt: daysAgo(1, 19),
-    createdAt: daysAgo(180),
-  },
-  {
-    managerId: 4,
-    name: "최유나",
-    email: "yn.choi@agency.co.kr",
-    phoneNumber: "01059930472",
-    roleId: 4,
-    roleName: "조회 전용",
-    isSuperAdmin: false,
-    isActive: true,
-    eventCount: 0,
-    lastLoginAt: daysAgo(6, 14),
-    createdAt: daysAgo(90),
-  },
-  {
-    managerId: 5,
-    name: "정민석",
-    email: "ms.jung@agency.co.kr",
-    phoneNumber: "01021170865",
-    roleId: 3,
-    roleName: "정산 담당",
-    isSuperAdmin: false,
-    isActive: false,
-    eventCount: 6,
-    lastLoginAt: daysAgo(140, 11),
-    createdAt: daysAgo(560),
-  },
-  {
-    managerId: 6,
-    name: "한지호",
-    email: "jh.han@agency.co.kr",
-    phoneNumber: "01087340192",
-    roleId: 3,
-    roleName: "정산 담당",
-    isSuperAdmin: false,
-    isActive: true,
-    eventCount: 0,
-    lastLoginAt: daysAgo(0, 10),
-    createdAt: daysAgo(210),
-  },
-];
 
 /**
  * 운영 기준 설정.

@@ -1,12 +1,18 @@
 import type { PermissionKey } from "./permission";
 import type { JobRoleDef } from "./staff";
 
-/** 운영 도메인 타입. 내부 담당자 · 로그 · 기준 설정을 다룬다. */
+/**
+ * 운영 도메인 타입. 직책(권한 묶음) · 로그 · 기준 설정을 다룬다.
+ *
+ * 사람 자체는 여기 없다. 직원은 `type/employee.ts`가 갖는다.
+ * (예전에는 '담당자'가 여기 따로 있었는데, 담당자와 직원이 같은 사람이라
+ * 이름을 두 곳에서 고쳐야 했다)
+ */
 
 /**
  * 직책.
  *
- * 권한은 사람이 아니라 **직책**이 갖는다. 담당자는 직책에 들어갈 뿐이다.
+ * 권한은 사람이 아니라 **직책**이 갖는다. 직원은 직책에 들어갈 뿐이다.
  * 사람이 바뀌어도 직책은 남고, 규칙이 바뀌면 직책 하나만 고치면 된다.
  */
 export interface AdminRole {
@@ -21,7 +27,7 @@ export interface AdminRole {
    * "권한을 되돌릴 수 있는 사람이 아무도 없는" 상태가 만들어진다.
    */
   isSuperAdmin: boolean;
-  /** 이 직책에 속한 담당자 수. 지우기 전에 옮길 사람이 있는지 보여 준다. */
+  /** 이 직책에 속한 직원 수. 지우기 전에 옮길 사람이 있는지 보여 준다. */
   memberCount: number;
   createdAt: string;
 }
@@ -30,30 +36,6 @@ export interface AdminRoleFormValues {
   name: string;
   description: string;
   permissions: PermissionKey[];
-}
-
-export interface Manager {
-  managerId: number;
-  name: string;
-  email: string;
-  phoneNumber: string;
-  roleId: number;
-  /** 목록에서 바로 보여 주기 위한 직책 이름 */
-  roleName: string;
-  isSuperAdmin: boolean;
-  isActive: boolean;
-  /** 담당 중인 행사 수 */
-  eventCount: number;
-  lastLoginAt?: string;
-  createdAt: string;
-}
-
-export interface ManagerFormValues {
-  name: string;
-  email: string;
-  phoneNumber: string;
-  roleId: number;
-  isActive: boolean;
 }
 
 export type LogLevel = "INFO" | "WARN" | "ERROR";

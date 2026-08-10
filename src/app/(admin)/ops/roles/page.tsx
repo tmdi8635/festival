@@ -6,7 +6,7 @@ export default function RolePage() {
     <>
       <PageHeader
         title="직책 · 권한"
-        description="직책을 만들고 할 수 있는 일을 정합니다. 담당자는 직책에 배정합니다."
+        description="직책을 만들고 할 수 있는 일을 정합니다. 직원은 직책에 배정합니다."
       />
 
       <RoleManager />

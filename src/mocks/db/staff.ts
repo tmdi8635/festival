@@ -274,24 +274,156 @@ export const staffList: StaffDetail[] = Array.from(
 /* ------------------------------------------------------------------ */
 
 /**
- * 에이전시 직원 6명.
+ * 에이전시 직원.
+ *
+ * **직원과 담당자는 같은 사람이다.** 예전에는 계정 · 권한을 가진 '담당자'와
+ * 현장에 나가는 '직원'이 따로 있었는데, 둘 다 같은 사람이라 이름을 두 곳에서
+ * 고쳐야 했다. 그래서 한 사람으로 합쳤다.
  *
  * 인력풀에 **함께** 넣는다. 따로 두면 배치 · 출퇴근 · 캘린더를 전부 두 벌로
- * 만들어야 하고, 같은 사람이 두 레코드로 갈라진다.
- * 다른 점은 `employment` 하나이고, 그 값이 계약서와 정산을 갈라 낸다.
+ * 만들어야 한다. 다른 점은 `employment` 하나이고, 그 값이 계약서와 정산을 갈라 낸다.
+ * 계정 · 권한 쪽 값(이메일 · 직책)은 `mocks/db/ops.ts`가 이 목록에서 만든다.
  *
- * 직책은 실장 하나 · 팀장 둘 · 나머지 실무자로 둔다.
- * 실제로 메인팀장을 잡는 것은 대개 대리~팀장급이라 그 구간을 두껍게 만든다.
+ * 앞의 여섯은 사무실에서 행사를 굴리는 사람들이고(행사의 담당 매니저로도 뜬다),
+ * 뒤의 여섯은 현장에 자주 나가는 사람들이다. 이렇게 섞어 둬야
+ * 근무 집계 화면에서 "많이 뛴 사람과 거의 안 뛴 사람"이 함께 보인다.
  */
-const EMPLOYEE_SEED = [
-  { name: "한지섭", position: "실장", months: 71, baseHours: 174 },
-  { name: "오세림", position: "팀장", months: 46, baseHours: 174 },
-  { name: "배준호", position: "팀장", months: 38, baseHours: 174 },
-  { name: "문가율", position: "대리", months: 25, baseHours: 174 },
-  { name: "심우빈", position: "주임", months: 14, baseHours: 174 },
-  /* 육아 단축근무. 기준 시간이 사람마다 다를 수 있다는 것을 화면에서 보여 준다. */
-  { name: "노아린", position: "사원", months: 8, baseHours: 120 },
+export interface EmployeeSeed {
+  name: string;
+  /** 회사 직책 */
+  position: string;
+  email: string;
+  /** 고정 번호. 행사의 담당 매니저 연락처와 어긋나면 안 되는 값이다. */
+  phoneNumber: string;
+  /** 근속 개월 수. 입사일을 여기서 만든다. */
+  months: number;
+  baseHours: number;
+  /** 직책(권한 묶음) ID. `mocks/db/ops.ts`의 `adminRoles`와 맞춘다. */
+  roleId: number;
+  isActive?: boolean;
+}
+
+export const EMPLOYEE_SEED: EmployeeSeed[] = [
+  {
+    name: "김도윤",
+    position: "대표",
+    email: "dy.kim@agency.co.kr",
+    phoneNumber: "01033910284",
+    months: 30,
+    baseHours: 174,
+    roleId: 1,
+  },
+  {
+    name: "박서진",
+    position: "실장",
+    email: "sj.park@agency.co.kr",
+    phoneNumber: "01048820137",
+    months: 14,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "이가온",
+    position: "팀장",
+    email: "gaon.lee@agency.co.kr",
+    phoneNumber: "01072640918",
+    months: 6,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "최유나",
+    position: "사원",
+    email: "yn.choi@agency.co.kr",
+    phoneNumber: "01059930472",
+    months: 3,
+    baseHours: 174,
+    roleId: 4,
+  },
+  {
+    /* 퇴사자. 끄기만 하고 지우지 않는다는 것을 화면에서 확인할 수 있어야 한다. */
+    name: "정민석",
+    position: "과장",
+    email: "ms.jung@agency.co.kr",
+    phoneNumber: "01021170865",
+    months: 18,
+    baseHours: 174,
+    roleId: 3,
+    isActive: false,
+  },
+  {
+    name: "한지호",
+    position: "대리",
+    email: "jh.han@agency.co.kr",
+    phoneNumber: "01087340192",
+    months: 7,
+    baseHours: 174,
+    roleId: 3,
+  },
+  {
+    name: "한지섭",
+    position: "실장",
+    email: "js.han@agency.co.kr",
+    phoneNumber: "01026205507",
+    months: 71,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "오세림",
+    position: "팀장",
+    email: "sr.oh@agency.co.kr",
+    phoneNumber: "01071362767",
+    months: 46,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "배준호",
+    position: "팀장",
+    email: "jh.bae@agency.co.kr",
+    phoneNumber: "01064468584",
+    months: 38,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "문가율",
+    position: "대리",
+    email: "gy.moon@agency.co.kr",
+    phoneNumber: "01033922477",
+    months: 25,
+    baseHours: 174,
+    roleId: 2,
+  },
+  {
+    name: "심우빈",
+    position: "주임",
+    email: "wb.shim@agency.co.kr",
+    phoneNumber: "01062355160",
+    months: 14,
+    baseHours: 174,
+    roleId: 4,
+  },
+  {
+    /* 육아 단축근무. 기준 시간이 사람마다 다를 수 있다는 것을 화면에서 보여 준다. */
+    name: "노아린",
+    position: "사원",
+    email: "ar.noh@agency.co.kr",
+    phoneNumber: "01056924435",
+    months: 8,
+    baseHours: 120,
+    roleId: 4,
+  },
 ];
+
+/**
+ * 행사의 담당 매니저로 뜨는 직원.
+ *
+ * 행사 목업이 이 목록에서 이름 · 번호를 가져간다. 따로 적어 두면
+ * 문자의 `{{담당자연락처}}`와 직원 명부의 번호가 서로 다른 값이 된다.
+ */
+export const EVENT_MANAGER_POOL = EMPLOYEE_SEED.slice(0, 3);
 
 const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
   const seed = 1000 + index;
@@ -303,11 +435,11 @@ const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
   return {
     staffId,
     name: employee.name,
-    phoneNumber: `010${String(randomInt(seed * 53, 2000, 9999))}${String(randomInt(seed * 59, 1000, 9999))}`,
+    phoneNumber: employee.phoneNumber,
     profileImageUrl: `https://picsum.photos/seed/staff-${staffId}/200/200`,
     birthDate: `${randomInt(seed * 19, 1986, 1999)}-${String(randomInt(seed * 23, 1, 12)).padStart(2, "0")}-${String(randomInt(seed * 29, 1, 28)).padStart(2, "0")}`,
     gender,
-    status: "ACTIVE",
+    status: employee.isActive === false ? "RETIRED" : "ACTIVE",
     employment: "EMPLOYEE",
     /*
       직무 목록은 비워 둔다.
