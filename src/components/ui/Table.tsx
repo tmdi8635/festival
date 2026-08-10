@@ -25,14 +25,6 @@ interface TableProps<T> {
   emptyDescription?: string;
   emptyAction?: ReactNode;
   onRowClick?: (row: T) => void;
-  /**
-   * 행 아래에 펼쳐 붙이는 내용. `null`을 주면 접힌 것으로 본다.
-   *
-   * 표 한 줄에 다 넣을 수 없는 상세를 여기서 편다. 셀 안에 접이식을 만들면
-   * 그 칸만 높아져 나머지 열이 위쪽에 붕 뜨고, 옆 열과 줄이 맞지 않는다.
-   * 열 전체를 가로지르는 줄을 따로 두는 편이 읽힌다.
-   */
-  renderExpanded?: (row: T, index: number) => ReactNode;
   className?: string;
 }
 
@@ -56,7 +48,6 @@ const Table = <T,>({
   emptyDescription,
   emptyAction,
   onRowClick,
-  renderExpanded,
   className,
 }: TableProps<T>) => {
   const isEmpty = !isLoading && rows.length === 0;
@@ -101,42 +92,29 @@ const Table = <T,>({
             ))}
 
           {!isLoading &&
-            rows.map((row, rowIndex) => {
-              const expanded = renderExpanded?.(row, rowIndex);
-
-              return (
-                <Fragment key={getRowKey(row, rowIndex)}>
-                  <tr
-                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+            rows.map((row, rowIndex) => (
+              <tr
+                key={getRowKey(row, rowIndex)}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                className={cn(
+                  "border-t border-border-main transition-colors hover:bg-surface-hover",
+                  onRowClick && "cursor-pointer",
+                )}
+              >
+                {columns.map(({ key, render, align = "left", numeric }) => (
+                  <td
+                    key={key}
                     className={cn(
-                      "border-t border-border-main transition-colors hover:bg-surface-hover",
-                      onRowClick && "cursor-pointer",
+                      "px-4 py-3.5 text-font-1",
+                      ALIGN_CLASS[align],
+                      numeric && "tabular-nums",
                     )}
                   >
-                    {columns.map(({ key, render, align = "left", numeric }) => (
-                      <td
-                        key={key}
-                        className={cn(
-                          "px-4 py-3.5 text-font-1",
-                          ALIGN_CLASS[align],
-                          numeric && "tabular-nums",
-                        )}
-                      >
-                        {render(row, rowIndex)}
-                      </td>
-                    ))}
-                  </tr>
-
-                  {expanded && (
-                    <tr className="border-t border-border-main">
-                      <td colSpan={columns.length} className="p-0">
-                        {expanded}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
+                    {render(row, rowIndex)}
+                  </td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
 

@@ -66,8 +66,21 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
   const canEditEvent = useHasPermission("event:write");
   const { mainSupervisorMutation } = useEventMutation();
 
-  /* 한 번에 하나만 펼친다. 전부 펼치면 발주 현황을 훑는다는 목적이 사라진다. */
-  const [openRole, setOpenRole] = useState<JobRole | null>(null);
+  /*
+    펼친 직무들.
+
+    **여럿을 한꺼번에 열 수 있어야 한다.** 담당자가 여기서 하는 일이
+    "팀장 명단과 스태프 명단을 나란히 놓고 보는 것"이라, 하나를 열 때
+    보던 것이 닫히면 눈으로 대조할 방법이 사라진다.
+  */
+  const [openRoles, setOpenRoles] = useState<JobRole[]>([]);
+
+  const toggleRole = (role: JobRole) =>
+    setOpenRoles((prev) =>
+      prev.includes(role)
+        ? prev.filter((item) => item !== role)
+        : [...prev, role],
+    );
 
   const jobRoleLabel = useJobRoleLabel();
   // 발주 목록도 기준 설정에서 정한 직무 순서로 세운다.
@@ -192,17 +205,36 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
             </span>
           }
         />
-        {/*
-          메인팀장.
+        <DetailRow label="설명" value={event.description || "-"} />
+        <DetailRow label="내부 메모" value={event.memo || "-"} />
+      </Card>
 
-          **직무가 아니라 자리다.** 팀장 여럿 중 이 행사를 끌고 가는 한 사람이고,
-          현장 문의는 담당 매니저가 아니라 이 사람에게 먼저 간다.
-          직무로 만들면 "팀장 3명 중 누가 메인인가"를 표현할 수 없어서 여기서 정한다.
-        */}
-        <DetailRow
-          label="메인팀장"
-          value={
-            <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-4">
+        <Card
+          title="직무별 발주"
+          description="전체 근무일을 합친 인원입니다."
+          bodyClassName="flex flex-col gap-2"
+        >
+          {/*
+            메인팀장이 이 카드 맨 위에 있는 이유.
+
+            **직무가 아니라 자리다.** 팀장 여럿 중 이 행사를 끌고 가는 한 사람이고,
+            현장 문의는 담당 매니저가 아니라 이 사람에게 먼저 간다.
+            발주 조건(반복 · 장소 · 복장) 사이에 끼워 두면 "누가 이 현장을 잡았나"를
+            찾으려고 긴 목록을 훑어야 했다. 사람 이야기는 사람 목록 맨 위가 맞다.
+          */}
+          <div className="rounded-field border border-brand-opacity bg-brand-opacity-3 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[13px] font-medium text-font-1">
+              <Star size={13} className="text-brand" />
+              메인팀장
+            </p>
+
+            {/*
+              고르는 칸과 번호를 한 줄에 붙이지 않는다.
+              카드가 좁아서 나란히 두면 "김도윤 (스…"처럼 이름이 잘리는데,
+              여기서 확인하려는 것이 바로 그 이름이다.
+            */}
+            <div className="mt-2 flex flex-col gap-1.5">
               {canEditEvent ? (
                 <Select
                   aria-label="메인팀장"
@@ -215,40 +247,35 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                       staffId: Number(changeEvent.target.value) || null,
                     })
                   }
-                  selectBoxClassName="w-full sm:w-56"
                 />
               ) : (
-                <span>{event.mainSupervisorName ?? "지정 전"}</span>
+                <span className="text-[14px] text-font-1">
+                  {event.mainSupervisorName ?? "지정 전"}
+                </span>
               )}
 
               {event.mainSupervisorPhone && (
-                <span className="flex items-center gap-1 text-[13px] text-font-2 tabular-nums">
+                <a
+                  href={`tel:${event.mainSupervisorPhone}`}
+                  className="flex w-fit items-center gap-1 text-[13px] text-font-2 tabular-nums transition hover:text-brand"
+                >
                   <Phone size={13} />
                   {formatPhoneNumber(event.mainSupervisorPhone)}
-                </span>
+                </a>
               )}
 
               {candidates.length === 0 && (
-                <span className="text-[12px] text-font-2">
+                <p className="text-[12px] text-font-2">
                   확정 배치된 인력이 있어야 지정할 수 있습니다.
-                </span>
+                </p>
               )}
             </div>
-          }
-        />
-        <DetailRow label="설명" value={event.description || "-"} />
-        <DetailRow label="내부 메모" value={event.memo || "-"} />
-      </Card>
+          </div>
 
-      <div className="flex flex-col gap-4">
-        <Card
-          title="직무별 발주"
-          description="전체 근무일을 합친 인원입니다."
-          bodyClassName="flex flex-col gap-2"
-        >
           {sortedRoles.map((slot) => {
             const isShort = slot.assignedCount < slot.requiredCount;
-            const isOpen = openRole === slot.role;
+            /* 직무마다 따로 접고 편다. 하나를 열었다고 보던 것이 닫히면 대조가 안 된다. */
+            const isOpen = openRoles.includes(slot.role);
             const members = membersOf(slot.role);
 
             return (
@@ -257,96 +284,118 @@ const EventOverviewPanel = ({ event, onFillRole }: EventOverviewPanelProps) => {
                 className="rounded-field border border-border-main"
               >
                 {/*
-                  줄 전체가 펼침 버튼이다.
-                  숫자만 보고 "그래서 누구인데"를 확인하려면 일별 근무자 탭으로
-                  넘어가야 했다. 개요에서 이름과 번호까지는 보여야 전화를 걸 수 있다.
+                  펼침 버튼과 '채우기'는 **형제**다.
+
+                  예전에는 줄 전체를 `<button>`으로 감싸고 그 안에 채우기 단추를
+                  넣었는데, 버튼 안의 버튼은 유효하지 않은 HTML이라 하이드레이션이
+                  깨졌다. 좁은 카드에서 채우기가 글자를 밀어 "시급 12,000원"이
+                  두 줄로 접히는 문제도 같은 원인이었다.
                 */}
-                <button
-                  type="button"
-                  onClick={() => setOpenRole(isOpen ? null : slot.role)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-hover"
-                >
-                  <ChevronRight
-                    size={14}
-                    className={cn(
-                      "shrink-0 text-font-2 transition-transform",
-                      isOpen && "rotate-90",
-                      members.length === 0 && "opacity-0",
-                    )}
-                  />
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] text-font-1">
-                      {jobRoleLabel(slot.role)}
-                    </p>
-                    <p className="text-[12px] text-font-2 tabular-nums">
-                      {WAGE_TYPE_LABEL[slot.wageType]}{" "}
-                      {formatWithCommas(slot.wage)}원
-                    </p>
-                  </div>
-
-                  <span
-                    className={`shrink-0 text-[14px] font-medium tabular-nums ${
-                      isShort ? "text-danger" : "text-success"
-                    }`}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleRole(slot.role)}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-field px-3 py-2 text-left transition hover:bg-surface-hover"
                   >
-                    {slot.assignedCount}/{slot.requiredCount}명
-                  </span>
+                    <ChevronRight
+                      size={14}
+                      className={cn(
+                        "shrink-0 text-font-2 transition-transform",
+                        isOpen && "rotate-90",
+                        members.length === 0 && "opacity-0",
+                      )}
+                    />
+
+                  {/*
+                    인원수를 직무명과 **같은 줄에** 둔다.
+
+                    바깥으로 빼면 아래 금액 줄이 그만큼 좁아져서
+                    좁은 카드에서 "시급 12,…"로 잘린다. 금액은 잘리면 뜻이 없다.
+                  */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <p className="min-w-0 flex-1 truncate text-[14px] text-font-1">
+                          {jobRoleLabel(slot.role)}
+                        </p>
+                        <span
+                          className={`shrink-0 text-[14px] font-medium whitespace-nowrap tabular-nums ${
+                            isShort ? "text-danger" : "text-success"
+                          }`}
+                        >
+                          {slot.assignedCount}/{slot.requiredCount}명
+                        </span>
+                      </div>
+
+                      <p className="truncate text-[12px] text-font-2 tabular-nums">
+                        {WAGE_TYPE_LABEL[slot.wageType]}{" "}
+                        {formatWithCommas(slot.wage)}원
+                      </p>
+                    </div>
+                  </button>
 
                   {/* 부족한 직무는 여기서 바로 채운다. 배치 화면으로 나갈 이유가 없다. */}
                   {canAssign && isShort && (
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={(clickEvent) => {
-                        clickEvent.stopPropagation();
-                        onFillRole(slot.role);
-                      }}
+                      className="mr-2 shrink-0"
+                      onClick={() => onFillRole(slot.role)}
                     >
                       채우기
                     </Button>
                   )}
-                </button>
+                </div>
 
                 {/*
                   펼쳤을 때 보이는 것은 **얼굴 · 이름 · 번호** 셋뿐이다.
                   여기서 하려는 일은 "누가 오는지 확인하고 필요하면 전화하기"라
                   근태 · 금액까지 늘어놓으면 그 두 가지가 오히려 안 보인다.
-                */}
-                {isOpen && members.length > 0 && (
-                  <ul className="flex flex-col gap-2 border-t border-border-main px-3 py-2.5">
-                    {members.map((member) => (
-                      <li
-                        key={member.staffId}
-                        className="flex items-center gap-2.5"
-                      >
-                        <div className="relative size-8 shrink-0 overflow-hidden rounded-full bg-subtle">
-                          {member.staffProfileImageUrl && (
-                            <Image
-                              src={member.staffProfileImageUrl}
-                              alt=""
-                              fill
-                              sizes="32px"
-                              className="object-cover"
-                              unoptimized
-                            />
-                          )}
-                        </div>
 
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1 truncate text-[13px] text-font-1">
-                            {member.staffId === event.mainSupervisorStaffId && (
-                              <Star size={11} className="shrink-0 text-brand" />
-                            )}
-                            {member.staffName}
-                          </p>
-                          <p className="truncate text-[12px] text-font-2 tabular-nums">
-                            {formatPhoneNumber(member.staffPhone)}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  접힘은 높이를 재지 않고 grid 1fr↔0fr로 굴린다. (`.collapsible`)
+                  내용 길이와 무관하게 같은 속도로 열리고, 잘리지 않는다.
+                */}
+                {members.length > 0 && (
+                  <div className="collapsible" data-folded={!isOpen}>
+                    <div>
+                      <ul className="flex flex-col gap-2 border-t border-border-main px-3 py-2.5">
+                        {members.map((member) => (
+                          <li
+                            key={member.staffId}
+                            className="flex items-center gap-2.5"
+                          >
+                            <div className="relative size-8 shrink-0 overflow-hidden rounded-full bg-subtle">
+                              {member.staffProfileImageUrl && (
+                                <Image
+                                  src={member.staffProfileImageUrl}
+                                  alt=""
+                                  fill
+                                  sizes="32px"
+                                  className="object-cover"
+                                  unoptimized
+                                />
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <p className="flex items-center gap-1 truncate text-[13px] text-font-1">
+                                {member.staffId ===
+                                  event.mainSupervisorStaffId && (
+                                  <Star
+                                    size={11}
+                                    className="shrink-0 text-brand"
+                                  />
+                                )}
+                                {member.staffName}
+                              </p>
+                              <p className="truncate text-[12px] text-font-2 tabular-nums">
+                                {formatPhoneNumber(member.staffPhone)}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 )}
               </div>
             );

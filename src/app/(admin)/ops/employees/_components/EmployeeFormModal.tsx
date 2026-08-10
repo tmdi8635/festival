@@ -82,7 +82,9 @@ const EmployeeFormModal = ({
             hireDate: employee.hireDate,
             position: employee.position,
             roleId: employee.roleId,
-            baseMonthlyHours: employee.baseMonthlyHours,
+            tracksWorkHours: employee.tracksWorkHours,
+            baseMonthlyHours:
+              employee.baseMonthlyHours || DEFAULT_BASE_MONTHLY_HOURS,
             isActive: employee.isActive,
             memo: employee.memo,
           }
@@ -209,7 +211,7 @@ const EmployeeFormModal = ({
             회사 직책 · 근무 기준
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/*
               직책은 직무가 아니다.
               직무(팀장 · 스태프)는 행사에서 맡는 자리이고, 직책(대리 · 실장)은
@@ -236,24 +238,6 @@ const EmployeeFormModal = ({
               />
             </FormField>
 
-            {/*
-              기본 근무시간.
-              이 기준이 없으면 "이번 달 82시간"이 많은 건지 적은 건지 알 수 없다.
-              사람마다 다를 수 있어(단축근무) 고정값으로 두지 않는다.
-            */}
-            <FormField
-              label="기본 근무시간"
-              required
-              hint={`한 달 기준 · 주 40시간이면 ${DEFAULT_BASE_MONTHLY_HOURS}`}
-              error={errors.baseMonthlyHours?.message}
-            >
-              <Input
-                type="number"
-                {...register("baseMonthlyHours")}
-                rightSlot={<span className="text-[13px] text-font-2">시간</span>}
-                hasError={Boolean(errors.baseMonthlyHours)}
-              />
-            </FormField>
           </div>
 
           <div className="-mt-1 flex flex-wrap gap-1.5">
@@ -270,6 +254,59 @@ const EmployeeFormModal = ({
               </button>
             ))}
           </div>
+
+          {/*
+            근무시간 집계는 **켜고 끈다.**
+
+            전원이 대상은 아니다. 대표 · 실장처럼 사무실에서 일이 굴러가게 하는
+            자리는 현장 근무시간으로 평가할 수 있는 사람이 아니고, 그런 사람까지
+            '직원 근무'에 세우면 채움률이 영원히 10%대인 줄이 쌓여
+            정작 이번 달 무리한 사람이 묻힌다.
+
+            끈 사람은 기준 시간을 정하지 않는다. 쓰이지 않는 값을 받아 두면
+            나중에 그 숫자가 어딘가에서 진짜인 척한다.
+          */}
+          <Controller
+            control={control}
+            name="tracksWorkHours"
+            render={({ field }) => (
+              <div className="flex flex-col gap-3 rounded-field border border-border-main px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[14px] text-font-1">근무시간 집계</p>
+                    <p className="mt-0.5 text-[12px] text-font-2">
+                      켜면 &lsquo;직원 근무&rsquo;에서 이 사람의 월 근무시간을
+                      셉니다. 현장에 나가지 않는 자리는 꺼 두세요.
+                    </p>
+                  </div>
+                  <Switch
+                    label="근무시간 집계 여부"
+                    checked={field.value}
+                    onChange={field.onChange}
+                  />
+                </div>
+
+                {field.value && (
+                  <FormField
+                    label="기본 근무시간"
+                    required
+                    hint={`한 달 기준 · 주 40시간이면 ${DEFAULT_BASE_MONTHLY_HOURS}시간`}
+                    error={errors.baseMonthlyHours?.message}
+                  >
+                    <Input
+                      type="number"
+                      {...register("baseMonthlyHours")}
+                      rightSlot={
+                        <span className="text-[13px] text-font-2">시간</span>
+                      }
+                      inputBoxClassName="sm:max-w-48"
+                      hasError={Boolean(errors.baseMonthlyHours)}
+                    />
+                  </FormField>
+                )}
+              </div>
+            )}
+          />
         </section>
 
         {/* ---------------------------- 권한 ---------------------------- */}

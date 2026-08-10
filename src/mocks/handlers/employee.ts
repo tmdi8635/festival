@@ -110,7 +110,16 @@ const applyForm = (
   roleName: string,
   isSuperAdmin: boolean,
 ) => {
-  Object.assign(employee, body, { roleName, isSuperAdmin });
+  Object.assign(employee, body, {
+    roleName,
+    isSuperAdmin,
+    /*
+      집계를 끄면 기준 시간도 지운다.
+      쓰이지 않는 숫자를 남겨 두면 나중에 어딘가에서 진짜인 척한다.
+      (집계를 다시 켤 때는 폼이 기본값을 다시 깔아 준다)
+    */
+    baseMonthlyHours: body.tracksWorkHours ? body.baseMonthlyHours : 0,
+  });
 
   if (!staff) return;
 
@@ -127,7 +136,7 @@ const applyForm = (
   staff.accountHolder = body.name;
   staff.position = body.position;
   staff.hireDate = body.hireDate;
-  staff.baseMonthlyHours = body.baseMonthlyHours;
+  staff.baseMonthlyHours = body.tracksWorkHours ? body.baseMonthlyHours : 0;
   /* 퇴사자는 앞으로 배치되지 않아야 한다. 지나간 기록은 그대로 남는다. */
   staff.status = body.isActive ? "ACTIVE" : "RETIRED";
 };
@@ -213,6 +222,13 @@ export const employeeHandlers = [
     const includeRetired = url.searchParams.get("includeRetired") === "true";
 
     const rows: EmployeeWorkRow[] = employees
+      /*
+        집계 대상만 센다.
+        대표 · 실장처럼 현장 시간으로 평가할 수 없는 자리를 함께 세우면
+        채움률이 영원히 10%대인 줄이 쌓이고, 그 사이에서 "이번 달 무리한 사람"이
+        묻힌다. 직원 관리에서 켜고 끈다. (`tracksWorkHours`)
+      */
+      .filter((employee) => employee.tracksWorkHours)
       .filter((employee) => includeRetired || employee.isActive)
       .filter((employee) =>
         matchesKeyword(keyword, employee.name, employee.position),
@@ -331,11 +347,12 @@ export const employeeHandlers = [
 
       position: body.position,
       hireDate: body.hireDate,
-      baseMonthlyHours: body.baseMonthlyHours,
+      baseMonthlyHours: body.tracksWorkHours ? body.baseMonthlyHours : 0,
     };
 
     const created: Employee = {
       ...body,
+      baseMonthlyHours: body.tracksWorkHours ? body.baseMonthlyHours : 0,
       employeeId: nextId(employees, "employeeId"),
       staffId,
       profileImageUrl: "",

@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useEmployeeWorkQuery } from "@/api/employee/getEmployeeWork";
-import { ChevronRight, Clock, TrendUp, Users, Warning } from "@/icons";
+import { Clock, TrendUp, Users, Warning } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
-import { formatDate } from "@/lib/dayjs";
 import { cn } from "@/lib/utils";
 import {
   formatMonthLabel,
@@ -24,6 +22,7 @@ import SearchInput from "@/components/ui/SearchInput";
 import Table, { type TableColumn } from "@/components/ui/Table";
 import StaffCell from "@/components/domain/StaffCell";
 import StatTile from "@/components/domain/StatTile";
+import EmployeeWorkDetailModal from "./EmployeeWorkDetailModal";
 
 const HOUR_TONE_CLASS = {
   default: "text-font-1",
@@ -85,8 +84,8 @@ const EmployeeWorkBoard = () => {
   const [month, setMonth] = useState(monthKey());
   const [keyword, setKeyword] = useState("");
   const [includeRetired, setIncludeRetired] = useState(false);
-  /** 펼친 줄. 한 번에 하나만 연다. 전부 열면 훑는다는 목적이 사라진다. */
-  const [openId, setOpenId] = useState<number | null>(null);
+  /** 상세를 열어 둔 줄. 표 아래에 펴는 대신 모달로 올린다. */
+  const [detailRow, setDetailRow] = useState<EmployeeWorkRow | null>(null);
 
   const { data, isLoading } = useEmployeeWorkQuery({
     month,
@@ -184,23 +183,7 @@ const EmployeeWorkBoard = () => {
       numeric: true,
       render: (row) =>
         row.events.length > 0 ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setOpenId(openId === row.employeeId ? null : row.employeeId);
-            }}
-            className="inline-flex items-center gap-1 rounded-field px-1.5 py-0.5 text-[13px] text-font-1 tabular-nums transition hover:bg-surface-hover"
-          >
-            {row.events.length}건
-            <ChevronRight
-              size={13}
-              className={cn(
-                "text-font-2 transition-transform",
-                openId === row.employeeId && "rotate-90",
-              )}
-            />
-          </button>
+          <span className="tabular-nums">{row.events.length}건</span>
         ) : (
           <span className="text-font-disabled">-</span>
         ),
@@ -281,46 +264,16 @@ const EmployeeWorkBoard = () => {
           rows={rows}
           getRowKey={(row) => String(row.employeeId)}
           isLoading={isLoading}
-          onRowClick={(row) =>
-            setOpenId(openId === row.employeeId ? null : row.employeeId)
-          }
+          onRowClick={setDetailRow}
           emptyTitle="집계할 근무가 없습니다."
-          emptyDescription="직원을 행사에 배치하면 이 달 근무시간이 여기에 쌓입니다."
-          renderExpanded={(row) =>
-            openId === row.employeeId && row.events.length > 0 ? (
-              /*
-                어느 현장이 길었는지.
-                시간 합계만 보면 초과가 났다는 것만 알고 무엇을 줄여야 할지는 모른다.
-              */
-              <ul className="flex flex-col gap-1.5 bg-subtle px-5 py-3">
-                {row.events.map((event) => (
-                  <li
-                    key={event.eventId}
-                    className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5"
-                  >
-                    <Link
-                      href={`/schedule/events/${event.eventId}`}
-                      className="min-w-0 truncate text-[13px] text-font-1 transition hover:text-brand hover:underline"
-                    >
-                      {event.eventTitle}
-                      <span className="text-font-2"> · {event.clientName}</span>
-                    </Link>
-
-                    <span className="shrink-0 text-[12px] text-font-2 tabular-nums">
-                      {formatDate(event.workDates[0])}
-                      {event.workDates.length > 1 &&
-                        ` 외 ${event.workDates.length - 1}일`}{" "}
-                      · {event.workHours}시간
-                      {event.scheduledHours > 0 &&
-                        ` (예정 ${event.scheduledHours})`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null
-          }
+          emptyDescription="직원을 행사에 배치하면 이 달 근무시간이 여기에 쌓입니다. 근무 집계를 끈 직원은 나오지 않습니다."
         />
       </Card>
+
+      <EmployeeWorkDetailModal
+        row={detailRow}
+        onClose={() => setDetailRow(null)}
+      />
     </>
   );
 };

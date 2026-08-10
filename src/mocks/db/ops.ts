@@ -33,6 +33,12 @@ export const adminRoles: AdminRole[] = [
       "event:read", "event:write",
       "assignment:read", "assignment:write", "assignment:delete",
       "staff:read", "staff:write",
+      /*
+        직원은 조회만 연다.
+        `employee:write`는 권한 직책을 바꾸는 힘이라, 자기 계정을 최고관리자로
+        올릴 수 있게 된다. 계정과 권한을 손대는 일은 최고관리자에게 남긴다.
+      */
+      "employee:read",
       "contract:read", "contract:write",
       "recruit:read", "recruit:write",
       "message:read", "message:write",
@@ -51,6 +57,7 @@ export const adminRoles: AdminRole[] = [
       "event:read",
       "assignment:read",
       "staff:read",
+      "employee:read",
       "contract:read",
       "payroll:read", "payroll:write", "payroll:approve", "payroll:pay",
       "client:read",
@@ -68,6 +75,7 @@ export const adminRoles: AdminRole[] = [
       "event:read",
       "assignment:read",
       "staff:read",
+      "employee:read",
     ] as PermissionKey[]),
     isSuperAdmin: false,
     memberCount: 0,
@@ -109,7 +117,12 @@ export const employees: Employee[] = employeeStaff().map((staff, index) => {
     roleId: role.roleId,
     roleName: role.name,
     isSuperAdmin: role.isSuperAdmin,
-    baseMonthlyHours: staff.baseMonthlyHours ?? seed.baseHours,
+    tracksWorkHours: seed.tracksWorkHours !== false,
+    /* 집계를 끈 사람은 기준 시간을 갖지 않는다. 쓰이지 않는 값을 남기지 않는다. */
+    baseMonthlyHours:
+      seed.tracksWorkHours === false
+        ? 0
+        : (staff.baseMonthlyHours ?? seed.baseHours),
     isActive: seed.isActive !== false,
 
     /* 담당 행사 수는 행사 목업이 아직 없을 수도 있어 조회 시점에 다시 센다. */

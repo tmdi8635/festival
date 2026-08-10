@@ -35,17 +35,29 @@ export const employeeSchema = z.object({
   /** 시스템 권한 묶음 */
   roleId: z.coerce.number().int().min(1, "권한 직책을 선택해 주세요."),
   /*
+    근무시간 집계 대상인지.
+    대표 · 실장처럼 현장 시간으로 평가할 수 없는 자리는 꺼 둔다.
+  */
+  tracksWorkHours: z.boolean(),
+  /*
     기준 시간을 0으로 두면 채움률이 0으로 나뉘어 뜻을 잃는다.
     사람마다 다를 수 있어(단축근무) 고정하지 않고 값만 받는다.
+    집계를 끈 사람에게는 요구하지 않는다. (아래 refine)
   */
   baseMonthlyHours: z.coerce
     .number()
     .int("시간은 정수로 입력해 주세요.")
-    .min(1, "1시간 이상으로 입력해 주세요.")
+    .min(0, "0 이상으로 입력해 주세요.")
     .max(400, "월 400시간을 넘길 수 없습니다."),
   isActive: z.boolean(),
   memo: z.string().max(300, "300자 이내로 입력해 주세요."),
-});
+}).refine(
+  (values) => !values.tracksWorkHours || values.baseMonthlyHours >= 1,
+  {
+    message: "집계 대상이면 기준 시간을 1시간 이상으로 정해 주세요.",
+    path: ["baseMonthlyHours"],
+  },
+);
 
 export type EmployeeSchema = z.output<typeof employeeSchema>;
 export type EmployeeSchemaInput = z.input<typeof employeeSchema>;
@@ -61,6 +73,7 @@ export const EMPTY_EMPLOYEE_VALUES: EmployeeSchemaInput = {
   hireDate: "",
   position: "",
   roleId: 0,
+  tracksWorkHours: true,
   baseMonthlyHours: DEFAULT_BASE_MONTHLY_HOURS,
   isActive: true,
   memo: "",

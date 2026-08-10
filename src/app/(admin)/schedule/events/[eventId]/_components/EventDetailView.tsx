@@ -257,13 +257,6 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const { laborCost, revenue, margin, dailyWorkHours } =
     summarizeEventCost(event);
 
-  /* 문자 수신 대상은 **사람** 수다. 배치(사람×날짜)를 그대로 세면 부풀려진다. */
-  const messageTargetCount = new Set(
-    event.assignments
-      .filter((assignment) => assignment.status === "CONFIRMED")
-      .map((assignment) => assignment.staffId),
-  ).size;
-
   const rowActions: DropdownItem[] = [
     ...(canWriteEvent
       ? [
@@ -330,15 +323,14 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
       **지금 보고 있는 행사에** 바로 보내는 자리다. 행사를 다시 고르는 단계가
       없어야 잘못된 행사 인원에게 나가는 사고가 생기지 않는다.
     */
+    /*
+      숫자를 달지 않는다.
+      다른 탭의 숫자는 "처리해야 할 건수"인데(계약서 3건 남음), 문자는 처리할
+      건수가 아니라 그냥 대상 인원이다. 같은 자리에 있는 숫자가 서로 다른 뜻을
+      가지면 전부 신뢰를 잃는다.
+    */
     ...(canReadMessage
-      ? [
-          {
-            label: "문자 발송",
-            value: "MESSAGE" as const,
-            /* 문자는 사람당 한 통이다. 사흘 나오는 사람에게 세 번 보내지 않는다. */
-            count: messageTargetCount,
-          },
-        ]
+      ? [{ label: "문자 발송", value: "MESSAGE" as const }]
       : []),
     { label: "안내 · 명단", value: "NOTICE" },
   ];

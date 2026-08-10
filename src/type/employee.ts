@@ -127,7 +127,19 @@ export interface Employee {
   roleId: number;
   roleName: string;
   isSuperAdmin: boolean;
-  /** 한 달에 채워야 하는 시간. 근무 집계의 기준선이다. */
+  /**
+   * 근무시간을 집계하는 사람인가.
+   *
+   * **전원이 대상은 아니다.** 대표 · 실장처럼 사무실에서 일이 굴러가게 하는 자리는
+   * 현장 근무시간으로 평가할 수 있는 사람이 아니다. 그런 사람까지 '직원 근무'에
+   * 세워 두면 채움률이 영원히 10%대로 남고, 그 줄들 때문에 정작 봐야 하는
+   * "이번 달 무리한 사람"이 묻힌다.
+   *
+   * 꺼 두면 기준 시간을 정하지 않고 근무 화면에도 나오지 않는다.
+   * 배치는 그대로 할 수 있다 — 집계에서만 빠진다.
+   */
+  tracksWorkHours: boolean;
+  /** 한 달에 채워야 하는 시간. 근무 집계의 기준선이다. (집계 대상일 때만 뜻이 있다) */
   baseMonthlyHours: number;
   /** 퇴사자는 끄기만 하고 지우지 않는다. 지나간 행사 기록이 이 사람을 가리킨다. */
   isActive: boolean;
@@ -152,6 +164,7 @@ export interface EmployeeFormValues {
   hireDate: string;
   position: string;
   roleId: number;
+  tracksWorkHours: boolean;
   baseMonthlyHours: number;
   isActive: boolean;
   memo: string;

@@ -301,6 +301,11 @@ export interface EmployeeSeed {
   /** 직책(권한 묶음) ID. `mocks/db/ops.ts`의 `adminRoles`와 맞춘다. */
   roleId: number;
   isActive?: boolean;
+  /**
+   * 근무시간 집계 대상인지. 기본값은 대상이다.
+   * 대표 · 실장처럼 현장 시간으로 평가할 수 없는 자리만 꺼 둔다.
+   */
+  tracksWorkHours?: boolean;
 }
 
 export const EMPLOYEE_SEED: EmployeeSeed[] = [
@@ -312,6 +317,8 @@ export const EMPLOYEE_SEED: EmployeeSeed[] = [
     months: 30,
     baseHours: 174,
     roleId: 1,
+    /* 대표는 현장 근무시간으로 평가할 수 있는 자리가 아니다. */
+    tracksWorkHours: false,
   },
   {
     name: "박서진",
@@ -321,6 +328,7 @@ export const EMPLOYEE_SEED: EmployeeSeed[] = [
     months: 14,
     baseHours: 174,
     roleId: 2,
+    tracksWorkHours: false,
   },
   {
     name: "이가온",

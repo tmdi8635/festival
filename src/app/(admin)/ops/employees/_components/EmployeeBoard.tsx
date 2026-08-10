@@ -9,23 +9,25 @@ import {
 import { useEmployeeMutation } from "@/api/employee/mutateEmployee";
 import { Edit, Plus, ShieldCheck, Trash, Users } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
-import { formatDate, formatDateTime } from "@/lib/dayjs";
+import { formatDateTime } from "@/lib/dayjs";
 import { showErrorToast } from "@/lib/toast";
 import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { type Employee } from "@/type/employee";
-import { GENDER_LABEL, formatPhoneNumber } from "@/type/staff";
+import { formatPhoneNumber } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Checkbox from "@/components/ui/Checkbox";
 import CsvExportButton from "@/components/ui/CsvExportButton";
+import Dropdown, { type DropdownItem } from "@/components/ui/Dropdown";
 import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
-import Table, { TableCellStack, type TableColumn } from "@/components/ui/Table";
+import Table, { type TableColumn } from "@/components/ui/Table";
 import StaffCell from "@/components/domain/StaffCell";
 import StatTile from "@/components/domain/StatTile";
+import EmployeeDetailModal from "./EmployeeDetailModal";
 import EmployeeFormModal from "./EmployeeFormModal";
 
 const EMPLOYEE_CSV_COLUMNS: CsvColumn<Employee>[] = [
@@ -38,7 +40,11 @@ const EMPLOYEE_CSV_COLUMNS: CsvColumn<Employee>[] = [
   { header: "주소", value: (row) => row.address },
   { header: "비상 연락처", value: (row) => row.emergencyContact },
   { header: "입사일", value: (row) => row.hireDate },
-  { header: "기본 근무시간", value: (row) => row.baseMonthlyHours },
+  { header: "근무 집계", value: (row) => (row.tracksWorkHours ? "대상" : "제외") },
+  {
+    header: "기본 근무시간",
+    value: (row) => (row.tracksWorkHours ? row.baseMonthlyHours : ""),
+  },
   { header: "재직", value: (row) => (row.isActive ? "재직" : "퇴사") },
 ];
 
@@ -61,6 +67,8 @@ const EmployeeBoard = () => {
   const [includeRetired, setIncludeRetired] = useState(false);
   const [editTarget, setEditTarget] = useState<Employee | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  /** 줄을 누르면 상세부터 연다. 목록에서 바로 편집 상태로 들어가지 않는다. */
+  const [detailTarget, setDetailTarget] = useState<Employee | null>(null);
 
   const { data, isLoading } = useEmployeeListQuery({
     keyword: keyword || undefined,
@@ -84,6 +92,7 @@ const EmployeeBoard = () => {
   const openForm = (employee: Employee | null) => {
     setEditTarget(employee);
     setIsFormOpen(true);
+    setDetailTarget(null);
   };
 
   const handleDelete = (employee: Employee) => {
@@ -97,11 +106,48 @@ const EmployeeBoard = () => {
       onConfirm: () =>
         deleteMutation
           .mutateAsync(employee.employeeId)
+          .then(() => setDetailTarget(null))
           /* 서버가 막는 이유(배치 이력 · 최고관리자)를 그대로 보여 준다. */
           .catch((error) => showErrorToast(error)),
     });
   };
 
+  /*
+    행 메뉴.
+    수정 · 삭제를 밖에 늘어놓으면 줄마다 단추가 둘씩 붙어, 정작 훑어야 하는
+    이름 · 권한이 좁아진다. 되돌리기 어려운 삭제가 손가락 밑에 있는 것도 좋지 않다.
+  */
+  const rowActions = (employee: Employee): DropdownItem[] => [
+    ...(canWrite
+      ? [
+          {
+            label: "수정",
+            icon: <Edit size={15} />,
+            onSelect: () => openForm(employee),
+          },
+        ]
+      : []),
+    ...(canDelete
+      ? [
+          {
+            label: "삭제",
+            icon: <Trash size={15} />,
+            tone: "danger" as const,
+            disabled: employee.isSuperAdmin,
+            onSelect: () => handleDelete(employee),
+          },
+        ]
+      : []),
+  ];
+
+  /*
+    목록에 두는 것은 셋뿐이다 — **누구인가 · 무엇을 할 수 있나 · 살아 있는 계정인가.**
+
+    생년월일 · 주소 · 입사일 · 기본 근무시간까지 늘어놓으면 표가 옆으로 흘러
+    정작 훑어야 하는 이름과 권한이 화면 밖으로 밀린다. 그 값들은 상세에서 본다.
+    이름 아래는 이메일이 아니라 **연락처**다. 목록을 보다가 실제로 하는 일이
+    전화를 거는 것이지 메일을 쓰는 것이 아니다.
+  */
   const columns: TableColumn<Employee>[] = [
     {
       key: "employee",
@@ -110,7 +156,7 @@ const EmployeeBoard = () => {
         <StaffCell
           name={row.name}
           profileImageUrl={row.profileImageUrl}
-          secondary={row.email}
+          secondary={formatPhoneNumber(row.phoneNumber)}
           badge={
             <>
               <Badge tone="info">{row.position}</Badge>
@@ -121,73 +167,17 @@ const EmployeeBoard = () => {
       ),
     },
     {
-      key: "contact",
-      header: "연락처",
-      render: (row) => (
-        <TableCellStack
-          primary={
-            <span className="tabular-nums">
-              {formatPhoneNumber(row.phoneNumber)}
-            </span>
-          }
-          secondary={
-            row.emergencyContact ? (
-              <span className="tabular-nums">
-                비상 {formatPhoneNumber(row.emergencyContact)}
-              </span>
-            ) : undefined
-          }
-        />
-      ),
-    },
-    {
-      key: "personal",
-      header: "생년월일 / 입사일",
-      render: (row) => (
-        <TableCellStack
-          primary={
-            <span className="tabular-nums">
-              {row.birthDate ? formatDate(row.birthDate) : "-"}
-              <span className="text-font-2"> · {GENDER_LABEL[row.gender]}</span>
-            </span>
-          }
-          secondary={
-            <span className="tabular-nums">
-              입사 {row.hireDate ? formatDate(row.hireDate) : "-"}
-            </span>
-          }
-        />
-      ),
-    },
-    {
       /*
-        시스템 권한.
-        회사 직책(대리 · 실장)과 다른 축이다. 실장이라고 정산을 볼 수 있는 것도,
-        사원이라고 못 보는 것도 아니라서 두 값을 따로 보여 준다.
+        시스템 권한. 회사 직책(대리 · 실장)과 다른 축이라 따로 세운다.
+        설명 줄은 뺐다. 모든 줄에 같은 문장("직책 · 권한에서 정합니다")이
+        반복되면 읽지 않게 되고, 자리만 차지한다.
       */
       key: "role",
       header: "시스템 권한",
       render: (row) => (
-        <div className="flex flex-col gap-1">
-          <Badge
-            tone={row.isSuperAdmin ? "brand" : "neutral"}
-            className="w-fit"
-          >
-            {row.roleName}
-          </Badge>
-          <span className="text-[12px] text-font-2">
-            {row.isSuperAdmin ? "모든 권한" : "직책 · 권한에서 정합니다."}
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: "baseMonthlyHours",
-      header: "기본 근무시간",
-      align: "right",
-      numeric: true,
-      render: (row) => (
-        <span className="tabular-nums">{row.baseMonthlyHours}시간</span>
+        <Badge tone={row.isSuperAdmin ? "brand" : "neutral"}>
+          {row.roleName}
+        </Badge>
       ),
     },
     {
@@ -203,36 +193,22 @@ const EmployeeBoard = () => {
     {
       key: "actions",
       header: "",
-      width: "140px",
+      width: "56px",
       align: "right",
-      render: (row) => (
-        <div
-          className="flex justify-end gap-1"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {canWrite && (
-            <Button
-              size="sm"
-              variant="ghost"
-              leftIcon={<Edit size={14} />}
-              onClick={() => openForm(row)}
-            >
-              수정
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              size="sm"
-              variant="dangerGhost"
-              leftIcon={<Trash size={14} />}
-              disabled={row.isSuperAdmin}
-              onClick={() => handleDelete(row)}
-            >
-              삭제
-            </Button>
-          )}
-        </div>
-      ),
+      render: (row) => {
+        const items = rowActions(row);
+
+        if (items.length === 0) return null;
+
+        return (
+          <div
+            className="flex justify-end"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Dropdown items={items} />
+          </div>
+        );
+      },
     },
   ];
 
@@ -322,11 +298,18 @@ const EmployeeBoard = () => {
           rows={rows}
           getRowKey={(row) => String(row.employeeId)}
           isLoading={isLoading}
-          onRowClick={canWrite ? openForm : undefined}
+          onRowClick={setDetailTarget}
           emptyTitle="등록된 직원이 없습니다."
           emptyDescription="월급을 받는 우리 직원을 등록하면 계정과 권한이 함께 만들어지고, 행사에도 바로 배치할 수 있습니다."
         />
       </Card>
+
+      <EmployeeDetailModal
+        employee={detailTarget}
+        onClose={() => setDetailTarget(null)}
+        onEdit={openForm}
+        onDelete={handleDelete}
+      />
 
       <EmployeeFormModal
         isOpen={isFormOpen}
