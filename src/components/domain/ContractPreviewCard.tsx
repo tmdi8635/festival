@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ExternalLink, FileText } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
+  A4_PAGE_HEIGHT,
   A4_PAGE_WIDTH,
   resolveA4PageCount,
   type ContractDocument,
@@ -19,11 +20,14 @@ interface ContractPreviewCardProps {
   className?: string;
 }
 
-/** 미리보기 상자의 높이. 첫 장의 위쪽이 들어갈 만큼만 준다. */
-const PREVIEW_HEIGHT = 320;
-
-/** 지면을 상자 폭에 맞춰 줄이는 배율 */
-const PREVIEW_SCALE = 0.42;
+/**
+ * 미리보기 지면의 폭. **작아야 한다.**
+ *
+ * 상자 폭에 맞춰 키우면 배율이 1에 가까워져 미리보기가 아니라 그냥 문서가
+ * 되고, 320px 높이에는 제목 한 줄만 들어간다. 여기서 하는 일은
+ * "양식이 맞나"를 훑는 것이라 **첫 장이 통째로 보이는 편**이 낫다.
+ */
+const PREVIEW_WIDTH = 260;
 
 /**
  * 계약서 미리보기. **형식만 훑는 자리다.**
@@ -68,6 +72,8 @@ const ContractPreviewCard = ({
   }, []);
 
   const pageCount = resolveA4PageCount(contentHeight);
+  /** 첫 장이 통째로 들어가는 배율 */
+  const scale = PREVIEW_WIDTH / A4_PAGE_WIDTH;
 
   return (
     <section
@@ -80,7 +86,7 @@ const ContractPreviewCard = ({
         <FileText size={15} className="shrink-0 text-font-2" />
         <p className="text-[13px] font-medium text-font-1">미리보기</p>
         <p className="min-w-0 flex-1 text-[12px] text-font-2">
-          양식이 맞는지만 확인하세요. 조항을 읽으려면 새 창에서 여세요.
+          첫 장입니다. 양식만 확인하고, 조항을 읽으려면 새 창에서 여세요.
           {contentHeight > 0 && ` · 총 ${pageCount}장`}
         </p>
 
@@ -104,24 +110,32 @@ const ContractPreviewCard = ({
         페이드로 알린다. 스크롤을 두지 않는 이유는 여기서 읽으라는 뜻이
         아니기 때문이다.
       */}
-      <div
-        className="relative overflow-hidden rounded-field border border-border-main bg-subtle"
-        style={{ height: PREVIEW_HEIGHT }}
-      >
+      {/* 종이 한 장이 놓인 것처럼 가운데에 둔다. */}
+      <div className="flex justify-center rounded-field bg-subtle py-4">
         <div
+          className="relative overflow-hidden rounded-[3px] border border-border-main bg-white shadow-card"
           style={{
-            width: A4_PAGE_WIDTH,
-            transform: `scale(${PREVIEW_SCALE})`,
-            transformOrigin: "top left",
+            width: PREVIEW_WIDTH,
+            height: Math.round(A4_PAGE_HEIGHT * scale),
           }}
         >
-          <div ref={measureRef}>
-            <ContractDocumentView document={document} />
+          <div
+            style={{
+              width: A4_PAGE_WIDTH,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          >
+            <div ref={measureRef}>
+              <ContractDocumentView document={document} />
+            </div>
           </div>
-        </div>
 
-        {/* 아래가 더 있다는 신호. 잘린 자리를 흐리게 덮는다. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent" />
+          {/* 첫 장을 넘어가는 부분이 있다는 신호. 잘린 자리를 흐리게 덮는다. */}
+          {pageCount > 1 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white to-transparent" />
+          )}
+        </div>
       </div>
     </section>
   );
