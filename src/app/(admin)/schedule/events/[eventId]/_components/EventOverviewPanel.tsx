@@ -11,7 +11,6 @@ import {
   Phone,
 } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
-import { resolveBillingRate } from "@/type/client";
 import { cn, formatCurrency, formatWithCommas } from "@/lib/utils";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import {
@@ -20,6 +19,7 @@ import {
   describeRecurrence,
   formatTimeRange,
   groupConsecutiveDates,
+  resolveBillingRate,
   summarizeEventCost,
   type EventDetail,
 } from "@/type/event";

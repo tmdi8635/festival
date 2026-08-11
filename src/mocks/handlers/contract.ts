@@ -23,7 +23,12 @@ import {
   findContract,
   findContractTemplate,
 } from "../db/contract";
-import { events, findEvent, recalculateEventCounts } from "../db/event";
+import {
+  events,
+  findEvent,
+  recalculateEventCounts,
+  resolveAssignmentWage,
+} from "../db/event";
 import {
   syncPayrollWithAssignment,
   syncPayrollWithContract,
@@ -607,11 +612,36 @@ export const contractHandlers = [
 
       if (!event) return notFound("존재하지 않는 행사입니다.");
 
-      const keptDates = previous.workDates
-        .filter((date) => body.workDates.includes(date))
-        .sort();
+      /*
+        재작성은 **줄이는 일만이 아니다.**
+
+        예전에는 요청에 담긴 날짜를 당초 계약의 근무일로 한 번 걸렀다.
+        그래서 "이틀 계약한 사람이 사흘째도 나오게 된" 경우를 표현할 방법이
+        아예 없었고, 담당자는 계약서를 지우고 처음부터 다시 쓰고 있었다.
+        (그러면 왜 늘었는지가 이력에서 사라진다)
+
+        이제 요청한 날짜를 그대로 받되, **행사 근무일 안**인지만 본다.
+        행사에 없는 날의 계약은 근거가 없고 정산도 만들어지지 않는다.
+      */
+      /* 근무일의 원본은 일자별 인원 계획이다. 배치를 만드는 쪽도 이 배열을 본다. */
+      const eventDates = event.days.map((day) => day.date);
+      const requestedDates = [...new Set(body.workDates)].sort();
+      const outOfRangeDates = requestedDates.filter(
+        (date) => !eventDates.includes(date),
+      );
+
+      if (outOfRangeDates.length > 0) {
+        return badRequest(
+          `행사 근무일이 아닌 날짜가 있습니다. (${outOfRangeDates.join(", ")}) 행사 일정을 먼저 고쳐 주세요.`,
+        );
+      }
+
+      const keptDates = requestedDates;
       const removedDates = previous.workDates.filter(
         (date) => !keptDates.includes(date),
+      );
+      const addedDates = keptDates.filter(
+        (date) => !previous.workDates.includes(date),
       );
 
       if (keptDates.length === 0) {
@@ -657,6 +687,71 @@ export const contractHandlers = [
             canceledCount += 1;
           });
       }
+
+      /*
+        늘어난 날에는 **배치도 함께 만들어 준다.**
+
+        계약서만 늘리면 그날은 배치가 없어 정산 건이 만들어지지 않는다.
+        문서에는 사흘치가 적혀 있는데 통장에는 이틀치가 들어가는,
+        중도 종료를 방치했을 때와 똑같은 사고가 반대 방향으로 생긴다.
+
+        취소해 뒀던 날이면 되살리고(이력을 지우지 않는다), 아예 없던 날이면
+        그날 그 직무의 발주 조건으로 새로 만든다.
+      */
+      const staffForAssignment = findStaff(previous.staffId);
+      let restoredCount = 0;
+
+      addedDates.forEach((date) => {
+        const existing = ownAssignments.find(
+          (assignment) => assignment.workDate === date,
+        );
+
+        if (existing) {
+          if (existing.status === "CANCELED") {
+            existing.status = "CONFIRMED";
+            restoredCount += 1;
+          }
+
+          // 새 차수에 서명을 다시 받아야 하므로 어느 쪽이든 서명은 푼다.
+          existing.isContractSigned = false;
+
+          return;
+        }
+
+        const created: Assignment = {
+          assignmentId:
+            events.reduce(
+              (max, item) =>
+                item.assignments.reduce(
+                  (innerMax, assignment) =>
+                    Math.max(innerMax, assignment.assignmentId),
+                  max,
+                ),
+              0,
+            ) + 1,
+          eventId: event.eventId,
+          eventTitle: event.title,
+          workDate: date,
+          staffId: previous.staffId,
+          staffName: previous.staffName,
+          staffPhone: staffForAssignment?.phoneNumber ?? "",
+          staffProfileImageUrl: staffForAssignment?.profileImageUrl,
+          staffGender: staffForAssignment?.gender ?? "MALE",
+          isEmployee: staffForAssignment?.employment === "EMPLOYEE",
+          role: previous.role,
+          status: "CONFIRMED",
+          ...resolveAssignmentWage(event, date, previous.role),
+          attendance: "PENDING",
+          lateMinutes: 0,
+          isContractSigned: false,
+          isPaid: false,
+          createdAt: new Date().toISOString(),
+        };
+
+        event.assignments.push(created);
+        ownAssignments.push(created);
+        restoredCount += 1;
+      });
 
       const keptAssignments = ownAssignments
         .filter(
@@ -708,6 +803,7 @@ export const contractHandlers = [
 
       if (
         removedDates.length === 0 &&
+        addedDates.length === 0 &&
         !isWageChanged &&
         !isTemplateChanged &&
         !body.note?.trim()
@@ -756,6 +852,7 @@ export const contractHandlers = [
         amendReasonType: body.reasonType,
         amendNote: body.note?.trim() || undefined,
         removedWorkDates: removedDates,
+        addedWorkDates: addedDates,
         amendedAt,
         createdAt: amendedAt,
       };
@@ -789,7 +886,7 @@ export const contractHandlers = [
       await delay(MOCK_DELAY_MS);
 
       return HttpResponse.json(
-        { previous, created, canceledCount },
+        { previous, created, canceledCount, restoredCount },
         { status: 201 },
       );
     },

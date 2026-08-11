@@ -580,22 +580,11 @@ const EventPayrollPanel = ({ event }: EventPayrollPanelProps) => {
         </Alert>
       )}
 
-      {rows.length > 0 && (
-        <Alert tone="info" title="정산은 세 단계로 넘어갑니다.">
-          <span className="flex flex-col gap-0.5">
-            {(["PENDING", "APPROVED", "PAID"] as const).map((status) => (
-              <span key={status}>
-                <b>{PAYROLL_STATUS_LABEL[status]}</b> —{" "}
-                {PAYROLL_STATUS_HINT[status]}
-              </span>
-            ))}
-            <span className="mt-1 text-font-2">
-              발주 인원을 다 못 채웠어도 정산은 그대로 됩니다. 나온 사람 기준으로
-              계산됩니다.
-            </span>
-          </span>
-        </Alert>
-      )}
+      {/*
+        상태 3단계 설명은 두지 않는다.
+        표의 상태 칸과 버튼이 이미 그 순서를 그대로 보여 주고, 늘 떠 있는
+        안내는 정말 봐야 할 경고(미달 · 잠정 계산)를 밀어낸다.
+      */}
 
       <Card noPadding>
         {/* 행사 하나의 정산 합계. 정산 메뉴로 나가 같은 행사를 다시 찾을 이유가 없다. */}

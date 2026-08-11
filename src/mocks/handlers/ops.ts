@@ -1,5 +1,6 @@
 import { HttpResponse, delay, http } from "msw";
 import { normalizePermissions } from "@/type/permission";
+import { sanitizeJobRoles } from "@/type/staff";
 import type {
   AdminRole,
   AdminRoleFormValues,
@@ -215,7 +216,15 @@ export const opsHandlers = [
 
     const body = (await request.json()) as OperationSettings;
 
+    /*
+      직무 목록은 **서버가 정한다.**
+
+      화면에서 이름 · 순서를 바꿀 수 없게 만들어 뒀지만, 막는 책임은 서버에 있다.
+      요청에 없는 직무는 기본 단가로 채우고, 카탈로그에 없는 코드는 버린다.
+      (그러지 않으면 요청 한 번으로 직무 목록이 통째로 갈릴 수 있다)
+    */
     Object.assign(operationSettings, body, {
+      jobRoles: sanitizeJobRoles(body.jobRoles ?? []),
       updatedAt: new Date().toISOString(),
     });
 

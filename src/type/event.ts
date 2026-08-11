@@ -1,11 +1,36 @@
-import type { ClientBillingRate } from "./client";
-import { resolveBillingRate } from "./client";
 import type {
   AttendanceStatus,
   Gender,
   JobRole,
   ReputationVerdict,
 } from "./staff";
+
+/**
+ * 행사 한 건의 직무별 **청구** 단가 (시급).
+ *
+ * 기준 설정에 정해 둔 단가(`JobRoleDef.billingRate`)가 행사 등록 시
+ * 초기값으로 깔리고, 현장 사정에 따라 여기서 고쳐진다.
+ *
+ * **없어도 된다.** 정하지 않은 직무는 아예 목록에 넣지 않는다.
+ * 그 상태에서는 마진이 계산되지 않을 뿐 나머지는 전부 그대로 굴러간다.
+ * (0을 넣으면 '0원에 청구하기로 했다'가 되어 버려 미설정과 구분되지 않는다)
+ */
+export interface BillingRate {
+  role: JobRole;
+  /** 대행사에 청구하는 시급 */
+  rate: number;
+}
+
+/** 그 직무의 청구 단가. 정하지 않았으면 0이다. */
+export const resolveBillingRate = (
+  billingRates: readonly BillingRate[],
+  role: JobRole,
+): number => billingRates.find((item) => item.role === role)?.rate ?? 0;
+
+/** 정하지 않은 단가(0)는 저장하지 않는다. 0원 청구와 미설정을 갈라 둔다. */
+export const compactBillingRates = (
+  billingRates: readonly BillingRate[],
+): BillingRate[] => billingRates.filter((item) => item.rate > 0);
 
 /**
  * 행사 · 인력 배치 도메인 타입.
@@ -384,11 +409,14 @@ export interface EventDetail extends EventSummary {
    * 지급도 청구도 단가가 다르다. 하나로 묶어 두면 팀장이 많은 행사의 매출이
    * 통째로 낮게 잡히고, 그 숫자를 보고 다음 발주 단가를 정하게 된다.
    *
-   * 거래처에 등록된 단가를 기본으로 가져오되(`Client.billingRates`)
+   * 기준 설정에 정해 둔 단가를 기본으로 가져오되(`JobRoleDef.billingRate`)
    * 행사마다 자유롭게 고친다. 발주는 늘 그때그때 다르게 들어온다.
    * 비어 있어도 된다 — 그 직무가 마진 계산에서 빠질 뿐이다.
+   *
+   * 거래처가 아니라 기준 설정에서 가져오는 이유: 단가를 부르는 쪽이
+   * 에이전시라서다. 대행사가 직무별 인원수로 견적을 요청하면 우리가 답한다.
    */
-  billingRates: ClientBillingRate[];
+  billingRates: BillingRate[];
   memo: string;
   assignments: Assignment[];
   createdAt: string;
@@ -644,7 +672,7 @@ export interface EventFormValues {
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  billingRates: ClientBillingRate[];
+  billingRates: BillingRate[];
   memo: string;
   roles: EventRoleSlot[];
 }

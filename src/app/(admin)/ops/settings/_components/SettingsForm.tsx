@@ -5,33 +5,31 @@ import { useSettingsQuery } from "@/api/ops/getSettings";
 import { WAGE_TYPE_OPTIONS } from "@/constants/eventOptions";
 import { useSettingsMutation } from "@/api/ops/mutateSettings";
 import { useHasPermission } from "@/store/useAdminStore";
-import { ArrowDown, ArrowUp, Plus, Refresh, Trash, Warning } from "@/icons";
-import { formatDateTime } from "@/lib/dayjs";
+import { Refresh, Warning } from "@/icons";
 import { cn, formatCurrency } from "@/lib/utils";
-import { openConfirm } from "@/store/useConfirmStore";
 import {
   FEATURE_HINT,
   FEATURE_LABEL,
   FEATURE_MODE_DESCRIPTION,
   FEATURE_MODE_LABEL,
-  canRemoveJobRole,
+  hasActiveJobRole,
   type FeatureKey,
   type FeatureMode,
   type OperationSettings,
 } from "@/type/ops";
 import { WAGE_TYPE_UNIT, type WageType } from "@/type/event";
 import {
-  nextJobRoleCode,
-  nextJobRoleOrder,
-  sortJobRoles,
+  mergeJobRoles,
+  sanitizeJobRoles,
+  type JobRole,
   type JobRoleDef,
 } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
+import AmountInput from "@/components/ui/AmountInput";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import FormField from "@/components/ui/FormField";
-import IconButton from "@/components/ui/IconButton";
 import Input from "@/components/ui/Input";
 import TimeInput from "@/components/ui/TimeInput";
 import Select from "@/components/ui/Select";
@@ -55,29 +53,17 @@ const FEATURE_MODES: FeatureMode[] = ["ENABLED", "MOCK", "LOCKED"];
  * 표 전체가 밀린다. (실제로 그렇게 깨져 있었다) 한 상수를 둘 다 쓴다.
  */
 const JOB_ROLE_GRID =
-  "grid grid-cols-[84px_minmax(0,1fr)_110px_190px_64px_40px] gap-3";
-
-/**
- * 새 직무의 초기값.
- *
- * 코드는 사람이 정하지 않는다. 겹치지 않기만 하면 되는 내부 값이라
- * 시스템이 붙이고, 사용자는 이름만 적는다.
- */
-const buildNewJobRole = (jobRoles: JobRoleDef[]): JobRoleDef => ({
-  code: nextJobRoleCode(jobRoles),
-  name: "",
-  order: nextJobRoleOrder(jobRoles),
-  defaultWageType: "HOURLY",
-  defaultWage: 12000,
-  isActive: true,
-});
+  "grid grid-cols-[minmax(0,1fr)_110px_180px_180px_64px] gap-3";
 
 /**
  * 기준 설정.
  *
  * 이 시스템이 하려는 일은 "매번 사람이 판단하던 것을 규칙으로 굳히는 것"이다.
  * 다만 에이전시마다 운영 방식이 달라서, 규칙을 시스템이 강제하면 오히려 못 쓰게 된다.
- * 그래서 직무 · 수당 · 원천징수까지 전부 여기서 켜고 끄고 이름을 바꿀 수 있게 한다.
+ * 그래서 단가 · 수당 · 원천징수를 여기서 정하게 한다.
+ *
+ * **직무 목록만은 예외다.** 그건 우리끼리 쓰는 말이 아니라 대행사와 주고받는
+ * 말이라 시스템이 고정한다. 여기서 정하는 것은 그 직무의 금액뿐이다.
  */
 const SettingsForm = () => {
   const { data, isLoading } = useSettingsQuery();
@@ -106,75 +92,26 @@ const SettingsForm = () => {
   ) => setDraft({ ...settings, [key]: value });
 
   /*
-    화면은 항상 order 순으로 그린다.
-    저장 · 조회를 거치면 배열 순서는 언제든 뒤집히므로 배열에 기대지 않는다.
+    카탈로그(이름 · 순서)와 저장된 단가를 합쳐서 그린다.
+    시스템에 직무가 새로 추가되면 저장된 설정에 없더라도 여기에 바로 나타난다.
   */
-  const jobRoles = sortJobRoles(settings.jobRoles);
+  const jobRoles = mergeJobRoles(settings.jobRoles);
 
-  const setJobRoles = (nextJobRoles: JobRoleDef[]) =>
-    setDraft({ ...settings, jobRoles: nextJobRoles });
-
-  const updateJobRole = (index: number, patch: Partial<JobRoleDef>) =>
-    setJobRoles(
-      jobRoles.map((role, roleIndex) =>
-        roleIndex === index ? { ...role, ...patch } : role,
+  /**
+   * 직무 한 줄의 단가 · 사용 여부를 고친다.
+   *
+   * **저장할 배열은 화면에 그린 것이 아니라 순수한 설정값이다.**
+   * 카탈로그에서 온 이름 · 순서 · 설명까지 같이 저장해 버리면 그 값이
+   * 서버에 사본으로 남고, 나중에 시스템이 이름을 고쳐도 저장된 옛 이름이
+   * 계속 따라다닌다. 합친 값은 화면에서만 쓰고 저장은 코드 기준으로 한다.
+   */
+  const updateJobRole = (code: JobRole, patch: Partial<JobRoleDef>) =>
+    setDraft({
+      ...settings,
+      jobRoles: sanitizeJobRoles(jobRoles).map((role) =>
+        role.code === code ? { ...role, ...patch } : role,
       ),
-    );
-
-  /**
-   * 직무 순서 변경.
-   *
-   * 자주 쓰는 직무가 목록 맨 위에 있어야 행사 등록이 빨라진다.
-   * 자리를 맞바꾼 뒤 order를 1부터 다시 매겨, 중간에 빈 번호가 생기지 않게 한다.
-   */
-  const handleMoveJobRole = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-
-    if (target < 0 || target >= jobRoles.length) return;
-
-    const reordered = [...jobRoles];
-
-    [reordered[index], reordered[target]] = [
-      reordered[target],
-      reordered[index],
-    ];
-
-    setJobRoles(
-      reordered.map((role, roleIndex) => ({ ...role, order: roleIndex + 1 })),
-    );
-  };
-
-  /**
-   * 직무 삭제.
-   *
-   * 직무는 인력의 '가능 직무', 행사의 '발주', 배치, 계약서, 정산이 모두 참조한다.
-   * 지우면 그 직무로 잡혀 있던 사람들의 직무가 사라지므로 반드시 경고를 띄운다.
-   * 마지막 한 개는 지울 수 없다. 직무가 없으면 행사를 만들 수 없다.
-   */
-  const handleRemoveJobRole = (index: number) => {
-    const target = jobRoles[index];
-
-    openConfirm({
-      title: `'${target.name || "이름 없는"}' 직무를 삭제할까요?`,
-      description:
-        "이 직무로 등록된 인력의 '가능 직무'에서 빠지고, 진행 중인 행사의 발주 항목도 사라집니다.",
-      warning:
-        "이미 끝난 행사의 배치 · 계약서 · 정산 기록에는 이 직무가 그대로 남습니다. 이름만 코드로 보이게 됩니다. 당분간 쓰지 않을 직무라면 삭제 대신 '사용'을 꺼 두세요.",
-      confirmText: "삭제",
-      tone: "danger",
-      onConfirm: async () => {
-        setJobRoles(
-          jobRoles
-            .filter((_, roleIndex) => roleIndex !== index)
-            // 지운 자리를 메워 순서에 구멍이 남지 않게 한다.
-            .map((role, roleIndex) => ({ ...role, order: roleIndex + 1 })),
-        );
-      },
     });
-  };
-
-  const handleAddJobRole = () =>
-    setJobRoles([...jobRoles, buildNewJobRole(jobRoles)]);
 
   const updateFeature = (key: FeatureKey, mode: FeatureMode) =>
     setDraft({
@@ -191,16 +128,11 @@ const SettingsForm = () => {
   */
   const isHrPolicyOn = settings.featureModes.HR_POLICY !== "LOCKED";
 
-  /**
-   * 이름이 비면 화면 어디에도 그릴 수 없고, 같은 이름이 둘이면
-   * 배치 · 정산 표에서 어느 직무인지 구분되지 않는다.
-   * (코드는 시스템이 붙이므로 더 이상 검사할 것이 없다)
-   */
-  const jobRoleNames = jobRoles.map((role) => role.name.trim());
-  const hasInvalidJobRole = jobRoles.some(
-    (role, index) =>
-      !role.name.trim() || jobRoleNames.indexOf(role.name.trim()) !== index,
-  );
+  /*
+    이름 · 코드 검사는 더 이상 없다. 둘 다 시스템이 갖는다.
+    남은 위험은 하나뿐이다 — 직무를 전부 꺼 버리면 행사를 만들 수 없다.
+  */
+  const hasNoActiveJobRole = !hasActiveJobRole(jobRoles);
 
   return (
     <fieldset disabled={!canWrite} className="contents">
@@ -211,18 +143,13 @@ const SettingsForm = () => {
         </Alert>
       )}
 
-      <Alert tone="info" title="여기서 정한 값이 자동 계산의 기준이 됩니다.">
-        직무 기본 시급은 행사 등록 시 초기값으로, 수당 기준은 정산 계산에
-        쓰입니다. 여기서 정한 시급은 어디까지나 <b>기준값</b>이라 행사 안에서
-        사람마다 · 날마다 얼마든지 고칠 수 있습니다. 쓰지 않는 기능은 아래
-        &lsquo;기능 사용 범위&rsquo;에서 잠글 수 있습니다.
-      </Alert>
+      {/*
+        상단 안내와 '마지막 저장' 줄은 두지 않는다.
+        카드마다 제목 아래에 이미 그 카드가 무엇을 정하는지 적혀 있고,
+        저장 시각은 저장 버튼을 누르는 사람에게 새로 알려 주는 것이 없다.
+      */}
 
-      <div className="flex items-center justify-between">
-        <p className="text-[13px] text-font-2">
-          마지막 저장 {formatDateTime(settings.updatedAt)}
-        </p>
-
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           {isDirty && (
             <Button
@@ -238,7 +165,7 @@ const SettingsForm = () => {
           <Button
             variant="primary"
             size="sm"
-            disabled={!isDirty || hasInvalidJobRole}
+            disabled={!isDirty || hasNoActiveJobRole}
             isLoading={updateMutation.isPending}
             onClick={() =>
               updateMutation.mutate(settings, {
@@ -251,153 +178,130 @@ const SettingsForm = () => {
         </div>
       </div>
 
-      {/* ------------------------------ 직무 ------------------------------ */}
+      {/* --------------------------- 직무별 단가 --------------------------- */}
       <Card
-        title="직무"
-        description="에이전시마다 부르는 이름도 구성도 다릅니다. 자유롭게 만들고 이름을 바꾸세요."
-        action={
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<Plus size={15} />}
-            onClick={handleAddJobRole}
-          >
-            직무 추가
-          </Button>
-        }
+        title="직무별 단가"
+        description="직무는 시스템이 정합니다. 여기서는 각 직무의 지급 · 청구 금액만 정하세요."
         noPadding
       >
-        {/*
-          한 행이 그리는 칸과 머리글의 칸 수가 어긋나면 표 전체가 밀린다.
-          두 곳이 같은 정의를 쓰도록 컬럼 폭을 상수 하나로 묶어 둔다.
-        */}
         {/*
           직무 표는 고정 컬럼만 700px가 넘는다. 좁은 화면에서 억지로 욱여넣으면
           이름 · 금액 칸이 잘려 무슨 값인지 읽을 수 없다.
           표는 폭을 지키고 자기 안에서 가로로 스크롤한다. (가이드 13-1)
         */}
         <div className="overflow-x-auto scrollbar-thin">
-          <div className="min-w-[880px]">
+          {/*
+            한 행이 그리는 칸과 머리글의 칸 수가 어긋나면 표 전체가 밀린다.
+            두 곳이 같은 정의를 쓰도록 컬럼 폭을 상수 하나로 묶어 둔다.
+          */}
+          <div className="min-w-[860px]">
             <div className="flex flex-col divide-y divide-border-main">
-              <div className={cn(JOB_ROLE_GRID, "bg-subtle px-5 py-2.5 text-[12px] font-medium text-font-2")}>
-                <span className="text-center">순서</span>
-                <span>이름</span>
+              <div
+                className={cn(
+                  JOB_ROLE_GRID,
+                  "bg-subtle px-5 py-2.5 text-[12px] font-medium text-font-2",
+                )}
+              >
+                <span>직무</span>
                 <span>지급 기준</span>
-                <span>기본 금액</span>
+                <span>지급 단가</span>
+                <span>청구 단가</span>
                 <span className="text-center">사용</span>
-                <span />
               </div>
 
-              {jobRoles.map((role, index) => {
-                const isDuplicated =
-                  Boolean(role.name.trim()) &&
-                  jobRoleNames.indexOf(role.name.trim()) !== index;
+              {jobRoles.map((role) => (
+                <div
+                  key={role.code}
+                  className={cn(JOB_ROLE_GRID, "items-center px-5 py-3")}
+                >
+                  {/*
+                    이름은 입력칸이 아니라 글자다. 읽기 전용 입력칸으로 두면
+                    눌러 보고 나서야 못 고치는 것을 알게 된다.
+                    설명을 같이 적어 대행사와 뜻을 맞출 수 있게 한다.
+                  */}
+                  <div className="min-w-0">
+                    <p className="text-[14px] text-font-1">{role.name}</p>
+                    <p className="mt-0.5 text-[12px] text-font-2">
+                      {role.description}
+                    </p>
+                  </div>
 
-                return (
-                  <div
-                    key={role.code}
-                    className={cn(JOB_ROLE_GRID, "items-center px-5 py-3")}
-                  >
-                    {/* 자주 쓰는 직무를 위로 올려 두면 행사 등록이 빨라진다. */}
-                    <div className="flex items-center justify-center">
-                      <IconButton
-                        label="위로 이동"
-                        icon={<ArrowUp size={15} />}
-                        disabled={index === 0}
-                        onClick={() => handleMoveJobRole(index, -1)}
-                      />
-                      <IconButton
-                        label="아래로 이동"
-                        icon={<ArrowDown size={15} />}
-                        disabled={index === jobRoles.length - 1}
-                        onClick={() => handleMoveJobRole(index, 1)}
-                      />
-                    </div>
+                  {/*
+                    직무마다 계산 관행이 다르다.
+                    설치 · 철거처럼 시간이 들쭉날쭉한 일은 하루 얼마로 통으로 정한다.
+                    여기서 정한 값이 행사 등록 폼의 초기값이 된다.
+                  */}
+                  <Select
+                    aria-label={`${role.name} 지급 기준`}
+                    options={WAGE_TYPE_OPTIONS}
+                    value={role.defaultWageType}
+                    onChange={(changeEvent) =>
+                      updateJobRole(role.code, {
+                        defaultWageType: changeEvent.target.value as WageType,
+                      })
+                    }
+                  />
 
-                    <Input
-                      aria-label="직무 이름"
-                      value={role.name}
-                      placeholder="스태프"
-                      hasError={!role.name.trim() || isDuplicated}
-                      onChange={(event) =>
-                        updateJobRole(index, { name: event.target.value })
+                  <AmountInput
+                    aria-label={`${role.name} 지급 단가`}
+                    value={role.defaultWage}
+                    rightSlot={
+                      <span className="text-[13px] whitespace-nowrap text-font-2">
+                        {WAGE_TYPE_UNIT[role.defaultWageType]}
+                      </span>
+                    }
+                    onValueChange={(defaultWage) =>
+                      updateJobRole(role.code, { defaultWage })
+                    }
+                  />
+
+                  {/*
+                    청구 단가는 **언제나 시급**이다.
+                    지급을 일급으로 하더라도 대행사에 넣는 견적은 시간 단위라
+                    지급 기준을 따라가지 않는다.
+                  */}
+                  <AmountInput
+                    aria-label={`${role.name} 청구 단가`}
+                    placeholder="미설정"
+                    value={role.billingRate}
+                    rightSlot={
+                      <span className="text-[13px] whitespace-nowrap text-font-2">
+                        원 / 시간
+                      </span>
+                    }
+                    onValueChange={(billingRate) =>
+                      updateJobRole(role.code, { billingRate })
+                    }
+                  />
+
+                  <div className="flex justify-center">
+                    <Switch
+                      label={`${role.name} 사용`}
+                      checked={role.isActive}
+                      onChange={(checked) =>
+                        updateJobRole(role.code, { isActive: checked })
                       }
-                    />
-
-                    {/*
-                      직무마다 계산 관행이 다르다.
-                      설치 · 철거처럼 시간이 들쭉날쭉한 일은 하루 얼마로 통으로 정한다.
-                      여기서 정한 값이 행사 등록 폼의 초기값이 된다.
-                    */}
-                    <Select
-                      aria-label="기본 지급 기준"
-                      options={WAGE_TYPE_OPTIONS}
-                      value={role.defaultWageType}
-                      onChange={(changeEvent) =>
-                        updateJobRole(index, {
-                          defaultWageType: changeEvent.target.value as WageType,
-                        })
-                      }
-                    />
-
-                    <Input
-                      type="number"
-                      aria-label="기본 금액"
-                      min={0}
-                      step={500}
-                      value={role.defaultWage}
-                      rightSlot={
-                        <span className="text-[13px] whitespace-nowrap text-font-2">
-                          {WAGE_TYPE_UNIT[role.defaultWageType]}
-                        </span>
-                      }
-                      onChange={(event) =>
-                        updateJobRole(index, {
-                          defaultWage: Number(event.target.value),
-                        })
-                      }
-                    />
-
-                    <div className="flex justify-center">
-                      <Switch
-                        label={`${role.name || "새 직무"} 사용`}
-                        checked={role.isActive}
-                        onChange={(checked) =>
-                          updateJobRole(index, { isActive: checked })
-                        }
-                      />
-                    </div>
-
-                    <IconButton
-                      label="직무 삭제"
-                      icon={<Trash size={16} />}
-                      tone="danger"
-                      disabled={!canRemoveJobRole(jobRoles)}
-                      title={
-                        canRemoveJobRole(jobRoles)
-                          ? "직무를 삭제합니다."
-                          : "직무는 최소 한 개가 있어야 합니다."
-                      }
-                      onClick={() => handleRemoveJobRole(index)}
                     />
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5 border-t border-border-main px-5 py-3">
-          {hasInvalidJobRole && (
+          {hasNoActiveJobRole && (
             <p className="flex items-center gap-1.5 text-[12px] text-font-error">
               <Warning size={13} />
-              직무 이름은 비울 수 없고, 서로 겹칠 수 없습니다.
+              직무를 하나 이상 켜 두어야 행사를 등록할 수 있습니다.
             </p>
           )}
           <p className="text-[12px] text-font-2">
-            여기서 정한 순서대로 행사 발주 · 배치 · 통계에 직무가 나열됩니다.
-            이름을 바꾸면 모든 화면에 즉시 반영되고, 과거 배치 · 계약서 · 정산
-            기록도 새 이름으로 보입니다.
+            <b className="text-font-1">지급 단가</b>는 인력에게 주는 금액,{" "}
+            <b className="text-font-1">청구 단가</b>는 대행사에 견적으로 부르는
+            금액입니다. 둘 다 행사 등록 시 초기값으로 깔리고 행사마다 고칠 수
+            있습니다. 우리가 취급하지 않는 직무는 &lsquo;사용&rsquo;을 끄면
+            선택지에서 빠집니다. (지난 기록은 그대로 남습니다)
           </p>
         </div>
       </Card>

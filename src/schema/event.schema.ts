@@ -4,9 +4,17 @@ import {
   type DayOffset,
   type EventRecurrence,
 } from "@/type/event";
+import { JOB_ROLE_CODES } from "@/type/staff";
 
-/** 직무 코드는 기준 설정에서 만들어지므로 고정 목록으로 검증하지 않는다. */
-const jobRoleCode = z.string().min(1, "직무를 선택해 주세요.");
+/**
+ * 직무 코드는 시스템이 정한 목록으로만 검증한다.
+ *
+ * 이 값은 견적서와 계약서에 그대로 나가는 말이라, 여기서 아무 문자열이나
+ * 통과시키면 대행사가 알아볼 수 없는 직무가 문서에 실린다.
+ */
+const jobRoleCode = z.enum(JOB_ROLE_CODES, {
+  message: "직무를 선택해 주세요.",
+});
 
 /** 행사 등록 · 수정 폼 스키마 */
 export const eventRoleSlotSchema = z
@@ -93,15 +101,15 @@ export const eventSchema = z
     belongings: z.string().max(200, "200자 이내로 입력해 주세요."),
     breakMinutes: z.coerce.number().int().min(0).max(240),
     /*
-      직무별 거래처 청구 단가. **선택이다.**
+      직무별 청구 단가. **선택이다.**
 
-      거래처에 등록해 둔 단가를 기본으로 깔아 주되, 발주는 늘 그때그때
+      기준 설정에 정해 둔 단가를 기본으로 깔아 주되, 발주는 늘 그때그때
       다르게 들어오므로 행사마다 자유롭게 고친다. 비워 두면 그 직무가
       마진 계산에서 빠질 뿐 저장은 그대로 된다.
     */
     billingRates: z.array(
       z.object({
-        role: z.string().min(1),
+        role: jobRoleCode,
         rate: z.coerce
           .number()
           .int("정수로 입력해 주세요.")

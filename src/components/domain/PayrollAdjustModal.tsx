@@ -22,7 +22,7 @@ interface PayrollAdjustModalProps {
 }
 
 /** 근무일 내역 표의 컬럼 폭. 머리글과 각 행이 같은 정의를 쓴다. */
-const DAY_GRID = "grid grid-cols-[1fr_120px_100px_80px_90px] gap-2";
+const DAY_GRID = "grid grid-cols-[1fr_190px_100px_80px_90px] gap-2";
 
 /** 계산 결과 한 줄 */
 const AmountRow = ({
@@ -227,10 +227,22 @@ const PayrollAdjustModal = ({ payroll, onClose }: PayrollAdjustModalProps) => {
                     {formatDate(day.workDate)}
                   </span>
 
+                  {/*
+                    출퇴근 시각 옆에 휴게시간을 함께 적는다.
+
+                    근무시간 칸의 숫자는 휴게를 빼고 남은 시간이라,
+                    출퇴근만 보면 "9시간인데 왜 8시간이지"가 된다.
+                    뺀 시간을 같은 자리에 적어야 검산이 이 줄에서 끝난다.
+                  */}
                   <span className="text-font-2 tabular-nums">
                     {day.isActualTimeApplied
                       ? `${toTimeInput(day.checkInAt)}~${toTimeInput(day.checkOutAt)}`
                       : "미기록"}
+                    {day.breakMinutes > 0 && (
+                      <span className="ml-1 text-[11px] whitespace-nowrap text-font-disabled">
+                        (휴게 {day.breakMinutes}분)
+                      </span>
+                    )}
                   </span>
 
                   <span className="text-right text-font-1 tabular-nums">

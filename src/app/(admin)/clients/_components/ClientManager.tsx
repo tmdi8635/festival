@@ -40,23 +40,17 @@ const CLIENT_CSV_COLUMNS: CsvColumn<Client>[] = [
     header: "마진율(%)",
     value: (row) => calculateMarginRate(row.totalRevenue, row.totalLaborCost),
   },
-  {
-    /*
-      단가는 직무마다 다르고 직무 목록은 회사마다 다르다.
-      한 칸에 대표값 하나만 적으면 `STAFF`가 없는 회사에서 통째로 0이 됐다.
-      정한 직무 수만 적고, 실제 금액은 상세에서 본다.
-    */
-    header: "청구 단가 설정",
-    value: (row) => `${row.billingRates.length}개 직무`,
-  },
   { header: "거래 상태", value: (row) => (row.isActive ? "거래 중" : "종료") },
 ];
 
 /**
  * 거래처 관리.
  *
- * 발주처별 단가와 마진을 보면 "받을수록 손해인 거래처"가 드러난다.
+ * 발주처별 매출과 마진을 보면 "받을수록 손해인 거래처"가 드러난다.
  * 조건을 다시 협의할 근거가 되는 화면이다.
+ *
+ * 단가는 여기서 정하지 않는다. 단가를 부르는 쪽은 에이전시라
+ * '운영 > 기준 설정'이 원본이고, 행사마다 그 값을 고쳐 쓴다.
  */
 const ClientManager = () => {
   /* 권한이 없으면 버튼 자체를 두지 않는다. 눌러 보고 거부당하는 것보다 낫다. */
@@ -117,24 +111,6 @@ const ClientManager = () => {
       align: "right",
       numeric: true,
       render: (client) => `${client.eventCount}건`,
-    },
-    {
-      /*
-        직무별 단가는 회사마다 구성이 달라 목록의 한 칸에 담기지 않는다.
-        여기서는 **정해 뒀는지 여부**만 보여 주고, 금액은 수정 모달에서 본다.
-        (단가가 없는 거래처는 마진이 계산되지 않으므로 그 사실이 보여야 한다)
-      */
-      key: "billingRates",
-      header: "청구 단가",
-      align: "right",
-      render: (client) =>
-        client.billingRates.length > 0 ? (
-          <span className="text-[13px] text-font-1 tabular-nums">
-            {client.billingRates.length}개 직무
-          </span>
-        ) : (
-          <span className="text-[13px] text-font-disabled">미설정</span>
-        ),
     },
     {
       key: "totalRevenue",

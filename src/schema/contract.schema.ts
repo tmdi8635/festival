@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_CONTRACT_CLAUSES } from "@/type/contract";
+import { JOB_ROLE_CODES } from "@/type/staff";
 
 /** 계약서 조항 스키마 */
 export const contractClauseSchema = z.object({
@@ -25,7 +26,8 @@ export const contractTemplateSchema = z.object({
     .string()
     .min(2, "템플릿 이름을 2자 이상 입력해 주세요.")
     .max(50, "50자 이내로 입력해 주세요."),
-  targetRoles: z.array(z.string().min(1)),
+  /* 적용 직무도 시스템 목록에서만 고른다. 계약서에 그대로 인쇄되는 말이다. */
+  targetRoles: z.array(z.enum(JOB_ROLE_CODES)),
   documentTitle: z
     .string()
     .min(2, "문서 제목을 입력해 주세요.")

@@ -9,8 +9,8 @@ import type {
 import {
   calculateBasePay,
   calculateScheduledWorkHours,
+  resolveBillingRate,
 } from "@/type/event";
-import { resolveBillingRate } from "@/type/client";
 import { events } from "../db/event";
 import { payrollItems } from "../db/payroll";
 import { applications } from "../db/recruit";

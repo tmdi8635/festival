@@ -9,6 +9,7 @@ import {
   useJobRoleComparator,
   useJobRoleLabel,
   useJobRoleOptions,
+  useActiveJobRoles,
 } from "@/store/useOrgStore";
 import { Sparkle, Star, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
@@ -91,6 +92,7 @@ const StaffPickerModal = ({
   // 직무 나열 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
   const jobRoleOptions = useJobRoleOptions();
+  const activeJobRoles = useActiveJobRoles();
 
   /*
     고르기 전에는 호출부가 지정한 직무를 그대로 쓰고, 고르면 draft가 화면을 담당한다.
@@ -99,8 +101,8 @@ const StaffPickerModal = ({
     (직무가 통째로 바뀐 에이전시에서도 첫 직무가 늘 유효하도록 목록에서 고른다)
   */
   const [draftRole, setDraftRole] = useState<JobRole | null>(null);
-  const role =
-    draftRole ?? initialRole ?? jobRoleOptions[0]?.value ?? "STAFF";
+  /* 선택지가 아니라 직무 정의에서 꺼낸다. 옵션의 value는 그냥 문자열이다. */
+  const role = draftRole ?? initialRole ?? activeJobRoles[0]?.code ?? "STAFF";
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<AssignmentStatus>("CONFIRMED");
   /*

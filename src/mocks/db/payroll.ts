@@ -154,9 +154,15 @@ const applyPayrollAmounts = (
     Math.round(sorted.reduce((sum, day) => sum + day.nightHours, 0) * 10) / 10;
   item.deduction = sorted.reduce((sum, day) => sum + day.deduction, 0);
 
-  // 8시간 넘게 서 있는 현장은 식대를 별도로 지급한다. 나온 날만 센다.
-  item.allowance =
-    sorted.filter((day) => day.isPayable && day.workHours >= 8).length * 10_000;
+  /*
+    기타수당은 **손대지 않는다.** 기본값은 0이다.
+
+    예전에는 8시간 넘게 선 날마다 식대 10,000원을 시스템이 알아서 붙였다.
+    그런데 식대를 주는지 · 얼마인지는 발주마다 다르고, 무엇보다 이 함수는
+    근태를 고칠 때마다 다시 도는 자리라 담당자가 정산 화면에서 적어 넣은
+    금액을 매번 자동 계산값으로 되돌려 놓았다.
+    더 줄 돈이 있으면 사람이 정산 화면에서 적는다. 그래야 근거가 남는다.
+  */
 
   /*
     금액도 근무일에서 다시 읽는다.

@@ -9,7 +9,7 @@ export default function ClientPage() {
     <>
       <PageHeader
         title="거래처 관리"
-        description="발주처별 청구 단가와 누적 마진을 관리합니다."
+        description="발주처별 누적 매출과 마진을 관리합니다. 단가는 운영 > 기준 설정에서 정합니다."
       />
 
       <PermissionGate required="client:read">

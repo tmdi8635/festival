@@ -101,8 +101,10 @@ export interface AmendContractResponse {
   previous: Contract;
   /** 새로 만들어진 차수 */
   created: Contract;
-  /** 함께 취소 처리된 배치 건수 */
+  /** 함께 취소 처리된 배치 건수 (계약에서 뺀 날) */
   canceledCount: number;
+  /** 함께 만들어지거나 되살아난 배치 건수 (계약에 새로 넣은 날) */
+  restoredCount: number;
 }
 
 export const amendContract = async ({
@@ -198,15 +200,26 @@ export const useContractMutation = () => {
     AmendContractRequest
   >({
     mutationFn: amendContract,
-    onSuccess: ({ created, canceledCount }) => {
+    onSuccess: ({ created, canceledCount, restoredCount }) => {
+      /*
+        배치가 몇 건 움직였는지를 함께 알린다.
+        재작성은 근무일을 줄이기도 하고 늘리기도 하는데, 계약서만 바뀐 줄 알면
+        담당자가 배치 화면에 가서 같은 일을 한 번 더 한다.
+      */
+      const assignmentChanges = [
+        canceledCount > 0 ? `배치 ${canceledCount}건 취소` : null,
+        restoredCount > 0 ? `배치 ${restoredCount}건 추가` : null,
+      ].filter(Boolean);
+
       showAppToast(
         "success",
         `${created.staffName}님의 계약서를 ${created.revision}차로 다시 만들었습니다.`,
         {
-          description:
-            canceledCount > 0
-              ? `근무일 ${created.workDates.length}일 기준 · 배치 ${canceledCount}건 취소 · 서명본을 다시 받아 등록해 주세요.`
-              : `근무일 ${created.workDates.length}일 기준 · 서명본을 다시 받아 등록해 주세요.`,
+          description: [
+            `근무일 ${created.workDates.length}일 기준`,
+            ...assignmentChanges,
+            "서명본을 다시 받아 등록해 주세요.",
+          ].join(" · "),
         },
       );
       invalidateContract();

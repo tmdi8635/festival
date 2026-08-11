@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { JOB_ROLE_CODES } from "@/type/staff";
 
 /** 공고 등록 · 수정 폼 스키마 */
 export const postingSchema = z.object({
   eventId: z.coerce.number().int().min(1, "행사를 선택해 주세요."),
   title: z.string().min(2, "공고 제목을 2자 이상 입력해 주세요."),
-  role: z.string().min(1, "직무를 선택해 주세요."),
+  /* 공고에 적히는 직무도 시스템 목록에서만 고른다. (지원자 → 배치로 이어진다) */
+  role: z.enum(JOB_ROLE_CODES, { message: "직무를 선택해 주세요." }),
   requiredCount: z.coerce
     .number()
     .int("정수로 입력해 주세요.")

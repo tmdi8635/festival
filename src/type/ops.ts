@@ -126,9 +126,13 @@ export const FEATURE_HINT: Record<FeatureKey, string> = {
  */
 export interface OperationSettings {
   /**
-   * 직무 정의. 최소 한 개는 있어야 한다.
-   * 직무를 지우면 그 직무로 잡혀 있던 인력·배치의 직무가 사라지므로
-   * 화면에서 반드시 경고를 띄운 뒤에 지운다.
+   * 직무별 단가와 사용 여부.
+   *
+   * **직무 목록 자체는 여기 없다.** 직무는 대행사와 주고받는 말이라
+   * 시스템이 고정하고(`JOB_ROLE_CATALOG`), 에이전시가 정하는 것은
+   * 지급 단가 · 청구 단가 · 우리가 그 직무를 취급하는지뿐이다.
+   * 그래서 이 배열에는 카탈로그에 없는 코드가 들어올 수 없고,
+   * 빠진 코드가 있어도 `mergeJobRoles()`가 기본 단가로 메운다.
    */
   jobRoles: JobRoleDef[];
 
@@ -182,9 +186,10 @@ export interface OperationSettings {
 }
 
 /**
- * 직무를 지울 수 있는지 본다.
+ * 직무를 하나도 안 쓰는 상태인지 본다.
  *
- * 마지막 한 개까지 지우면 행사를 만들 수 없게 되므로 최소 1개는 남긴다.
+ * 직무는 지울 수 없고 끄기만 할 수 있는데, 전부 꺼 버리면 행사를 만들 수 없다.
+ * 저장을 막는 대신 화면에서 경고한다.
  */
-export const canRemoveJobRole = (jobRoles: JobRoleDef[]): boolean =>
-  jobRoles.length > 1;
+export const hasActiveJobRole = (jobRoles: JobRoleDef[]): boolean =>
+  jobRoles.some((role) => role.isActive);

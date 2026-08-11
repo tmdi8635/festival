@@ -20,18 +20,12 @@ export const clientSchema = z.object({
       "올바른 이메일 형식이 아닙니다.",
     ),
   /*
-    직무별 청구 단가. **필수가 아니다.**
+    청구 단가는 여기 없다.
 
-    아직 단가를 협의하지 않은 거래처가 대부분인데, 여기서 막으면 거래처를
-    만들 수 없고 그러면 행사도 못 만든다. 비워 두면 0으로 들어오고,
-    저장할 때 0인 줄은 아예 떨어져 나간다. (`compactBillingRates`)
+    단가를 부르는 쪽은 에이전시다. 대행사가 직무별 인원수로 견적을 요청하면
+    우리가 단가를 매겨 답한다. 그래서 단가는 '운영 > 기준 설정'이 갖고,
+    행사 등록 시 초기값으로 깔린 뒤 행사별로 고쳐진다.
   */
-  billingRates: z.array(
-    z.object({
-      role: z.string().min(1, "직무를 선택해 주세요."),
-      rate: z.coerce.number().int().min(0, "0 이상이어야 합니다."),
-    }),
-  ),
   isActive: z.boolean(),
   memo: z.string().max(500, "500자 이내로 입력해 주세요."),
 });
@@ -45,12 +39,6 @@ export const EMPTY_CLIENT_VALUES: ClientSchemaInput = {
   managerName: "",
   managerPhone: "",
   managerEmail: "",
-  /*
-    직무 목록은 **기준 설정이 원본**이다. 여기에 고정 목록을 깔아 두면
-    직무를 갈아엎은 에이전시의 거래처 폼에 없는 직무가 뜨고, 새로 만든
-    직무는 영영 안 뜬다. 폼이 열릴 때 화면이 현재 직무로 채운다.
-  */
-  billingRates: [],
   isActive: true,
   memo: "",
 };

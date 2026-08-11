@@ -5,7 +5,9 @@ import { dateFromToday, daysAgo } from "../utils";
  * 거래처 목업.
  *
  * 팝업스토어 · 브랜드 행사 · 전시가 실제 발주의 대부분이라 그 비율로 만든다.
- * 청구 단가는 인건비보다 높게 두어야 마진 계산이 의미 있게 나온다.
+ *
+ * 청구 단가는 여기 없다. 단가를 부르는 쪽은 에이전시라서
+ * 기준 설정(`operationSettings.jobRoles`)이 갖고 행사가 그것을 물려받는다.
  */
 export const clients: Client[] = [
   {
@@ -15,14 +17,6 @@ export const clients: Client[] = [
     managerName: "정하윤",
     managerPhone: "01044120981",
     managerEmail: "ha.jung@raoncomm.co.kr",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 25000 },
-      { role: "SOUND", rate: 20000 },
-      { role: "STAFF", rate: 17000 },
-      { role: "MC", rate: 40000 },
-      { role: "MODEL", rate: 30000 },
-      { role: "SETUP", rate: 18000 },
-    ],
     eventCount: 42,
     totalRevenue: 184_600_000,
     totalLaborCost: 121_800_000,
@@ -38,14 +32,6 @@ export const clients: Client[] = [
     managerName: "서지훈",
     managerPhone: "01033281745",
     managerEmail: "jh.seo@newwave.kr",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 23000 },
-      { role: "SOUND", rate: 19000 },
-      { role: "STAFF", rate: 16000 },
-      { role: "MC", rate: 38000 },
-      { role: "MODEL", rate: 28000 },
-      { role: "SETUP", rate: 17000 },
-    ],
     eventCount: 28,
     totalRevenue: 96_400_000,
     totalLaborCost: 68_900_000,
@@ -61,14 +47,6 @@ export const clients: Client[] = [
     managerName: "문세영",
     managerPhone: "01029947733",
     managerEmail: "sy.moon@coex-expo.co.kr",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 26000 },
-      { role: "SOUND", rate: 21000 },
-      { role: "STAFF", rate: 18000 },
-      { role: "MC", rate: 42000 },
-      { role: "MODEL", rate: 32000 },
-      { role: "SETUP", rate: 19000 },
-    ],
     eventCount: 19,
     totalRevenue: 142_300_000,
     totalLaborCost: 89_100_000,
@@ -84,14 +62,6 @@ export const clients: Client[] = [
     managerName: "한소민",
     managerPhone: "01077310264",
     managerEmail: "somin@bridgelab.io",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 24000 },
-      { role: "SOUND", rate: 20000 },
-      { role: "STAFF", rate: 17000 },
-      { role: "MC", rate: 36000 },
-      { role: "MODEL", rate: 29000 },
-      { role: "SETUP", rate: 17000 },
-    ],
     eventCount: 15,
     totalRevenue: 51_700_000,
     totalLaborCost: 37_200_000,
@@ -107,14 +77,6 @@ export const clients: Client[] = [
     managerName: "오재현",
     managerPhone: "01055023918",
     managerEmail: "jh.oh@starfield-retail.com",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 25000 },
-      { role: "SOUND", rate: 20000 },
-      { role: "STAFF", rate: 17500 },
-      { role: "MC", rate: 39000 },
-      { role: "MODEL", rate: 30000 },
-      { role: "SETUP", rate: 18000 },
-    ],
     eventCount: 23,
     totalRevenue: 78_900_000,
     totalLaborCost: 55_400_000,
@@ -130,14 +92,6 @@ export const clients: Client[] = [
     managerName: "배유리",
     managerPhone: "01088340576",
     managerEmail: "yuri.bae@onstage.co.kr",
-    billingRates: [
-      { role: "SUPERVISOR", rate: 22000 },
-      { role: "SOUND", rate: 18000 },
-      { role: "STAFF", rate: 15500 },
-      { role: "MC", rate: 35000 },
-      { role: "MODEL", rate: 27000 },
-      { role: "SETUP", rate: 16500 },
-    ],
     eventCount: 8,
     totalRevenue: 19_400_000,
     totalLaborCost: 15_800_000,

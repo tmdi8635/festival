@@ -12,6 +12,7 @@ import type {
 import {
   aggregateDayPlans,
   calculateWorkHours,
+  compactBillingRates,
   resolveEventDates,
   toCheckDateTime,
 } from "@/type/event";
@@ -27,6 +28,7 @@ import {
   resolveTagVerdict,
 } from "@/type/staff";
 import { clients } from "./client";
+import { operationSettings } from "./ops";
 import {
   EVENT_MANAGER_POOL,
   assignableStaff,
@@ -111,34 +113,47 @@ const ROLE_PRESETS: { role: JobRole; requiredCount: number }[][] = [
 ];
 
 /**
- * 직무별 기본 시급.
- *
- * 직무는 기준 설정에서 자유롭게 바꿀 수 있게 됐지만, 목업 시드는 화면이 뜨기 전에
- * 만들어지므로 여기서 초기값을 들고 있는다. (기준 설정의 기본 직무와 같은 값)
- */
-/**
  * 직무별 기본 지급 기준.
  *
- * 설치 · 철거는 시간이 들쭉날쭉해서 현장에서 하루 얼마로 부르는 쪽이 압도적으로 흔하다.
- * 기준 설정의 기본 직무 구성(`DEFAULT_JOB_ROLES`)과 같은 값을 쓴다.
+ * 값은 **기준 설정이 갖는다.** 여기에 표를 하나 더 두면 직무를 늘렸을 때
+ * 한쪽만 고쳐지고, 새 직무의 배치가 조용히 0원으로 만들어진다.
+ * 정의를 못 찾을 때만 가장 흔한 형태(시급)로 떨어뜨린다.
  */
-export const DEFAULT_ROLE_WAGE: Record<
-  string,
-  { wageType: WageType; wage: number }
-> = {
-  SUPERVISOR: { wageType: "HOURLY", wage: 18000 },
-  STAFF: { wageType: "HOURLY", wage: 12000 },
-  MC: { wageType: "HOURLY", wage: 30000 },
-  MODEL: { wageType: "HOURLY", wage: 22000 },
-  SOUND: { wageType: "HOURLY", wage: 20000 },
-  SETUP: { wageType: "DAILY", wage: 130000 },
-};
-
-/** 정의에 없는 직무가 들어와도 금액이 0원이 되지 않게 한다. */
 export const defaultWageOf = (
   role: JobRole,
-): { wageType: WageType; wage: number } =>
-  DEFAULT_ROLE_WAGE[role] ?? { wageType: "HOURLY", wage: 12000 };
+): { wageType: WageType; wage: number } => {
+  const jobRole = operationSettings.jobRoles.find(
+    (item) => item.code === role,
+  );
+
+  return jobRole
+    ? { wageType: jobRole.defaultWageType, wage: jobRole.defaultWage }
+    : { wageType: "HOURLY", wage: 12000 };
+};
+
+/**
+ * 배치 한 건에 적용할 지급 기준과 금액을 정한다.
+ *
+ * 그날 그 직무의 발주 조건을 그대로 물려받고, 없으면 직무 기본값으로 떨어진다.
+ * 사람마다 · 날마다 다르게 주기로 한 금액은 배치를 만든 뒤 언제든 고칠 수 있으므로
+ * (적용 금액 변경) 여기서는 기준값만 정한다.
+ *
+ * 배치를 만드는 자리가 둘(인력 배치 · 계약서 재작성)이라 여기 한 곳에 둔다.
+ * 두 벌이면 같은 날 같은 직무인데 금액이 다른 배치가 생긴다.
+ */
+export const resolveAssignmentWage = (
+  event: EventDetail,
+  date: string,
+  role: JobRole,
+): { wageType: WageType; wage: number } => {
+  const slot = event.days
+    .find((day) => day.date === date)
+    ?.roles.find((item) => item.role === role);
+
+  return slot
+    ? { wageType: slot.wageType, wage: slot.wage }
+    : defaultWageOf(role);
+};
 
 /**
  * 발주에 걸린 성별 조건. **대부분은 무관이다.**
@@ -622,8 +637,16 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
   const totalRequired = roles.reduce((sum, slot) => sum + slot.requiredCount, 0);
   const totalAssigned = roles.reduce((sum, slot) => sum + slot.assignedCount, 0);
 
-  /* 행사는 거래처 단가를 그대로 물려받고, 이후 행사마다 따로 고친다. */
-  const billingRates = client.billingRates;
+  /*
+    행사는 **기준 설정의 청구 단가**를 물려받고, 이후 행사마다 따로 고친다.
+    (거래처가 아니다 — 단가를 부르는 쪽은 에이전시다)
+    안 정한 직무(0원)는 담지 않는다. 0원 청구와 미설정은 다르다.
+  */
+  const billingRates = compactBillingRates(
+    operationSettings.jobRoles
+      .filter((role) => role.isActive)
+      .map((role) => ({ role: role.code, rate: role.billingRate })),
+  );
 
   return {
     eventId,

@@ -8,7 +8,6 @@ import type {
   EventFormValues,
   EventRoleSlot,
   EventStatus,
-  WageType,
 } from "@/type/event";
 import { aggregateDayPlans, resolveEventDates } from "@/type/event";
 import type { EmploymentType } from "@/type/employee";
@@ -22,6 +21,7 @@ import { clients } from "../db/client";
 import {
   defaultWageOf,
   events,
+  resolveAssignmentWage,
   syncStaffReputationCounts,
   findConflictEvent,
   findEvent,
@@ -52,25 +52,6 @@ const toEventSummary = (event: EventDetail) => {
   void days;
 
   return summary;
-};
-
-/**
- * 배치 한 건에 적용할 지급 기준과 금액을 정한다.
- *
- * 그날 그 직무의 발주 조건을 그대로 물려받고, 없으면 직무 기본값으로 떨어진다.
- * 사람마다 · 날마다 다르게 주기로 한 금액은 배치를 만든 뒤 언제든 고칠 수 있으므로
- * (적용 금액 변경) 여기서는 기준값만 정한다.
- */
-const resolveAssignmentWage = (
-  event: EventDetail,
-  date: string,
-  role: JobRole,
-): { wageType: WageType; wage: number } => {
-  const slot = event.days
-    .find((day) => day.date === date)
-    ?.roles.find((item) => item.role === role);
-
-  return slot ?? defaultWageOf(role);
 };
 
 /**

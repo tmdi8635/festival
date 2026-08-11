@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
-import { Controller, useForm, useFieldArray } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useClientMutation } from "@/api/client/mutateClient";
 import {
   EMPTY_CLIENT_VALUES,
@@ -10,8 +10,6 @@ import {
   type ClientSchema,
   type ClientSchemaInput,
 } from "@/schema/client.schema";
-import { useActiveJobRoles } from "@/store/useOrgStore";
-import { compactBillingRates, resolveBillingRate } from "@/type/client";
 import type { Client } from "@/type/client";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
@@ -29,21 +27,18 @@ interface ClientFormModalProps {
 /**
  * 거래처 등록 · 수정 모달.
  *
- * ## 청구 단가는 지금 쓰는 직무를 따라간다
+ * ## 여기에 단가는 없다
  *
- * 예전에는 코드에 박힌 기본 직무 목록(`DEFAULT_JOB_ROLES`)으로 칸을 깔았다.
- * 직무는 에이전시가 기준 설정에서 자유롭게 고치는 값인데, 그러면 이름을
- * 바꾼 직무는 옛 이름으로 남고 새로 만든 직무는 **아예 칸이 생기지 않는다.**
- * 그래서 지금 켜져 있는 직무로 매번 다시 깐다.
+ * 예전에는 거래처마다 직무별 청구 단가를 적어 두고 행사가 그걸 물려받았다.
+ * 그런데 실제 거래는 반대 방향이다 — 대행사가 직무별 인원수로 견적을
+ * 요청하면 **에이전시가 단가를 불러 준다.** 거래처마다 단가를 적어 두면
+ * "저쪽이 정해 준 값"처럼 읽히고, 같은 직무의 우리 단가가 거래처 수만큼
+ * 흩어져 어느 것이 우리 기준인지 알 수 없어진다.
  *
- * ## 비워 둬도 된다
- *
- * 단가가 있어야 마진이 계산되지만, 단가를 아직 협의하지 않은 거래처가
- * 훨씬 많다. 여기서 막으면 거래처를 못 만들고 그러면 행사도 못 만든다.
- * 비운 직무는 저장되지 않고, 마진만 계산되지 않는다.
+ * 단가는 '운영 > 기준 설정'이 원본이고, 행사 등록 시 그 값이 깔린 뒤
+ * 행사별로 고쳐진다. (`EventDetail.billingRates`)
  */
 const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
-  const jobRoles = useActiveJobRoles();
   const { createMutation, updateMutation } = useClientMutation();
 
   const {
@@ -58,21 +53,8 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
     defaultValues: EMPTY_CLIENT_VALUES,
   });
 
-  const { fields } = useFieldArray({ control, name: "billingRates" });
-
   useEffect(() => {
     if (!isOpen) return;
-
-    /*
-      칸은 **지금 켜져 있는 직무**로 깔고, 저장된 단가를 그 위에 얹는다.
-      꺼진 직무의 단가는 지우지 않고 그냥 안 보여 준다. (지난 행사가 쓴다)
-    */
-    const billingRates = jobRoles.map((role) => {
-      const rate = resolveBillingRate(client?.billingRates ?? [], role.code);
-
-      /* 안 정한 단가는 `0`이 아니라 빈 칸이다. 0원 청구와 미설정은 다르다. */
-      return { role: role.code, rate: rate > 0 ? rate : "" };
-    });
 
     reset(
       client
@@ -82,31 +64,24 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
             managerName: client.managerName,
             managerPhone: client.managerPhone,
             managerEmail: client.managerEmail,
-            billingRates,
             isActive: client.isActive,
             memo: client.memo,
           }
-        : { ...EMPTY_CLIENT_VALUES, billingRates },
+        : EMPTY_CLIENT_VALUES,
     );
-  }, [isOpen, client, reset, jobRoles]);
+  }, [isOpen, client, reset]);
 
   const onSubmit = handleSubmit((values) => {
-    // 비워 둔 직무(0원)는 저장하지 않는다. '0원 청구'와 '아직 안 정함'은 다르다.
-    const body = {
-      ...values,
-      billingRates: compactBillingRates(values.billingRates),
-    };
-
     if (client) {
       updateMutation.mutate(
-        { clientId: client.clientId, body },
+        { clientId: client.clientId, body: values },
         { onSuccess: onClose },
       );
 
       return;
     }
 
-    createMutation.mutate(body, { onSuccess: onClose });
+    createMutation.mutate(values, { onSuccess: onClose });
   });
 
   return (
@@ -173,45 +148,16 @@ const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
           </FormField>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <p className="text-[13px] font-medium text-font-1">
-            직무별 청구 단가 (시급)
-            <span className="ml-1.5 text-[12px] font-normal text-font-2">
-              선택
-            </span>
-          </p>
-
-          {fields.length === 0 ? (
-            <p className="rounded-field border border-border-main px-4 py-3 text-[13px] text-font-2">
-              사용 중인 직무가 없습니다. 운영 &gt; 기준 설정에서 직무를 먼저
-              만들어 주세요.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-field border border-border-main p-3">
-              {fields.map((field, index) => (
-                <label key={field.id} className="flex flex-col gap-1.5">
-                  <span className="text-[13px] text-font-2">
-                    {jobRoles[index]?.name ?? field.role}
-                  </span>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="미설정"
-                    {...register(`billingRates.${index}.rate`)}
-                    rightSlot={
-                      <span className="text-[13px] text-font-2">원</span>
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          )}
-
-          <p className="text-[12px] text-font-2">
-            행사를 등록할 때 이 값을 기본으로 가져오고, 행사마다 자유롭게 고칠
-            수 있습니다. 비워 두면 그 직무는 마진 계산에서 빠집니다.
-          </p>
-        </div>
+        {/*
+          단가 칸을 여기 두지 않는 이유를 화면에도 적어 둔다.
+          예전에 있던 칸이 사라지면 담당자는 "어디로 갔나"를 먼저 찾는다.
+        */}
+        <p className="rounded-field border border-dashed border-border-strong px-4 py-3 text-[13px] text-font-2">
+          청구 단가는 거래처가 아니라 <b className="text-font-1">운영 &gt; 기준
+          설정</b>에서 직무별로 정합니다. 견적 단가를 부르는 쪽이 우리이기
+          때문입니다. 이 거래처에만 다른 금액을 받기로 했다면 행사 등록 화면에서
+          그 행사만 고치세요.
+        </p>
 
         <FormField label="메모" error={errors.memo?.message}>
           <Textarea

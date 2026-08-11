@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { useClientListQuery } from "@/api/client/getClientList";
-import { resolveBillingRate, type ClientBillingRate } from "@/type/client";
 import { useHasPermission } from "@/store/useAdminStore";
 import { useEventMutation } from "@/api/event/mutateEvent";
 import {
@@ -29,7 +28,9 @@ import {
   WAGE_TYPE_UNIT,
   calculateWorkHours,
   guessDayOffset,
+  resolveBillingRate,
   resolveEventDates,
+  type BillingRate,
   type DayOffset,
   type EventDetail,
   type EventRecurrence,
@@ -152,12 +153,14 @@ const EventFormModal = ({
   /**
    * 청구 단가 칸을 **지금 켜져 있는 직무**로 깐다.
    *
-   * 저장된 값이 있으면 그 위에 얹는다. 새 행사는 거래처에 등록해 둔 단가가
-   * 그 자리에 온다. 어느 쪽이든 여기서 자유롭게 고칠 수 있다.
+   * 저장된 값이 있으면 그 위에 얹고, 없으면 기준 설정에 정해 둔 우리 단가가
+   * 그 자리에 온다. 거래처에서 가져오지 않는다 — 단가를 부르는 쪽은 우리다.
+   * 어느 쪽이든 여기서 자유롭게 고칠 수 있다. (현장 사정으로 늘 달라진다)
    */
-  const buildBillingRates = (source: readonly ClientBillingRate[]) =>
+  const buildBillingRates = (source: readonly BillingRate[]) =>
     jobRoles.map((role) => {
-      const rate = resolveBillingRate(source, role.code);
+      const saved = resolveBillingRate(source, role.code);
+      const rate = saved > 0 ? saved : role.billingRate;
 
       /* 안 정한 단가는 `0`이 아니라 빈 칸이다. 0원 청구와 미설정은 다르다. */
       return { role: role.code, rate: rate > 0 ? rate : "" };
@@ -318,7 +321,7 @@ const EventFormModal = ({
 
         <Section
           title="거래처"
-          description="발주를 준 곳과 그쪽 담당자, 그리고 청구 단가입니다."
+          description="발주를 준 곳과 그쪽 담당자, 그리고 이 행사에 부를 청구 단가입니다."
         >
           <FormField
             label="거래처"
@@ -330,6 +333,14 @@ const EventFormModal = ({
             }
             error={errors.clientId?.message}
           >
+            {/*
+              거래처를 바꿔도 단가는 건드리지 않는다.
+
+              예전에는 거래처마다 단가를 적어 두고 고를 때마다 덮어썼다.
+              단가를 부르는 쪽이 우리로 정리된 지금, 거래처는 단가와 아무
+              관계가 없다. 옆의 단가 칸을 조용히 바꾸면 담당자가 이 행사에
+              맞춰 적어 둔 값이 사라진다.
+            */}
             <Controller
               control={control}
               name="clientId"
@@ -337,26 +348,9 @@ const EventFormModal = ({
                 <Select
                   options={clientOptions}
                   value={String(field.value)}
-                  onChange={(changeEvent) => {
-                    const nextClientId = Number(changeEvent.target.value);
-
-                    field.onChange(nextClientId);
-                    /*
-                      거래처를 고르면 그 거래처의 청구 단가를 그대로 가져온다.
-
-                      **고를 때만** 덮어쓴다. 화면을 그릴 때마다 맞추면
-                      담당자가 이 행사에만 다르게 적어 둔 값이 조용히 되돌아간다.
-                      (발주 단가는 행사마다 다르게 들어오는 것이 오히려 보통이다)
-                    */
-                    setValue(
-                      "billingRates",
-                      buildBillingRates(
-                        (clientData?.content ?? []).find(
-                          (item) => item.clientId === nextClientId,
-                        )?.billingRates ?? [],
-                      ),
-                    );
-                  }}
+                  onChange={(changeEvent) =>
+                    field.onChange(Number(changeEvent.target.value))
+                  }
                   hasError={Boolean(errors.clientId)}
                 />
               )}
@@ -403,7 +397,7 @@ const EventFormModal = ({
           */}
           <div className="flex flex-col gap-2">
             <p className="text-[13px] font-medium text-font-1">
-              거래처 청구 시급
+              청구 시급
               <span className="ml-1.5 text-[12px] font-normal text-font-2">
                 직무별 · 선택
               </span>
@@ -433,8 +427,9 @@ const EventFormModal = ({
             )}
 
             <p className="text-[12px] text-font-2">
-              거래처에 등록된 단가를 기본으로 가져옵니다. 이 행사만 다르게
-              받기로 했다면 여기서 고치세요. 비운 직무는 마진 계산에서 빠집니다.
+              운영 &gt; 기준 설정에 정해 둔 우리 단가를 기본으로 가져옵니다. 이
+              행사만 다르게 받기로 했다면 여기서 고치세요. 비운 직무는 마진
+              계산에서 빠집니다.
             </p>
           </div>
         </Section>

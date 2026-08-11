@@ -223,7 +223,7 @@ export const payrollHandlers = [
 
       /*
         먼저 근무일 내역에서 통째로 다시 계산한다.
-        (`recalculatePayroll`이 휴게 공제 · 식대 · 근무시간을 다시 만든다)
+        (`recalculatePayroll`이 휴게 공제 · 근무시간 · 차감액을 다시 만든다)
       */
       recalculatePayroll(item);
 

@@ -16,9 +16,10 @@ interface PayrollBasisCellProps {
  * - 시급: `12,000 × 24h` — 모든 근무일의 **실제 출퇴근**을 더한 시간이다.
  * - 일급: `130,000 × 3일` — 시간은 곱하지 않는다. 며칠 나왔는지만 곱한다.
  *
- * 그 아래에는 이 금액이 확정인지 잠정인지를 적는다.
+ * 그 아래에는 **문제가 있을 때만** 한 줄을 더 적는다.
  * 출퇴근이 하루라도 비어 있으면 그날은 행사 예정 시간으로 계산된 값이라,
  * 나중에 금액이 바뀐다. 승인 전에 반드시 알아야 하는 사실이다.
+ * 정상인 건에는 아무것도 적지 않는다 — 모든 줄에 붙는 표시는 아무것도 알려 주지 않는다.
  */
 const PayrollBasisCell = ({ item }: PayrollBasisCellProps) => {
   const isDaily = item.wageType === "DAILY";
@@ -44,23 +45,27 @@ const PayrollBasisCell = ({ item }: PayrollBasisCellProps) => {
             : `${item.workDates.length}일 중 ${item.provisionalDayCount}일 예정`}
         </Badge>
       ) : (
-        <span className="flex items-center gap-1">
-          <Badge tone="info">실제 출퇴근</Badge>
+        /*
+          출퇴근이 다 찍힌 건에는 아무 배지도 달지 않는다.
 
-          {/* 일급은 시간과 무관한 금액이라 예정 대비 증감을 적을 자리가 없다. */}
-          {!isDaily && diff !== 0 && (
-            <span
-              className={
-                diff > 0
-                  ? "text-[11px] text-success tabular-nums"
-                  : "text-[11px] text-danger tabular-nums"
-              }
-            >
-              예정 {item.scheduledWorkHours}h 대비 {diff > 0 ? "+" : ""}
-              {diff}h
-            </span>
-          )}
-        </span>
+          예전에는 '실제 출퇴근' 배지를 띄웠는데, 정산 목록에 올라왔다는 것 자체가
+          이미 출퇴근 명부에 기록됐다는 뜻이다. 모든 정상 건에 같은 배지가 붙으면
+          아무것도 구분해 주지 못하고, 정말 봐야 할 '예정 기준' 경고만 묻힌다.
+          예정 대비 시간이 벌어진 건만 그 차이를 적는다.
+        */
+        !isDaily &&
+        diff !== 0 && (
+          <span
+            className={
+              diff > 0
+                ? "text-[11px] text-success tabular-nums"
+                : "text-[11px] text-danger tabular-nums"
+            }
+          >
+            예정 {item.scheduledWorkHours}h 대비 {diff > 0 ? "+" : ""}
+            {diff}h
+          </span>
+        )
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JOB_ROLE_CODES } from "@/type/staff";
 
 /**
  * 인력 등록 · 수정 폼 스키마.
@@ -17,8 +18,9 @@ export const staffSchema = z.object({
   profileImageUrl: z.string(),
   birthDate: z.string().min(1, "생년월일을 선택해 주세요."),
   gender: z.enum(["MALE", "FEMALE"]),
+  /* 직무는 시스템이 정한 목록이다. 없는 코드가 인력에 붙으면 배치에서 사라진다. */
   roles: z
-    .array(z.string().min(1))
+    .array(z.enum(JOB_ROLE_CODES))
     .min(1, "가능한 직무를 한 개 이상 선택해 주세요."),
   // 자유 입력이던 활동 지역을 시/도 + 시·군·구 두 단계 선택으로 바꿨다.
   region: z.string().min(1, "활동 지역(시/도)을 선택해 주세요."),

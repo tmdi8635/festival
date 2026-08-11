@@ -10,42 +10,133 @@ import type { WageType } from "./event";
 import type { EmploymentType } from "./employee";
 
 /**
- * 행사에 투입되는 직무.
+ * 행사에 투입되는 직무. **시스템이 정한 고정 목록이다.**
  *
- * 에이전시마다 부르는 이름도 구성도 달라서 코드로 고정하지 않는다.
- * 실제 직무 목록은 기준 설정(OperationSettings.jobRoles)이 갖고 있고,
- * 여기서는 그 코드 문자열만 다룬다.
- * 라벨이 필요하면 `@/store/useOrgStore`의 `jobRoleLabel()`을 쓴다.
+ * 예전에는 에이전시가 기준 설정에서 직무를 자유롭게 만들고 이름을 바꿨다.
+ * 그런데 이 값은 우리 안에서만 쓰는 말이 아니라 **대행사와 주고받는 말**이다.
+ * 대행사는 직무별 인원수로 견적을 요청하고 우리는 직무별 단가로 답한다.
+ * 그 자리에 에이전시가 제 맘대로 만든 '부팀장' · '서브팀장'이 올라오면
+ * 받는 쪽은 그게 무슨 자리인지 알 수 없고, 에이전시마다 다른 이름을 써서
+ * 견적끼리 비교도 되지 않는다.
+ *
+ * 그래서 직무는 시스템이 정하고, 에이전시가 정하는 것은 **단가**뿐이다.
+ * (에이전시 내부의 서열 · 호칭은 직무가 아니다. 그건 인력의 평판 · 메모로 다룬다)
+ *
+ * 새 직무가 필요하면 여기에 추가한다. 지금은 하드코딩이고,
+ * 서버가 붙으면 서버가 이 목록을 내려 준다. **어느 쪽이든 사용자는 못 늘린다.**
  */
-export type JobRole = string;
+export const JOB_ROLE_CODES = [
+  "SUPERVISOR",
+  "STAFF",
+  "MC",
+  "PROTOCOL",
+  "SECURITY",
+  "MODEL",
+  "PROMOTER",
+  "SOUND",
+  "SETUP",
+] as const;
 
-/** 직무 정의 한 건. 기준 설정에서 자유롭게 추가·수정·삭제한다. */
-export interface JobRoleDef {
-  /**
-   * 내부 식별자. 시스템이 자동으로 붙이고 사람은 건드리지 않는다.
-   *
-   * 예전에는 사용자가 직접 코드를 적게 했는데, 배치 · 계약 · 정산이 전부
-   * 이 값을 들고 있어서 오타 하나가 과거 이력을 통째로 끊어 놓았다.
-   * 사람에게 필요한 것은 '이름'이지 식별자가 아니므로 화면에서 감추고,
-   * 겹치지 않는 값은 `nextJobRoleCode()`가 만들어 준다.
-   */
-  code: string;
-  /**
-   * 화면에 그대로 나가는 이름.
-   *
-   * 짧은 이름을 따로 두지 않는다. 두 벌이면 어느 화면에 무엇이 나가는지
-   * 매번 확인해야 하고, 한쪽만 고친 이름이 캘린더에만 남는다.
-   * 좁은 자리는 자리를 넓히거나 잘라서 푼다.
-   */
+export type JobRole = (typeof JOB_ROLE_CODES)[number];
+
+/**
+ * 직무 한 건의 **고정된** 정의.
+ *
+ * 이름 · 순서 · 설명은 시스템이 갖는다. 에이전시가 바꿀 수 없다.
+ * 설명은 견적서를 주고받을 때 "이 직무가 무엇인지"를 같은 문장으로 맞추기 위한 것이다.
+ */
+export interface JobRoleCatalogEntry {
+  code: JobRole;
+  /** 화면과 견적서에 그대로 나가는 이름 */
   name: string;
-  /**
-   * 화면에 나열하는 순서. 작을수록 앞이다.
-   *
-   * 배열 순서에 기대면 저장 · 조회를 거치며 뒤섞인다.
-   * 자주 쓰는 직무를 위로 올려 두는 것은 현장에서 실제로 필요한 조작이라
-   * 순서를 데이터로 들고 있는다.
-   */
+  /** 화면에 나열하는 순서. 작을수록 앞이다. */
   order: number;
+  /** 대행사와 뜻을 맞추기 위한 한 줄 설명 */
+  description: string;
+}
+
+/** 시스템이 정한 직무 목록. 이 배열이 직무의 단일 원본이다. */
+export const JOB_ROLE_CATALOG: readonly JobRoleCatalogEntry[] = [
+  {
+    code: "SUPERVISOR",
+    name: "팀장",
+    order: 1,
+    description: "현장 인력을 총괄하고 대행사 담당자와 직접 소통합니다.",
+  },
+  {
+    code: "STAFF",
+    name: "스태프",
+    order: 2,
+    description: "안내 · 운영 · 정리 등 현장 실무를 맡습니다.",
+  },
+  {
+    code: "MC",
+    name: "MC",
+    order: 3,
+    description: "무대 진행 · 멘트를 맡습니다.",
+  },
+  {
+    code: "PROTOCOL",
+    name: "의전",
+    order: 4,
+    description: "내빈 · VIP 응대와 동선 안내를 맡습니다.",
+  },
+  {
+    code: "SECURITY",
+    name: "경호",
+    order: 5,
+    description: "인원 통제 · 안전 관리를 맡습니다.",
+  },
+  {
+    code: "MODEL",
+    name: "모델",
+    order: 6,
+    description: "제품 · 브랜드 노출을 맡는 프로모션 인력입니다.",
+  },
+  {
+    code: "PROMOTER",
+    name: "프로모터",
+    order: 7,
+    description: "제품을 직접 설명하고 체험 · 판매를 유도합니다.",
+  },
+  {
+    code: "SOUND",
+    name: "음향",
+    order: 8,
+    description: "음향 · 조명 장비를 운용합니다.",
+  },
+  {
+    code: "SETUP",
+    name: "설치/철거",
+    order: 9,
+    description: "부스 · 집기 설치와 철거를 맡습니다.",
+  },
+];
+
+/**
+ * 문자열이 지금 시스템이 아는 직무인지 본다.
+ *
+ * 폼 · 쿼리스트링 · 예전 데이터에서 넘어온 값은 전부 그냥 문자열이다.
+ * 경계에서 한 번 걸러야 화면 안쪽이 `JobRole`을 믿고 쓸 수 있다.
+ */
+export const isJobRole = (value: string): value is JobRole =>
+  JOB_ROLE_CODES.includes(value as JobRole);
+
+/** 카탈로그 정의 한 건. 모르는 코드면 `undefined`다. */
+export const findJobRoleCatalogEntry = (
+  code: string,
+): JobRoleCatalogEntry | undefined =>
+  JOB_ROLE_CATALOG.find((entry) => entry.code === code);
+
+/**
+ * 직무별 단가 설정 한 건.
+ *
+ * 기준 설정이 갖는 것은 **금액과 사용 여부뿐이다.**
+ * 이름 · 순서는 `JOB_ROLE_CATALOG`가 갖는다. 두 곳에 두면 어느 쪽이
+ * 지금 이름인지 알 수 없어진다.
+ */
+export interface JobRoleDef {
+  code: JobRole;
   /**
    * 이 직무를 보통 어떻게 계산하는지.
    *
@@ -53,100 +144,93 @@ export interface JobRoleDef {
    * 직무마다 관행이 달라서 기본값을 여기에 둔다. 행사마다 다시 고를 수 있다.
    */
   defaultWageType: WageType;
-  /** 행사 등록 시 초기값으로 깔리는 기본 금액 (시급이면 시간당, 일급이면 하루치) */
+  /** 인력에게 **지급**하는 기본 금액 (시급이면 시간당, 일급이면 하루치) */
   defaultWage: number;
-  /** 사용하지 않는 직무는 끄기만 하고 지우지 않는다. (과거 이력이 남아 있다) */
+  /**
+   * 대행사에 **청구**하는 기본 단가 (시급).
+   *
+   * 단가를 정하는 쪽은 에이전시다. 대행사가 직무별 인원수로 견적을 요청하면
+   * 우리가 이 값으로 답한다. 그래서 거래처가 아니라 여기에 둔다.
+   * 행사마다 사정이 달라 행사 등록 화면에서 다시 고칠 수 있다.
+   */
+  billingRate: number;
+  /** 우리가 취급하지 않는 직무는 끄기만 한다. 지울 수는 없다. */
   isActive: boolean;
 }
 
-/**
- * 기본 직무 구성.
- *
- * 처음 켰을 때 비어 있으면 아무것도 못 하므로 흔한 구성을 깔아 둔다.
- * 사용자는 기준 설정에서 이름·시급을 바꾸거나 통째로 갈아엎을 수 있다.
- */
-export const DEFAULT_JOB_ROLES: JobRoleDef[] = [
-  {
-    code: "SUPERVISOR",
-    name: "팀장",
-    order: 1,
-    defaultWageType: "HOURLY",
-    defaultWage: 18000,
-    isActive: true,
-  },
-  {
-    code: "STAFF",
-    name: "스태프",
-    order: 2,
-    defaultWageType: "HOURLY",
-    defaultWage: 12000,
-    isActive: true,
-  },
-  {
-    code: "MC",
-    name: "MC",
-    order: 3,
-    defaultWageType: "HOURLY",
-    defaultWage: 30000,
-    isActive: true,
-  },
-  {
-    code: "MODEL",
-    name: "모델",
-    order: 4,
-    defaultWageType: "HOURLY",
-    defaultWage: 22000,
-    isActive: true,
-  },
-  {
-    code: "SOUND",
-    name: "음향",
-    order: 5,
-    defaultWageType: "HOURLY",
-    defaultWage: 20000,
-    isActive: true,
-  },
-  {
-    code: "SETUP",
-    name: "설치/철거",
-    order: 6,
-    defaultWageType: "DAILY",
-    defaultWage: 130000,
-    isActive: true,
-  },
-];
-
-/**
- * 직무를 화면 순서대로 정렬한다.
- *
- * 저장 · 조회를 거치면 배열 순서는 언제든 뒤집힐 수 있으므로
- * 나열하는 쪽은 배열 순서가 아니라 항상 `order`를 믿는다.
- * 값이 같으면 이름순으로 떨어뜨려 렌더마다 순서가 흔들리지 않게 한다.
- */
-export const sortJobRoles = (jobRoles: JobRoleDef[]): JobRoleDef[] =>
-  [...jobRoles].sort(
-    (a, b) => a.order - b.order || a.name.localeCompare(b.name),
-  );
-
-/**
- * 새 직무에 붙일 내부 코드를 만든다.
- *
- * 사람이 정하지 않으므로 겹치지 않기만 하면 된다.
- * 일련번호 방식이라 몇 번째로 만든 직무인지도 함께 남는다.
- */
-export const nextJobRoleCode = (jobRoles: JobRoleDef[]): string => {
-  const used = new Set(jobRoles.map((role) => role.code));
-
-  let sequence = jobRoles.length + 1;
-
-  while (used.has(`ROLE_${sequence}`)) sequence += 1;
-
-  return `ROLE_${sequence}`;
+/** 기준 설정에 아직 값이 없는 직무의 초기 단가 */
+const DEFAULT_JOB_ROLE_WAGES: Record<
+  JobRole,
+  Pick<JobRoleDef, "defaultWageType" | "defaultWage" | "billingRate">
+> = {
+  SUPERVISOR: { defaultWageType: "HOURLY", defaultWage: 18000, billingRate: 26000 },
+  STAFF: { defaultWageType: "HOURLY", defaultWage: 12000, billingRate: 18000 },
+  MC: { defaultWageType: "HOURLY", defaultWage: 30000, billingRate: 45000 },
+  PROTOCOL: { defaultWageType: "HOURLY", defaultWage: 16000, billingRate: 24000 },
+  SECURITY: { defaultWageType: "HOURLY", defaultWage: 17000, billingRate: 25000 },
+  MODEL: { defaultWageType: "HOURLY", defaultWage: 22000, billingRate: 33000 },
+  PROMOTER: { defaultWageType: "HOURLY", defaultWage: 15000, billingRate: 23000 },
+  SOUND: { defaultWageType: "HOURLY", defaultWage: 20000, billingRate: 30000 },
+  SETUP: { defaultWageType: "DAILY", defaultWage: 130000, billingRate: 190000 },
 };
 
-/** 목록 맨 끝에 붙일 순서값 */
-export const nextJobRoleOrder = (jobRoles: JobRoleDef[]): number =>
-  jobRoles.reduce((max, role) => Math.max(max, role.order), 0) + 1;
+/** 기준 설정을 아직 한 번도 저장하지 않았을 때 깔리는 단가 */
+export const DEFAULT_JOB_ROLES: JobRoleDef[] = JOB_ROLE_CATALOG.map((entry) => ({
+  code: entry.code,
+  ...DEFAULT_JOB_ROLE_WAGES[entry.code],
+  isActive: true,
+}));
+
+/**
+ * 카탈로그(고정)와 기준 설정(단가)을 합친, 화면이 실제로 쓰는 직무 한 건.
+ *
+ * 화면은 이름과 금액을 같이 쓰므로 합쳐서 넘긴다.
+ * 합치는 일은 `mergeJobRoles()` 한 곳에서만 한다.
+ */
+export interface JobRoleView extends JobRoleCatalogEntry, JobRoleDef {}
+
+/**
+ * 카탈로그를 기준으로 기준 설정 값을 얹는다.
+ *
+ * **카탈로그가 기준이다.** 시스템에 직무를 새로 추가하면 저장된 설정에는
+ * 그 직무가 없는데, 설정 배열을 기준으로 돌면 새 직무가 영영 안 보인다.
+ * 카탈로그를 돌면서 저장된 단가를 찾아 얹으면, 추가된 직무가 기본 단가를
+ * 달고 바로 나타난다. (= 직무의 추가는 시스템이 정한다)
+ * 반대로 카탈로그에서 빠진 옛 코드는 자연히 떨어져 나간다.
+ */
+export const mergeJobRoles = (
+  jobRoles: readonly JobRoleDef[],
+): JobRoleView[] =>
+  JOB_ROLE_CATALOG.map((entry) => {
+    const saved = jobRoles.find((role) => role.code === entry.code);
+
+    return {
+      ...entry,
+      ...(saved ?? {
+        code: entry.code,
+        ...DEFAULT_JOB_ROLE_WAGES[entry.code],
+        isActive: true,
+      }),
+    };
+  }).sort((a, b) => a.order - b.order);
+
+/**
+ * 저장할 직무 설정만 남긴다.
+ *
+ * 카탈로그에서 온 이름 · 순서 · 설명까지 같이 저장하면 그 값이 사본으로 남고,
+ * 나중에 시스템이 이름을 고쳐도 저장된 옛 이름이 계속 따라다닌다.
+ * 모르는 코드는 여기서 떨어져 나가고, 빠진 코드는 기본 단가로 채워진다.
+ */
+export const sanitizeJobRoles = (
+  jobRoles: readonly JobRoleDef[],
+): JobRoleDef[] =>
+  mergeJobRoles(jobRoles).map((role) => ({
+    code: role.code,
+    defaultWageType: role.defaultWageType,
+    defaultWage: role.defaultWage,
+    billingRate: role.billingRate,
+    isActive: role.isActive,
+  }));
 
 /**
  * 인력 상태. **셋뿐이다.**

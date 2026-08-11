@@ -62,12 +62,22 @@ export type ContractStatus = "DRAFT" | "SIGNED" | "SUPERSEDED";
  */
 export type AmendReasonType =
   | "EARLY_END"
+  | "WORK_DAY_ADDED"
   | "WAGE_CHANGE"
   | "CONDITION_CHANGE"
   | "OTHER";
 
 export const AMEND_REASON_LABEL: Record<AmendReasonType, string> = {
   EARLY_END: "중도 종료",
+  /*
+    근무일이 **늘어난** 재작성.
+
+    중도 종료의 반대편이고, 현장에서 그만큼 자주 일어난다.
+    ("하루만 더 나와 줄 수 있냐"는 부탁은 늘 있다)
+    구분을 따로 두지 않으면 근무일이 늘어난 차수가 '지급 조건 변경'에 섞여
+    나중에 "며칠이 왜 늘었는지"를 문장에서 읽어 내야 한다.
+  */
+  WORK_DAY_ADDED: "근무일 추가",
   WAGE_CHANGE: "지급 조건 변경",
   CONDITION_CHANGE: "근무 조건 변경",
   OTHER: "기타",
@@ -83,6 +93,12 @@ export const AMEND_REASON_PRESETS: Record<AmendReasonType, string[]> = {
     "무단 이탈로 잔여 근무일 근로 미제공",
     "건강 문제로 근로 지속 불가",
     "현장 사정으로 잔여 근무일 조기 종료",
+  ],
+  WORK_DAY_ADDED: [
+    "현장 요청으로 근무일 추가 투입",
+    "결원 발생으로 잔여 근무일 추가 배치",
+    "거래처 발주 인원 증가로 근무일 추가",
+    "본인 동의하에 연장 근무일 추가",
   ],
   WAGE_CHANGE: [
     "협의에 따른 시급 인상",
@@ -319,6 +335,14 @@ export interface Contract {
   amendNote?: string;
   /** 재작성으로 계약에서 빠진 근무일 (중도 종료로 나오지 않은 날) */
   removedWorkDates?: string[];
+  /**
+   * 재작성으로 계약에 새로 들어온 근무일.
+   *
+   * 재작성은 줄이는 일만이 아니다. 이틀 계약한 사람이 사흘째도 나오게 되는 일이
+   * 그만두는 일만큼 흔하다. 무엇이 빠졌는지만 남기면 늘어난 차수의 총액이
+   * 왜 올랐는지 문서에서 설명되지 않는다.
+   */
+  addedWorkDates?: string[];
   amendedAt?: string;
 
   createdAt: string;
@@ -955,8 +979,13 @@ const buildAutoFields = (
         { label: "일 실근무시간", value: `${contract.workHours}시간` },
         /*
           재작성본은 그 사실이 문서 안에 남아야 한다.
-          "며칠이 왜 빠졌는가"가 적혀 있지 않으면, 나중에 이 문서 한 장만 보고는
-          당초 계약과 무엇이 달라졌는지 알 수 없어 분쟁의 근거가 되지 못한다.
+          "며칠이 왜 빠졌는가 · 며칠이 왜 늘었는가"가 적혀 있지 않으면,
+          나중에 이 문서 한 장만 보고는 당초 계약과 무엇이 달라졌는지 알 수 없어
+          분쟁의 근거가 되지 못한다.
+
+          늘어난 날은 **있을 때만** 적는다. 줄어든 날은 "빠진 날 없음"이라는
+          사실 자체가 중도 종료가 아니었다는 근거라 늘 적지만,
+          늘어난 날은 대부분 없어서 매번 '-'를 찍으면 문서만 길어진다.
         */
         ...(contract.revision > 1
           ? [
@@ -971,6 +1000,14 @@ const buildAutoFields = (
                     ? formatWorkDates(contract.removedWorkDates)
                     : "-",
               },
+              ...(contract.addedWorkDates?.length
+                ? [
+                    {
+                      label: "당초 계약에 추가된 근무일",
+                      value: formatWorkDates(contract.addedWorkDates),
+                    },
+                  ]
+                : []),
               {
                 label: "재작성 구분",
                 value: contract.amendReasonType

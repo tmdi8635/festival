@@ -5,9 +5,9 @@ import type { WageType } from "@/type/event";
 import type { FeatureKey, FeatureMode, OperationSettings } from "@/type/ops";
 import {
   DEFAULT_JOB_ROLES,
-  sortJobRoles,
+  mergeJobRoles,
   type JobRole,
-  type JobRoleDef,
+  type JobRoleView,
 } from "@/type/staff";
 
 /**
@@ -17,9 +17,12 @@ import {
  * 그때마다 쿼리 훅을 부르면 컴포넌트가 전부 클라이언트 훅에 묶인다.
  * 그래서 기준 설정 응답을 받는 순간(=API 함수 안)에 여기로 흘려 넣고,
  * 화면은 `jobRoleLabel()` 같은 순수 함수로 꺼내 쓴다.
+ *
+ * 담고 있는 값은 카탈로그(이름 · 순서)와 기준 설정(단가)을 합친 것이다.
+ * 화면은 둘을 따로 조립하지 않는다.
  */
 interface OrgState {
-  jobRoles: JobRoleDef[];
+  jobRoles: JobRoleView[];
   featureModes: Record<FeatureKey, FeatureMode>;
   hydrate: (settings: OperationSettings) => void;
 }
@@ -32,12 +35,15 @@ const DEFAULT_FEATURE_MODES: Record<FeatureKey, FeatureMode> = {
 };
 
 export const useOrgStore = create<OrgState>((set) => ({
-  jobRoles: sortJobRoles(DEFAULT_JOB_ROLES),
+  jobRoles: mergeJobRoles(DEFAULT_JOB_ROLES),
   featureModes: DEFAULT_FEATURE_MODES,
   hydrate: (settings) =>
     set({
-      // 나열 순서는 여기서 한 번만 정리한다. 화면마다 다시 정렬하면 어긋난다.
-      jobRoles: sortJobRoles(settings.jobRoles),
+      /*
+        카탈로그와 합치는 일도, 나열 순서를 맞추는 일도 여기서 한 번만 한다.
+        화면마다 다시 조립하면 어긋난다.
+      */
+      jobRoles: mergeJobRoles(settings.jobRoles),
       featureModes: settings.featureModes,
     }),
 }));
@@ -52,14 +58,14 @@ export const hydrateOrgSettings = (settings: OperationSettings) => {
 };
 
 /** 사용 중인 직무만, 기준 설정에서 정한 순서대로 */
-export const activeJobRoles = (): JobRoleDef[] =>
+export const activeJobRoles = (): JobRoleView[] =>
   useOrgStore.getState().jobRoles.filter((role) => role.isActive);
 
 /** 화면에 나열할 직무 코드 순서 */
 export const jobRoleOrder = (): JobRole[] =>
   activeJobRoles().map((role) => role.code);
 
-const findJobRole = (code: JobRole): JobRoleDef | undefined =>
+const findJobRole = (code: JobRole): JobRoleView | undefined =>
   useOrgStore.getState().jobRoles.find((role) => role.code === code);
 
 /**
@@ -141,6 +147,17 @@ export const jobRoleDefaultWage = (
   };
 };
 
+/**
+ * 행사 등록 시 초기값으로 깔 **청구** 단가.
+ *
+ * 단가를 정하는 쪽은 에이전시다. 거래처가 아니라 기준 설정이 원본이고,
+ * 행사 등록 화면이 이 값을 깔아 준 뒤 행사마다 고친다.
+ * 아직 정하지 않았으면 0이다 — 0은 '0원 청구'가 아니라 '미설정'이라
+ * 그 직무가 마진 계산에서 빠진다.
+ */
+export const jobRoleBillingRate = (code: JobRole): number =>
+  findJobRole(code)?.billingRate ?? 0;
+
 /** 기능의 현재 운영 모드 */
 export const featureMode = (key: FeatureKey): FeatureMode =>
   useOrgStore.getState().featureModes[key] ?? "ENABLED";
@@ -164,7 +181,7 @@ export const isFeatureLocked = (key: FeatureKey): boolean =>
  * 이미 그려진 표가 옛 이름을 그대로 달고 있게 된다.
  * 훅으로 스토어를 구독해 두면 직무를 바꾸는 즉시 모든 화면이 따라온다.
  */
-export const useJobRoles = (): JobRoleDef[] =>
+export const useJobRoles = (): JobRoleView[] =>
   useOrgStore((state) => state.jobRoles);
 
 /*
@@ -174,7 +191,7 @@ export const useJobRoles = (): JobRoleDef[] =>
   `useForm`의 `reset` 인자로 흘러 들어가면 렌더 → 이펙트 → 렌더가 무한히 돈다.
   (실제로 행사 등록 폼에서 이 문제가 났다)
 */
-export const useActiveJobRoles = (): JobRoleDef[] => {
+export const useActiveJobRoles = (): JobRoleView[] => {
   const jobRoles = useJobRoles();
 
   return useMemo(
