@@ -36,6 +36,22 @@ npx tsc --noEmit && npx eslint src && npm run build
 `NEXT_PUBLIC_API_MOCKING=enabled`면 MSW가 뜨고 요청은 **같은 출처**로 나간다.
 목업을 끌 때만 `NEXT_PUBLIC_BASE_URI`가 쓰인다. (`src/api/index.ts`, `src/mocks/utils.ts`)
 
+## 프로토타입 배포 (깃허브 페이지)
+
+`main`에 밀면 `.github/workflows/deploy-pages.yml`이 정적으로 내보내 올린다.
+서버가 없으니 데이터는 브라우저의 MSW 목업이 그대로 만든다. 주소는
+`https://<계정>.github.io/festival/`이고, 저장소 이름이 경로에 끼어들기 때문에
+빌드에 `NEXT_PUBLIC_BASE_PATH=/festival`이 들어간다.
+
+접두사를 아는 곳은 세 군데다 — 서비스 워커 주소(`providers/MSWProvider.tsx`) ·
+요청을 보내는 쪽(`api/index.ts`) · 가로채는 쪽(`mocks/utils.ts`). 값은
+`lib/basePath.ts` 하나에서 나온다. **뒤의 둘이 갈리면 조용히 실패한다** —
+워커는 자기가 놓인 폴더 아래만 가로챌 수 있어서 요청이 그냥 밖으로 나가 404가 된다.
+
+같은 빌드를 로컬에서 재현하려면 `npm run build:pages`. 정적 내보내기라 서버가 필요한
+것들은 못 쓴다 — 라우트 핸들러 · 이미지 최적화 · 리다이렉트, 그리고 동적 라우트는
+`generateStaticParams`로 미리 찍어야 한다(행사 상세가 그렇다).
+
 ## 폴더 구조
 
 ```

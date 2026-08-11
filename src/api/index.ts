@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from "axios";
+import { BASE_PATH } from "@/lib/basePath";
 import { showAppToast } from "@/lib/toast";
 import { useAdminStore } from "@/store/useAdminStore";
 import type {
@@ -18,11 +19,14 @@ import type {
  * 어차피 MSW가 가로채므로 주소가 어디를 가리키는지는 뜻이 없는데,
  * `http://localhost:8080`으로 두면 폰·터널에서 열었을 때 요청이 아예 나가지 못한다.
  * (자세한 이유는 `mocks/utils.ts`의 `BASE_URI` 주석)
+ *
+ * 하위 경로에 배포될 때만 접두사가 붙는다. 서비스 워커가 그 폴더 아래만
+ * 가로챌 수 있어서, 접두사를 빼면 요청이 워커를 지나쳐 버린다. (`lib/basePath.ts`)
  */
 const isMockingEnabled = process.env.NEXT_PUBLIC_API_MOCKING === "enabled";
 
 const BASE_CONFIG = {
-  baseURL: isMockingEnabled ? "" : process.env.NEXT_PUBLIC_BASE_URI,
+  baseURL: isMockingEnabled ? BASE_PATH : process.env.NEXT_PUBLIC_BASE_URI,
   headers: { "Content-Type": "application/json" },
 };
 

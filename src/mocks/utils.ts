@@ -1,4 +1,5 @@
 import { HttpResponse } from "msw";
+import { BASE_PATH } from "@/lib/basePath";
 import {
   hasPermission,
   permissionLabel,
@@ -20,8 +21,11 @@ import { DEFAULT_PAGE_SIZE, PageResponse } from "@/type/api";
  *
  * 실제 서버에 붙일 때는 목업을 끄고(`NEXT_PUBLIC_API_MOCKING`),
  * 그때 `NEXT_PUBLIC_BASE_URI`가 쓰인다. (`api/index.ts`)
+ *
+ * 깃허브 페이지처럼 하위 경로에 올라가면 접두사가 붙는다.
+ * 보내는 쪽(`api/index.ts`)과 **같은 값**이어야 핸들러가 주소를 알아본다.
  */
-export const BASE_URI = "";
+export const BASE_URI = BASE_PATH;
 
 /** 대상이 없을 때 돌려주는 공통 응답 */
 export const notFound = (message: string) =>

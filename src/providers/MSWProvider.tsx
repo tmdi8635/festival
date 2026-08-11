@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
+import { BASE_PATH } from "@/lib/basePath";
 
 const isMockingEnabled = process.env.NEXT_PUBLIC_API_MOCKING === "enabled";
 
@@ -16,7 +17,12 @@ const startWorker = async () => {
       await worker.start({
         onUnhandledRequest: "bypass",
         serviceWorker: {
-          url: "/mockServiceWorker.js",
+          /*
+            하위 경로 배포에서는 워커 파일도 접두사 아래에 있다.
+            워커는 자기가 놓인 폴더까지만 가로챌 수 있으므로 요청 주소도 같이 맞춰야 한다.
+            (`lib/basePath.ts`)
+          */
+          url: `${BASE_PATH}/mockServiceWorker.js`,
         },
       });
     });
