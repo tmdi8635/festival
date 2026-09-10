@@ -11,9 +11,11 @@ import { buildPlaceholderSignatureDataUrl } from "../placeholderSignature";
 import {
   calculateScheduledWorkHours,
   groupAssignmentsByStaff,
+  toDateKey,
 } from "@/type/event";
+import { DEMO_STAFF_ID } from "../demo";
 import { daysAgo, toIsoDateTime } from "../utils";
-import { events } from "./event";
+import { DEMO_EVENT_TITLE, events } from "./event";
 import { findStaff } from "./staff";
 
 /**
@@ -444,6 +446,121 @@ events
         } satisfies Contract);
       });
   });
+
+/* --------------------------- 데모 보정 --------------------------- */
+
+/**
+ * 포털 기본 접속자에게 **서명 대기 · 반려 계약서를 하나씩** 보장한다. (`mocks/demo.ts`)
+ *
+ * 위쪽 두 시드는 조건이 맞는 배치에만 문서를 만든다(`assignmentId % 2`). 그래서
+ * 이 사람의 계약서가 전부 '서명완료'로만 나오는 경우가 실제로 생기고,
+ * 그러면 포털에서 서명도 반려도 눌러 볼 수 없다.
+ */
+const buildDemoContract = (
+  event: (typeof events)[number],
+  status: "SENT" | "REJECTED",
+) => {
+  const mine = event.assignments.filter(
+    (assignment) => assignment.staffId === DEMO_STAFF_ID,
+  );
+
+  if (mine.length === 0) return;
+
+  const existing = contracts.find(
+    (contract) =>
+      contract.staffId === DEMO_STAFF_ID && contract.eventId === event.eventId,
+  );
+
+  const workHours = calculateScheduledWorkHours(event);
+  const work = summarizeContractWork(
+    mine.map((item) => ({
+      workDate: item.workDate,
+      wageType: item.wageType,
+      wage: item.wage,
+    })),
+    workHours,
+  );
+
+  const rejectedReason =
+    status === "REJECTED"
+      ? "시급이 공고에 적힌 금액과 다릅니다. 확인 부탁드립니다."
+      : undefined;
+
+  /* 이미 문서가 있으면 상태만 되돌린다. 번호를 새로 발급하면 이력이 끊긴다. */
+  if (existing) {
+    existing.status = status;
+    existing.signature = undefined;
+    existing.signedFile = undefined;
+    existing.signedAt = undefined;
+    existing.sentAt = daysAgo(2);
+    existing.rejectedReason = rejectedReason;
+
+    return;
+  }
+
+  const [first] = mine;
+  const staff = findStaff(first.staffId);
+  const template =
+    first.role === "SUPERVISOR"
+      ? contractTemplates[1]
+      : work.workDates.length > 1
+        ? contractTemplates[2]
+        : contractTemplates[0];
+
+  contractSequence += 1;
+
+  contracts.push({
+    contractId: contractSequence,
+    contractNumber: buildContractNumber(work.workDates[0], contractSequence),
+    staffId: first.staffId,
+    staffName: first.staffName,
+    staffPhone: first.staffPhone,
+    staffBirthDate: staff?.birthDate ?? "",
+    staffAddress: staff?.address ?? "",
+    eventId: event.eventId,
+    eventTitle: event.title,
+    clientName: event.clientName,
+    venue: event.venue,
+    role: first.role,
+    templateId: template.templateId,
+    templateName: template.name,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    endDayOffset: event.endDayOffset,
+    breakMinutes: event.breakMinutes,
+    workHours,
+    ...work,
+    status,
+    revision: 1,
+    sentAt: daysAgo(2),
+    rejectedReason,
+    createdAt: daysAgo(3),
+  } satisfies Contract);
+};
+
+/* `toISOString()`은 KST에서 하루 밀린다. 날짜 문자열은 언제나 `toDateKey()`다. */
+const today = toDateKey(new Date());
+
+const demoEvents = events.filter(
+  (event) =>
+    event.status !== "DRAFT" &&
+    event.status !== "CANCELED" &&
+    event.assignments.some(
+      (assignment) =>
+        assignment.staffId === DEMO_STAFF_ID &&
+        assignment.status === "CONFIRMED" &&
+        assignment.workDate >= today,
+    ),
+);
+
+/* 오늘 만들어 둔 데모 근무가 서명 대기. 그다음 근무 하나가 반려다. */
+const demoToday = demoEvents.find((event) => event.title === DEMO_EVENT_TITLE);
+const demoOthers = demoEvents.filter((event) => event !== demoToday);
+
+if (demoToday) buildDemoContract(demoToday, "SENT");
+else if (demoOthers[0]) buildDemoContract(demoOthers.shift()!, "SENT");
+
+if (demoOthers[0]) buildDemoContract(demoOthers[0], "REJECTED");
 
 export const findContract = (contractId: number) =>
   contracts.find((contract) => contract.contractId === contractId);

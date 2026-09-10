@@ -13,7 +13,7 @@ import type {
   MyWork,
 } from "@/type/my";
 import type { Contract } from "@/type/contract";
-import type { Application } from "@/type/recruit";
+import type { Application, JobPosting } from "@/type/recruit";
 import type { Assignment, EventDetail } from "@/type/event";
 import type { ReputationVerdict, StaffDetail } from "@/type/staff";
 import { buildDocumentHash } from "@/type/contract";
@@ -59,13 +59,17 @@ import {
   BASE_URI,
   MOCK_DELAY_MS,
   badRequest,
+  findStaffRequester,
   nextId,
   notFound,
   requireStaff,
 } from "../utils";
 
 /**
- * 스태프 포털(`/my/*`) 목업.
+ * 스태프 포털 목업.
+ *
+ * 대부분은 `/my/*`이고, **공고만 `/postings`**로 따로 선다. 공고는 로그인하지
+ * 않아도 볼 수 있는 자료라, `/my`(본인 것) 아래에 두면 그 규칙이 흐려진다.
  *
  * 관리자 API와 **주소부터 가른다.** `/admin/*`은 `requirePermission`이 관리자 권한 키로
  * 판정하는 곳이고, 여기는 "본인 것인가" 하나만 본다. 한 주소에 두 규칙을 얹으면
@@ -365,19 +369,94 @@ const toMyContract = (contract: Contract): MyContract => ({
   isPaperSigned: Boolean(contract.signedFile) && !contract.signature,
 });
 
-const toMyApplication = (application: Application): MyApplication => ({
-  applicationId: application.applicationId,
-  postingId: application.postingId,
-  postingTitle: application.postingTitle,
-  eventId: application.eventId,
-  eventTitle: application.eventTitle,
-  clientName: findEvent(application.eventId)?.clientName ?? "",
-  role: application.role,
-  workDate: application.workDate,
-  status: application.status,
-  appliedAt: application.appliedAt,
-  processedAt: application.processedAt,
-});
+const toMyApplication = (application: Application): MyApplication => {
+  const posting = findPosting(application.postingId);
+  const event = findEvent(application.eventId);
+
+  return {
+    applicationId: application.applicationId,
+    postingId: application.postingId,
+    postingTitle: application.postingTitle,
+    eventId: application.eventId,
+    eventTitle: application.eventTitle,
+    clientName: event?.clientName ?? "",
+    role: application.role,
+    workDate: application.workDate,
+    /* 카드가 날짜·장소를 그리려고 공고를 한 번 더 부르지 않게 함께 내린다. */
+    workDates: posting?.workDates ?? event?.dates ?? [application.workDate],
+    venue: posting?.venue ?? event?.venue ?? "",
+    startTime: posting?.startTime ?? event?.startTime ?? "",
+    endTime: posting?.endTime ?? event?.endTime ?? "",
+    endDayOffset: posting?.endDayOffset ?? event?.endDayOffset ?? 0,
+    status: application.status,
+    appliedAt: application.appliedAt,
+    processedAt: application.processedAt,
+  };
+};
+
+/**
+ * 공고 한 건을 포털 자료로 옮긴다.
+ *
+ * `staff`가 없으면 **비회원**이다. 지원 여부 · 같은 날 겹치는 행사처럼
+ * 누구인지 알아야 나오는 값만 비워 두고, 공고 자체는 똑같이 내린다.
+ */
+const toMyPosting = (
+  posting: JobPosting,
+  staff?: StaffDetail,
+): MyPosting => {
+  const event = findEvent(posting.eventId);
+
+  const mine = staff
+    ? applications.find(
+        (application) =>
+          application.staffId === staff.staffId &&
+          application.postingId === posting.postingId &&
+          application.status !== "CANCELED",
+      )
+    : undefined;
+
+  /*
+    같은 날 이미 확정된 행사가 있으면 미리 알린다.
+    지원한 뒤 확정 단계에서 거절당하면, 본인은 왜 떨어졌는지 모른 채
+    다음에도 같은 날에 또 지원한다.
+  */
+  const conflict = staff
+    ? findConflictEvent(staff.staffId, posting.workDate, posting.eventId)
+    : undefined;
+
+  const workHours = event ? calculateScheduledWorkHours(event) : 0;
+
+  return {
+    postingId: posting.postingId,
+    eventId: posting.eventId,
+    /*
+      **행사 이름을 쓴다.** 관리자 공고 제목에는 부족한 자리 수가 붙어 있고
+      (`… · 팀장 1명`), 그건 우리가 무엇을 못 채웠는지를 적어 둔 내부 표기다.
+    */
+    title: posting.eventTitle,
+    clientName: event?.clientName ?? posting.clientName,
+    role: posting.role,
+    workDates: posting.workDates,
+    startTime: posting.startTime,
+    endTime: posting.endTime,
+    endDayOffset: posting.endDayOffset,
+    breakMinutes: event?.breakMinutes ?? 0,
+    workHours,
+    venue: posting.venue,
+    address: event?.address ?? "",
+    meetingPoint: event?.meetingPoint ?? "",
+    dressCode: event?.dressCode ?? "",
+    belongings: event?.belongings ?? "",
+    wageType: posting.wageType,
+    wage: posting.wage,
+    /* 하루치 예상 지급액. 화면이 다시 계산하지 않게 여기서 낸다. */
+    dailyPay: calculateBasePay(posting.wageType, posting.wage, workHours),
+    isApplied: Boolean(mine),
+    applicationId: mine?.applicationId,
+    applicationStatus: mine?.status,
+    conflictEventTitle: conflict?.title,
+  };
+};
 
 /**
  * 정산 한 건. **계좌번호는 뒤 4자리만 내린다.**
@@ -983,7 +1062,19 @@ export const staffPortalHandlers = [
   /* ------------------------------ 공고 ------------------------------ */
 
   /**
-   * 공고 목록.
+   * 공고 목록 — **로그인하지 않아도 볼 수 있다.**
+   *
+   * 그래서 주소가 `/my`로 시작하지 않는다. `/my/*`는 "본인 것"이라는 뜻이고,
+   * 그 규칙 안에 누구나 볼 수 있는 자료를 섞으면 다음 사람이 이 경로에
+   * 계좌나 평판을 붙인다. 공개 자료는 공개 주소에 둔다.
+   *
+   * 처음 보는 사람에게 가입부터 시키면 그 사람은 그냥 나간다. 어떤 일이
+   * 있는지는 먼저 보여 주고, **지원할 때** 누구인지 묻는다.
+   *
+   * `X-Staff-Id`가 실려 오면 지원 여부 · 겹치는 일정까지 채워 내린다.
+   * `onlyMyRoles`(내가 할 수 있는 직무만)는 **회원 전용**이다 —
+   * 무엇이 '내 직무'인지는 등록한 사람에게만 있는 정보라, 비회원에게는
+   * 켤 수 있는 것처럼 보여 놓고 아무것도 걸러 내지 못한다.
    *
    * `OPEN`만 내린다. 작성중(`DRAFT`)은 담당자가 아직 다듬는 중이고,
    * 마감·충원완료는 지원해도 소용이 없다. 목록에 세워 두면 눌러 보고 실망할 뿐이다.
@@ -992,10 +1083,10 @@ export const staffPortalHandlers = [
    * 문자열이라 담당자 어투가 그대로 들어 있고("지원: 성함/나이/경력을 담당자에게"),
    * 지원 버튼이 있는 화면에서는 앞뒤가 맞지 않는다.
    */
-  http.get(`${BASE_URI}/my/postings`, async ({ request }) => {
-    const { staff, response } = requireStaff(request);
-
-    if (!staff) return response;
+  http.get(`${BASE_URI}/postings`, async ({ request }) => {
+    /* 비회원도 통과한다. 신원은 있으면 쓰고 없으면 그만이다. */
+    const staff = findStaffRequester(request);
+    const viewer = staff?.status === "BLACKLIST" ? undefined : staff;
 
     const url = new URL(request.url);
     const role = url.searchParams.get("role") ?? "";
@@ -1007,65 +1098,46 @@ export const staffPortalHandlers = [
       /* 이미 지난 공고는 목록에서 뺀다. 시드가 오늘 기준이라 시간이 지나면 생긴다. */
       .filter((posting) => posting.workDates.some((date) => date >= today))
       .filter((posting) => !role || posting.role === role)
-      .filter((posting) => !onlyMyRoles || staff.roles.includes(posting.role))
-      .map((posting) => {
-        const event = findEvent(posting.eventId);
-
-        const isApplied = applications.some(
-          (application) =>
-            application.staffId === staff.staffId &&
-            application.postingId === posting.postingId &&
-            application.status !== "CANCELED",
-        );
-
-        /*
-          같은 날 이미 확정된 행사가 있으면 미리 알린다.
-          지원한 뒤 확정 단계에서 거절당하면, 본인은 왜 떨어졌는지 모른 채
-          다음에도 같은 날에 또 지원한다.
-        */
-        const conflict = findConflictEvent(
-          staff.staffId,
-          posting.workDate,
-          posting.eventId,
-        );
-
-        return {
-          postingId: posting.postingId,
-          eventId: posting.eventId,
-          title: posting.title,
-          clientName: posting.clientName,
-          role: posting.role,
-          requiredCount: posting.requiredCount,
-          confirmedCount: posting.confirmedCount,
-          status: posting.status,
-          workDates: posting.workDates,
-          startTime: posting.startTime,
-          endTime: posting.endTime,
-          endDayOffset: posting.endDayOffset,
-          venue: posting.venue,
-          address: event?.address ?? "",
-          meetingPoint: event?.meetingPoint ?? "",
-          dressCode: event?.dressCode ?? "",
-          belongings: event?.belongings ?? "",
-          wageType: posting.wageType,
-          wage: posting.wage,
-          /* 하루치 예상 지급액. 화면이 다시 계산하지 않게 여기서 낸다. */
-          dailyPay: event
-            ? calculateBasePay(
-                posting.wageType,
-                posting.wage,
-                calculateScheduledWorkHours(event),
-              )
-            : posting.wage,
-          isApplied,
-          conflictEventTitle: conflict?.title,
-        } satisfies MyPosting;
-      })
+      /* 직무 조건은 회원만. 비회원에게는 거를 기준 자체가 없다. */
+      .filter(
+        (posting) =>
+          !onlyMyRoles || !viewer || viewer.roles.includes(posting.role),
+      )
+      .map((posting) => toMyPosting(posting, viewer))
       .sort((a, b) => a.workDates[0].localeCompare(b.workDates[0]));
 
     await delay(MOCK_DELAY_MS);
 
     return HttpResponse.json({ items });
+  }),
+
+  /**
+   * 공고 한 건.
+   *
+   * 목록에는 눌러 볼지 정하는 데 필요한 것만 세우고, 집합 장소 · 복장 · 준비물은
+   * 여기서 본다. 목록 카드에 다 적으면 한 장이 화면 두 개 높이가 되어
+   * 아래쪽 공고는 아무도 스크롤해서 보지 않는다.
+   *
+   * **마감된 공고도 내린다.** 내가 지원한 공고를 다시 열어 보는 길이
+   * 이 주소 하나뿐인데, 목록과 같은 조건으로 걸러 버리면 마감된 순간
+   * 내가 어디에 지원했는지 확인할 수 없게 된다.
+   */
+  http.get(`${BASE_URI}/postings/:postingId`, async ({ request, params }) => {
+    const staff = findStaffRequester(request);
+    const viewer = staff?.status === "BLACKLIST" ? undefined : staff;
+
+    const posting = findPosting(Number(params.postingId));
+
+    if (!posting || posting.status === "DRAFT") {
+      return HttpResponse.json(
+        { code: "POSTING_NOT_FOUND", message: "공고를 찾을 수 없습니다." },
+        { status: 404 },
+      );
+    }
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(toMyPosting(posting, viewer));
   }),
 
   /* ----------------------------- 내 지원 ---------------------------- */
@@ -1292,7 +1364,7 @@ export const staffPortalHandlers = [
         type: "APPLICATION_RESULT",
         title: "지원 결과가 나왔습니다",
         description: `${processedApplications.length}건의 지원이 처리되었습니다.`,
-        href: "/my/postings?tab=MINE",
+        href: "/my/schedule?tab=APPLIED",
         tone: "info",
       });
     }

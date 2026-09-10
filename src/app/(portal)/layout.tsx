@@ -1,5 +1,6 @@
 import OrgSettingsLoader from "@/components/layout/OrgSettingsLoader";
 import StaffHeader from "@/components/layout/StaffHeader";
+import StaffSessionGate from "@/components/layout/StaffSessionGate";
 import StaffTabBar from "@/components/layout/StaffTabBar";
 
 export const metadata = {
@@ -35,7 +36,8 @@ export default function PortalLayout({
       <main className="flex-1 overflow-auto scrollbar-thin">
         {/* 데스크톱에서 가로로 늘어지지 않게 가운데로 모은다. */}
         <div className="mx-auto flex w-full max-w-lg flex-col gap-4 px-4 py-5">
-          {children}
+          {/* 로그인이 필요한 화면인지 판정하는 곳은 여기 한 곳뿐이다. */}
+          <StaffSessionGate>{children}</StaffSessionGate>
         </div>
       </main>
 

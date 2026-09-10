@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { useMyContractPreviewQuery } from "@/api/my/getMyContracts";
 import { useMyContractMutation } from "@/api/my/mutateMyContract";
-import { Download } from "@/icons";
+import { ChevronLeft, Download, FileText } from "@/icons";
+import { formatDate } from "@/lib/dayjs";
 import { downloadContractAsPdf } from "@/lib/contractFile";
 import { showErrorToast } from "@/lib/toast";
+import { formatCurrency } from "@/lib/utils";
 import { useJobRoleLabel } from "@/store/useOrgStore";
+import { WAGE_TYPE_LABEL, formatTimeRange } from "@/type/event";
 import {
   buildContractDocument,
   buildContractFileName,
@@ -28,12 +31,31 @@ interface MyContractSignModalProps {
   onClose: () => void;
 }
 
+const SummaryRow = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <div className="flex items-start justify-between gap-4 py-2.5">
+    <dt className="shrink-0 text-[13px] text-font-2">{label}</dt>
+    <dd className="min-w-0 text-right text-[14px] text-font-1">{children}</dd>
+  </div>
+);
+
 /**
  * 내 근로계약서를 읽고 서명한다.
  *
- * **전문을 먼저 보여 준 뒤에 서명칸을 연다.** 서명 버튼만 크게 두고 문서를 접어 두면
- * 아무도 읽지 않고, 나중에 "그 조항은 못 봤다"가 된다. 그 다툼을 가리려고
- * 서명 시점 문서의 해시까지 남기는데, 정작 읽을 기회를 안 주면 앞뒤가 맞지 않는다.
+ * **요약을 먼저 세우고 전문은 눌러서 편다.** 폰에서 A4 지면을 그대로 띄우면
+ * 글자가 손톱만 해져서, 정작 확인해야 하는 근무일 · 시간 · 금액을 읽으려고
+ * 확대와 스크롤을 반복하게 된다. 그 세 가지는 큰 글씨로 위에 세우고,
+ * 조항 전문은 지면 그대로 볼 수 있게 따로 연다.
+ *
+ * 그래도 **서명하려면 전문이 열린다.** 서명 버튼을 누르면 지면으로 전환하고
+ * 그 아래에 서명칸을 붙인다. 조항을 접어 둔 채 받은 서명은
+ * 나중에 "그건 못 봤다"가 되고, 서명 시점 문서의 해시를 남기는 일도
+ * 읽을 기회를 안 준 상태에서는 앞뒤가 맞지 않는다.
  *
  * 되돌려 보내는 길도 같은 자리에 둔다. 내용이 다를 때 할 수 있는 일이
  * "서명 안 하고 버티기"뿐이면 담당자는 왜 안 들어오는지 알 수 없다.
@@ -43,12 +65,15 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
   const { data, isLoading } = useMyContractPreviewQuery(contract.contractId);
   const { signMutation, rejectMutation } = useMyContractMutation();
 
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const [signedName, setSignedName] = useState("");
   const [signatureImage, setSignatureImage] = useState("");
   const [isAgreed, setIsAgreed] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+
+  const detail = data?.contract;
 
   const document =
     data && buildContractDocument(data.contract, data.template, jobRoleLabel(data.contract.role));
@@ -58,6 +83,12 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
     signedName.trim().length >= 2 && Boolean(signatureImage) && isAgreed;
 
   const isSignable = contract.status === "SENT" || contract.status === "REJECTED";
+
+  const handleStartSigning = () => {
+    /* 서명은 전문 위에서만 받는다. (위 주석) */
+    setIsExpanded(true);
+    setIsSigning(true);
+  };
 
   const handleSign = () => {
     if (!document) return;
@@ -98,7 +129,7 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
       onClose={onClose}
       title={contract.eventTitle}
       description={`계약번호 ${contract.contractNumber || "발급 전"}`}
-      size="lg"
+      size={isExpanded ? "lg" : "md"}
       footer={
         <div className="flex w-full flex-wrap items-center justify-end gap-2">
           <Button
@@ -112,15 +143,10 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
 
           {isSignable && !isSigning && !isRejecting && (
             <>
-              <Button
-                variant="secondary"
-                onClick={() => setIsRejecting(true)}
-              >
+              <Button variant="secondary" onClick={() => setIsRejecting(true)}>
                 내용이 달라요
               </Button>
-              <Button onClick={() => setIsSigning(true)}>
-                서명하기
-              </Button>
+              <Button onClick={handleStartSigning}>서명하기</Button>
             </>
           )}
         </div>
@@ -141,10 +167,80 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
           </Alert>
         )}
 
-        {isLoading || !document ? (
-          <Skeleton className="h-96 w-full rounded-card" />
+        {isLoading || !document || !detail ? (
+          <Skeleton className="h-72 w-full rounded-card" />
+        ) : isExpanded ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setIsExpanded(false)}
+              className="flex items-center gap-1 self-start text-[13px] text-font-2 transition hover:text-font-1"
+            >
+              <ChevronLeft size={15} />
+              요약으로 돌아가기
+            </button>
+
+            {/*
+              인쇄 안내는 담당자 몫이라 끈다. "A4 2장을 모두 배부하세요"는
+              문서를 나눠 주는 사람에게 하는 말이고, 여기서는 할 수 있는 일이 없다.
+            */}
+            <ContractSheetView document={document} fitToWidth showPrintGuide={false} />
+          </>
         ) : (
-          <ContractSheetView document={document} fitToWidth />
+          <>
+            {/* 확인해야 하는 세 가지 — 언제 · 얼마나 · 얼마. 크게 위에 세운다. */}
+            <div className="rounded-card bg-subtle px-4 py-3">
+              <p className="text-[12px] text-font-2">세전 총 지급액</p>
+              <p className="text-[24px] font-bold text-font-0 tabular-nums">
+                {formatCurrency(detail.totalWage)}
+              </p>
+              <p className="mt-0.5 text-[12px] text-font-2">
+                {WAGE_TYPE_LABEL[detail.wageType]} {formatCurrency(detail.wage)}
+                {detail.hasMixedWage && " (근무일마다 다름)"} · 실근무 총{" "}
+                {detail.totalWorkHours.toFixed(1)}시간
+              </p>
+            </div>
+
+            <dl className="divide-y divide-border-main">
+              <SummaryRow label="근무일">
+                <span className="tabular-nums">
+                  {detail.workDates.map((date) => formatDate(date)).join(", ")}
+                </span>
+              </SummaryRow>
+
+              <SummaryRow label="근무 시간">
+                <span className="tabular-nums">
+                  {formatTimeRange(
+                    detail.startTime,
+                    detail.endTime,
+                    detail.endDayOffset,
+                  )}
+                </span>
+                {detail.breakMinutes > 0 && (
+                  <span className="text-font-2"> · 휴게 {detail.breakMinutes}분</span>
+                )}
+              </SummaryRow>
+
+              <SummaryRow label="직무">{jobRoleLabel(detail.role)}</SummaryRow>
+              <SummaryRow label="장소">{detail.venue}</SummaryRow>
+              <SummaryRow label="사업주">{data.template.companyName}</SummaryRow>
+              <SummaryRow label="양식">{detail.templateName}</SummaryRow>
+            </dl>
+
+            <Button
+              variant="secondary"
+              fullWidth
+              leftIcon={<FileText size={15} />}
+              onClick={() => setIsExpanded(true)}
+            >
+              계약서 전문 보기
+            </Button>
+
+            <p className="text-[12px] text-font-2">
+              위 요약은 계약서에서 뽑아 온 값입니다. 조항 전문은 전문 보기에서
+              확인해 주세요.
+            </p>
+          </>
         )}
 
         {isRejecting && (
@@ -162,14 +258,12 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
               />
             </FormField>
 
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setIsRejecting(false)}
-              >
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="ghost" fullWidth onClick={() => setIsRejecting(false)}>
                 취소
               </Button>
               <Button
+                fullWidth
                 disabled={
                   rejectReason.trim().length < 5 || rejectMutation.isPending
                 }
@@ -207,14 +301,12 @@ const MyContractSignModal = ({ contract, onClose }: MyContractSignModalProps) =>
               label="위 근로조건을 확인했으며 이에 동의합니다."
             />
 
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setIsSigning(false)}
-              >
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="ghost" fullWidth onClick={() => setIsSigning(false)}>
                 취소
               </Button>
               <Button
+                fullWidth
                 disabled={!canSubmit || signMutation.isPending}
                 onClick={handleSign}
               >

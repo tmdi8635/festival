@@ -15,6 +15,7 @@ import {
   compactBillingRates,
   resolveEventDates,
   toCheckDateTime,
+  SINGLE_RECURRENCE,
 } from "@/type/event";
 import type {
   AttendanceStatus,
@@ -35,6 +36,7 @@ import {
   everWorkedStaff,
   staffList,
 } from "./staff";
+import { DEMO_STAFF_ID } from "../demo";
 import { dateFromToday, randomInt, toIsoDateTime } from "../utils";
 
 /** 행사 제목은 거래처 성격과 맞아야 화면이 실제처럼 읽힌다. */
@@ -937,3 +939,158 @@ export const syncStaffReputationCounts = () => {
 };
 
 syncStaffReputationCounts();
+
+/* --------------------------- 데모 보정 --------------------------- */
+
+/**
+ * 포털 기본 접속자에게 **지금 찍을 수 있는 근무**를 하나 만들어 준다. (`mocks/demo.ts`)
+ *
+ * 나머지 행사는 오늘을 기준으로 −50 ~ +40일에 흩뿌려지고 시각도 고정 프리셋이라,
+ * 포털을 여는 시각이 시간 창(시작 2시간 전 ~ 종료 2시간 후) 안에 들어올지가
+ * 운에 달린다. 실제로 그래서 "출퇴근을 찍을 수 있는 게 하나도 없다"가 나온다.
+ *
+ * 그래서 이 한 건만 **여는 시각을 기준으로** 만든다 — 한 시간 전에 시작해
+ * 네 시간 뒤에 끝나는 근무. 언제 열어도 창은 열려 있다.
+ *
+ * **좌표를 넣지 않는다.** 좌표를 넣으면 이 화면을 확인하는 사람이 코엑스에
+ * 서 있지 않는 한 출근이 막힌다. 위치 검증 자체는 다른 행사(좌표가 있는 쪽)와
+ * 기준 설정의 반경으로 확인한다.
+ */
+/** 데모 근무의 행사 이름. 계약서 시드가 이 이름으로 찾아 쓴다. */
+export const DEMO_EVENT_TITLE = "주말 야외 페스티벌 운영";
+
+const buildDemoWork = () => {
+  const demoStaff = staffList.find((staff) => staff.staffId === DEMO_STAFF_ID);
+
+  if (!demoStaff) return;
+
+  const today = dateFromToday(0);
+  const now = new Date();
+
+  /*
+    **30분 뒤에 시작한다.**
+
+    이미 시작한 근무로 두면 지금 찍은 시각이 그대로 들어가서, 이 기능의 핵심인
+    "일찍 찍어도 예정 시각으로 올라간다"는 고지가 화면에 뜨지 않는다.
+    아직 시작 전이면서 출근 창(시작 2시간 전)은 열려 있는 자리가 여기다.
+
+    밤 11시 반이 넘어 열면 오늘 안에 시작할 수 없다. 그때만 한 시간 전 시작으로
+    물러선다 — 고지는 못 보지만 최소한 찍을 수는 있다.
+  */
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes =
+    nowMinutes + 30 < 24 * 60 ? nowMinutes + 30 : Math.max(0, nowMinutes - 60);
+  const rawEndMinutes = startMinutes + 5 * 60;
+  const endDayOffset: DayOffset = rawEndMinutes >= 24 * 60 ? 1 : 0;
+  const endMinutes = rawEndMinutes % (24 * 60);
+
+  const toTime = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+  const startTime = toTime(startMinutes);
+  const endTime = toTime(endMinutes);
+  const breakMinutes = 60;
+
+  /*
+    같은 날 두 행사에 확정되는 일은 없어야 한다. (`assignedByDate`와 같은 규칙)
+    시드가 이미 오늘 다른 현장에 넣어 뒀다면 그쪽에서 빼고 인원을 다시 센다.
+  */
+  events.forEach((event) => {
+    const before = event.assignments.length;
+
+    event.assignments = event.assignments.filter(
+      (assignment) =>
+        !(
+          assignment.staffId === DEMO_STAFF_ID && assignment.workDate === today
+        ),
+    );
+
+    if (event.assignments.length !== before) recalculateEventCounts(event);
+  });
+
+  const client = clients[0];
+  const manager = EVENT_MANAGER_POOL[0];
+  const eventId = Math.max(...events.map((event) => event.eventId)) + 1;
+  const { wageType, wage } = defaultWageOf("STAFF");
+  const workHours = calculateWorkHours(
+    startTime,
+    endTime,
+    breakMinutes,
+    endDayOffset,
+  );
+
+  const assignment: Assignment = {
+    assignmentId: (assignmentSequence += 1),
+    eventId,
+    eventTitle: DEMO_EVENT_TITLE,
+    workDate: today,
+    staffId: demoStaff.staffId,
+    staffName: demoStaff.name,
+    staffPhone: demoStaff.phoneNumber,
+    staffProfileImageUrl: demoStaff.profileImageUrl,
+    staffGender: demoStaff.gender,
+    isEmployee: false,
+    role: "STAFF",
+    status: "CONFIRMED",
+    wageType,
+    wage,
+    attendance: "PENDING",
+    lateMinutes: 0,
+    /* 계약서도 아직이다. 포털에서 서명까지 이어서 확인할 수 있게 둔다. */
+    isContractSigned: false,
+    isPaid: false,
+    createdAt: toIsoDateTime(dateFromToday(-3), "10:00"),
+  };
+
+  const roles: EventRoleSlot[] = [
+    {
+      role: "STAFF",
+      requiredCount: 4,
+      assignedCount: 1,
+      wageType,
+      wage,
+      genderPreference: "ANY",
+    },
+  ];
+
+  events.push({
+    eventId,
+    title: DEMO_EVENT_TITLE,
+    clientId: client.clientId,
+    clientName: client.name,
+    status: "CONFIRMED",
+    startDate: today,
+    endDate: today,
+    recurrence: SINGLE_RECURRENCE,
+    dates: [today],
+    dayCount: 1,
+    startTime,
+    endTime,
+    endDayOffset,
+    venue: "홍대 걷고싶은거리 특설무대",
+    address: "서울 마포구 어울마당로 지하 100",
+    /* 좌표를 일부러 비운다. (위 주석) */
+    managerName: manager.name,
+    managerPhone: manager.phoneNumber,
+    days: [{ date: today, roles }],
+    roles,
+    totalRequired: 4,
+    totalAssigned: 1,
+    description: `${client.name} 발주 건입니다. 실근무 ${workHours}시간 기준이며 휴게 ${breakMinutes}분은 교대로 사용합니다.`,
+    meetingPoint: "무대 뒤편 스태프 텐트 / 시작 30분 전 집합",
+    dressCode: "검정 상하의 · 운동화",
+    belongings: "신분증, 보조배터리",
+    breakMinutes,
+    billingRates: compactBillingRates(
+      operationSettings.jobRoles
+        .filter((role) => role.isActive)
+        .map((role) => ({ role: role.code, rate: role.billingRate })),
+    ),
+    memo: "",
+    assignments: [assignment],
+    createdAt: toIsoDateTime(dateFromToday(-10), "10:00"),
+    updatedAt: toIsoDateTime(dateFromToday(-3), "18:00"),
+  });
+};
+
+buildDemoWork();

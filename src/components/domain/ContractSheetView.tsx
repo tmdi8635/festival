@@ -25,6 +25,15 @@ interface ContractSheetViewProps {
    * 줄여도 줄바꿈 위치는 그대로다 — 폭을 바꾸는 것이 아니라 배율만 바꾸기 때문이다.
    */
   fitToWidth?: boolean;
+  /**
+   * 인쇄 안내를 함께 세울지.
+   *
+   * **담당자 화면에서만 켠다.** "A4 2장이니 모두 배부하고 서명받으세요",
+   * "이 조항은 한 장을 넘깁니다"는 전부 문서를 **찍어서 나눠 주는 사람**에게
+   * 하는 말이다. 근로자에게는 할 수 있는 일이 하나도 없는 안내라,
+   * 정작 읽어야 할 계약 내용 위에 안내 상자만 두 개 쌓인다.
+   */
+  showPrintGuide?: boolean;
   className?: string;
 }
 
@@ -47,6 +56,7 @@ interface ContractSheetViewProps {
 const ContractSheetView = ({
   document,
   fitToWidth = false,
+  showPrintGuide = true,
   className,
 }: ContractSheetViewProps) => {
   const [contentHeight, setContentHeight] = useState(0);
@@ -98,6 +108,7 @@ const ContractSheetView = ({
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
+      {showPrintGuide && (
       <div className="contract-print-hidden flex items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-[13px] text-font-2">
           <Info size={14} className="text-info" />
@@ -107,12 +118,13 @@ const ContractSheetView = ({
           A4 {pageCount}장
         </span>
       </div>
+      )}
 
       {/*
         여러 장이 되는 것을 막지 않는다. 대신 그때 무엇이 달라지는지 알려 준다.
         서명을 받는 사람이 마지막 장만 보고 서명하는 상황을 막는 것이 핵심이다.
       */}
-      {pageCount > 1 && (
+      {showPrintGuide && pageCount > 1 && (
         <Alert
           tone="info"
           title={`인쇄하면 A4 ${pageCount}장으로 나옵니다.`}
@@ -185,7 +197,7 @@ const ContractSheetView = ({
         한 조항이 한 장보다 길면 '잘리지 않게 통째로 넘긴다'는 규칙을 지킬 수 없다.
         브라우저가 결국 중간에서 자르므로, 조항을 나누라고 미리 일러 준다.
       */}
-      {contentHeight > 0 && (
+      {showPrintGuide && contentHeight > 0 && (
         <SheetOverflowNotice document={document} />
       )}
     </div>

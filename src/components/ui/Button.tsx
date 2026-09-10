@@ -7,6 +7,7 @@ export type ButtonVariant =
   | "secondary"
   | "ghost"
   | "danger"
+  | "dangerSoft"
   | "dangerGhost";
 export type ButtonSize = "sm" | "md" | "lg";
 
@@ -26,6 +27,15 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
     "border border-border-main bg-surface text-font-1 hover:bg-surface-hover",
   ghost: "text-font-2 hover:bg-surface-hover hover:text-font-1",
   danger: "bg-danger text-white hover:opacity-90",
+  /*
+    되돌릴 수 있는 취소용.
+
+    '지원 취소'처럼 **본인이 자기 것을 무르는** 자리는 위험하지 않다. 여기에
+    꽉 찬 빨강을 쓰면 삭제와 같은 무게로 읽혀 누르기를 망설이고, 그렇다고
+    회색으로 두면 옆의 '상세' 버튼과 구분이 안 된다. 연한 바탕에 붉은 글씨로
+    "되돌리는 동작"이라는 것만 알린다.
+  */
+  dangerSoft: "border border-danger/30 bg-danger-bg text-danger hover:border-danger/50",
   dangerGhost: "text-danger hover:bg-danger-bg",
 };
 

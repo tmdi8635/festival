@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { STAFF_MENU, isStaffMenuActive } from "@/constants/staffMenu";
 import { cn } from "@/lib/utils";
+import { useIsClient } from "@/hooks/useIsClient";
+import { useStaffSessionStore } from "@/store/useStaffSessionStore";
 
 /**
  * 포털의 하단 탭.
@@ -17,6 +19,17 @@ import { cn } from "@/lib/utils";
  */
 const StaffTabBar = () => {
   const pathname = usePathname();
+  const staffId = useStaffSessionStore((state) => state.staffId);
+  const isClient = useIsClient();
+
+  /*
+    비회원에게는 공개 화면만 남긴다. 눌러도 안내문만 나오는 탭을 네 칸
+    세워 두면, 로그인하지 않은 사람에게는 앱 전체가 고장난 것으로 보인다.
+  */
+  const items =
+    isClient && staffId === null
+      ? STAFF_MENU.filter((item) => item.isPublic)
+      : STAFF_MENU;
 
   return (
     <nav
@@ -28,7 +41,7 @@ const StaffTabBar = () => {
       className="shrink-0 border-t border-border-main bg-surface"
     >
       <ul className="mx-auto flex w-full max-w-lg items-stretch">
-        {STAFF_MENU.map((item) => {
+        {items.map((item) => {
           const isActive = isStaffMenuActive(item.href, pathname);
 
           return (

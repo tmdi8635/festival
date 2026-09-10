@@ -14,6 +14,7 @@ import {
 import type { DocumentReview, StaffDocumentReviews } from "@/type/staff";
 import type { EmployeePosition } from "@/type/employee";
 import { REGION_DISTRICTS } from "@/constants/regionOptions";
+import { DEMO_STAFF_ID } from "../demo";
 import { dateFromToday, daysAgo, pickOne, randomInt } from "../utils";
 
 const FAMILY_NAMES = [
@@ -690,3 +691,48 @@ export const snapshotStaffDocuments = (staff: StaffDetail) => ({
   accountNumber: staff.accountNumber,
   accountHolder: staff.accountHolder,
 });
+
+/* --------------------------- 데모 보정 --------------------------- */
+
+/**
+ * 포털 기본 접속자의 서류를 **승인 완료로 고정한다.** (`mocks/demo.ts`)
+ *
+ * 난수에 맡기면 이 사람이 미제출이나 반려로 시작할 수 있는데, 그러면 공고에
+ * 지원할 수도 근무를 확정할 수도 없어서 포털을 열자마자 막다른 길이 된다.
+ * 다른 심사 상태는 헤더의 스태프 전환기로 갈아 끼워 확인한다.
+ *
+ * 직무도 넉넉히 준다. 가진 직무가 하나뿐이면 '내가 할 수 있는 직무만'을 켠 순간
+ * 공고 목록이 비어, 그 스위치가 무엇을 거르는지 확인할 수 없다.
+ */
+const demoStaff = staffList.find((staff) => staff.staffId === DEMO_STAFF_ID);
+
+if (demoStaff) {
+  /* 블랙리스트로 뽑혔으면 풀어 준다. 그 상태로는 포털에 들어오지도 못한다. */
+  demoStaff.blacklistReason = undefined;
+  demoStaff.blacklistedAt = undefined;
+  demoStaff.noShowCount = 0;
+
+  demoStaff.roles = ["SUPERVISOR", "STAFF", "MC"];
+  demoStaff.idCardImageUrl = `https://picsum.photos/seed/idcard-${DEMO_STAFF_ID}/600/380`;
+  demoStaff.bankBookImageUrl = `https://picsum.photos/seed/bankbook-${DEMO_STAFF_ID}/600/380`;
+  demoStaff.isDocumentComplete = true;
+  demoStaff.reviews = {
+    ID_CARD: {
+      state: "APPROVED",
+      submittedAt: daysAgo(60),
+      reviewedAt: daysAgo(58),
+      reviewerName: "김도윤",
+    },
+    BANK_ACCOUNT: {
+      state: "APPROVED",
+      submittedAt: daysAgo(60),
+      reviewedAt: daysAgo(58),
+      reviewerName: "김도윤",
+    },
+  };
+  demoStaff.documentReviewState = "APPROVED";
+  demoStaff.status = resolveStaffStatus({
+    documentReviewState: "APPROVED",
+    employment: demoStaff.employment,
+  });
+}

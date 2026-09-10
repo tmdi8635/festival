@@ -9,7 +9,7 @@ import type {
   StaffStatus,
 } from "./staff";
 import type { EmploymentType } from "./employee";
-import type { ApplicationStatus, PostingStatus } from "./recruit";
+import type { ApplicationStatus } from "./recruit";
 import type { ContractStatus } from "./contract";
 import type { PayrollStatus } from "./payroll";
 
@@ -155,21 +155,31 @@ export interface MyWork {
   isContractSigned: boolean;
 }
 
-/** 포털에서 보는 공고 한 건 */
+/**
+ * 포털에서 보는 공고 한 건.
+ *
+ * **모집 인원을 담지 않는다.** 관리자 쪽 공고 제목은
+ * `브랜드 팝업스토어 운영 · 팀장 1명`처럼 부족한 자리 수가 붙어 있는데,
+ * 그건 담당자가 무엇을 채워야 하는지 보려고 붙인 내부 표기다.
+ * 지원하는 사람에게 "몇 자리 남았나"가 보이면 눈치 게임이 되고,
+ * 거래처에는 우리가 인력을 얼마나 못 채웠는지가 그대로 드러난다.
+ * 그래서 제목은 **행사 이름**을 쓰고 인원은 응답에 아예 담지 않는다.
+ */
 export interface MyPosting {
   postingId: number;
   eventId: number;
+  /** 행사 이름. 관리자 공고 제목(`posting.title`)이 아니다 */
   title: string;
   clientName: string;
   role: JobRole;
-  requiredCount: number;
-  confirmedCount: number;
-  status: PostingStatus;
   /** 근무일 전체. 다일 행사를 하루로 보여 주면 지원한 사람이 속는다 */
   workDates: string[];
   startTime: string;
   endTime: string;
   endDayOffset: DayOffset;
+  breakMinutes: number;
+  /** 하루 실근무 시간 (휴게 제외) */
+  workHours: number;
   venue: string;
   address: string;
   meetingPoint: string;
@@ -179,13 +189,30 @@ export interface MyPosting {
   wage: number;
   /** 하루치 예상 지급액 (세전) */
   dailyPay: number;
-  /** 내가 이미 지원했는가. 지원 버튼을 가른다 */
+
+  /* ------------------------- 로그인한 사람만 ------------------------- */
+
+  /**
+   * 아래 넷은 **누가 보고 있는지 알 때만** 채워진다.
+   *
+   * 공고는 로그인하지 않아도 볼 수 있다. 우리를 처음 보는 사람이
+   * 회원가입부터 해야 어떤 일이 있는지 알 수 있게 두면, 그 사람은 그냥 나간다.
+   */
   isApplied: boolean;
+  /** 내가 낸 지원. 상세에서 그대로 취소할 수 있게 함께 내린다 */
+  applicationId?: number;
+  applicationStatus?: ApplicationStatus;
   /** 같은 날 이미 확정된 행사가 있으면 그 이름 */
   conflictEventTitle?: string;
 }
 
-/** 내가 낸 지원 한 건 */
+/**
+ * 내가 낸 지원 한 건.
+ *
+ * 일정 화면의 '신청' 탭에 선다. 확정된 근무(`MyWork`)와 나란히 놓이므로
+ * **카드에 필요한 만큼은 여기서 함께 내린다.** 날짜와 장소를 보려고
+ * 공고를 한 번 더 부르게 두면, 목록을 여는 것만으로 조회가 열 번 나간다.
+ */
 export interface MyApplication {
   applicationId: number;
   postingId: number;
@@ -195,6 +222,12 @@ export interface MyApplication {
   clientName: string;
   role: JobRole;
   workDate: string;
+  /** 근무일 전체. 카드에 "09.12 외 2일"로 줄여 쓴다 */
+  workDates: string[];
+  venue: string;
+  startTime: string;
+  endTime: string;
+  endDayOffset: DayOffset;
   status: ApplicationStatus;
   appliedAt: string;
   processedAt?: string;

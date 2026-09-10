@@ -2,9 +2,15 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 interface StaffSessionState {
-  /** 지금 포털에 접속한 인력의 ID */
-  staffId: number;
-  setStaffId: (staffId: number) => void;
+  /**
+   * 지금 포털에 접속한 인력의 ID. **`null`이면 비회원이다.**
+   *
+   * 공고는 로그인하지 않아도 볼 수 있어야 해서, "아무도 아님"이 표현 가능해야 한다.
+   * 이 값이 비면 `api/index.ts`가 `X-Staff-Id`를 아예 싣지 않고,
+   * 목업은 공개 자료만 내린다.
+   */
+  staffId: number | null;
+  setStaffId: (staffId: number | null) => void;
 }
 
 /**

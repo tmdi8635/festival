@@ -12,9 +12,10 @@ import {
   type WageType,
 } from "@/type/event";
 import { formatKoreanDate } from "@/lib/dayjs";
-import { pickOne, randomInt, toIsoDateTime } from "../utils";
+import { DEMO_STAFF_ID } from "../demo";
+import { dateFromToday, pickOne, randomInt, toIsoDateTime } from "../utils";
 import { events, findConflictEvent } from "./event";
-import { assignableStaff } from "./staff";
+import { assignableStaff, findStaff } from "./staff";
 
 const APPLICANT_NOTES = [
   "행사 경험 3회 있습니다. 종일 가능합니다.",
@@ -212,6 +213,66 @@ export const applications: Application[] = postings
       } satisfies Application;
     });
   });
+
+/* --------------------------- 데모 보정 --------------------------- */
+
+/**
+ * 포털 기본 접속자에게 **검토 대기 지원 두 건**을 보장한다. (`mocks/demo.ts`)
+ *
+ * 일정 화면의 '신청' 탭과 지원 취소는 검토 대기 건이 있어야 눌러 볼 수 있는데,
+ * 시드는 지원자를 난수로 고르므로 이 사람이 한 건도 안 낸 상태가 자주 나온다.
+ */
+const buildDemoApplications = () => {
+  const staff = findStaff(DEMO_STAFF_ID);
+
+  if (!staff) return;
+
+  const targets = postings
+    .filter((posting) => posting.status === "OPEN")
+    .filter((posting) => staff.roles.includes(posting.role))
+    .filter(
+      (posting) =>
+        !applications.some(
+          (application) =>
+            application.staffId === DEMO_STAFF_ID &&
+            application.postingId === posting.postingId,
+        ),
+    )
+    /*
+      행사가 겹치지 않게 고른다. 같은 행사의 두 직무에 지원한 목록은
+      화면에서 두 줄이 완전히 똑같아 보여, 목록이 고장난 것처럼 읽힌다.
+    */
+    .filter(
+      (posting, index, list) =>
+        list.findIndex((item) => item.eventId === posting.eventId) === index,
+    )
+    .slice(0, 2);
+
+  targets.forEach((posting, index) => {
+    applicationSequence += 1;
+
+    applications.push({
+      applicationId: applicationSequence,
+      postingId: posting.postingId,
+      postingTitle: posting.title,
+      eventId: posting.eventId,
+      eventTitle: posting.eventTitle,
+      workDate: posting.workDate,
+      role: posting.role,
+      staffId: staff.staffId,
+      applicantName: staff.name,
+      phoneNumber: staff.phoneNumber,
+      isExistingStaff: true,
+      status: "PENDING",
+      note: "",
+      conflictEventTitle: findConflictEvent(staff.staffId, posting.workDate)
+        ?.title,
+      appliedAt: toIsoDateTime(dateFromToday(-(index + 1)), "20:10"),
+    } satisfies Application);
+  });
+};
+
+buildDemoApplications();
 
 /** 공고의 지원자 수 · 확정 수를 지원 목록에서 다시 계산한다. */
 export const recalculatePostingCounts = () => {

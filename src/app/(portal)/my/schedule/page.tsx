@@ -1,5 +1,12 @@
+import { Suspense } from "react";
+import Skeleton from "@/components/ui/Skeleton";
 import MyScheduleView from "./_components/MyScheduleView";
 
 export default function MySchedulePage() {
-  return <MyScheduleView />;
+  return (
+    /* `?tab=`을 읽으므로 경계가 필요하다. (`useSearchParams`) */
+    <Suspense fallback={<Skeleton className="h-64 w-full rounded-card" />}>
+      <MyScheduleView />
+    </Suspense>
+  );
 }

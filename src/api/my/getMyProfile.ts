@@ -3,6 +3,7 @@ import { adminAxios } from "..";
 import type { AppError } from "@/type/api";
 import type { MyProfile } from "@/type/my";
 import type { DocumentReviewState, StaffStatus } from "@/type/staff";
+import { useStaffSessionStore } from "@/store/useStaffSessionStore";
 
 /**
  * 포털 조회는 `usePermittedQuery`를 쓰지 않는다.
@@ -17,11 +18,22 @@ export const getMyProfile = async () => {
   return response.data;
 };
 
-export const useMyProfileQuery = () =>
-  useQuery<MyProfile, AppError>({
+/**
+ * 내 정보.
+ *
+ * **비회원이면 아예 부르지 않는다.** 헤더와 공고 화면이 이 훅을 쓰는데,
+ * 공고는 로그인 없이도 열리는 화면이다. 그대로 두면 로그인하지 않은 사람이
+ * 공고를 볼 때마다 401이 한 번씩 나가고, 콘솔이 붉어져서 진짜 고장을 덮는다.
+ */
+export const useMyProfileQuery = () => {
+  const staffId = useStaffSessionStore((state) => state.staffId);
+
+  return useQuery<MyProfile, AppError>({
     queryKey: ["get-my-profile"],
     queryFn: getMyProfile,
+    enabled: staffId !== null,
   });
+};
 
 /** 전환기가 쓰는 계정 한 줄 — 테스트용 */
 export interface MyAccount {

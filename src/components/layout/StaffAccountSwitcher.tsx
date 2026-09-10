@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMyAccountListQuery } from "@/api/my/getMyProfile";
-import { Users } from "@/icons";
+import { Logout, Users } from "@/icons";
 import { cn } from "@/lib/utils";
 import { useStaffSessionStore } from "@/store/useStaffSessionStore";
 import { DOCUMENT_REVIEW_STATE_LABEL } from "@/type/staff";
@@ -57,7 +57,7 @@ const StaffAccountSwitcher = () => {
     });
   }, [staffId, queryClient]);
 
-  const handleSwitch = (nextStaffId: number) => {
+  const handleSwitch = (nextStaffId: number | null) => {
     setStaffId(nextStaffId);
     setIsOpen(false);
   };
@@ -78,6 +78,39 @@ const StaffAccountSwitcher = () => {
         description="로그인이 붙기 전까지, 서류 상태별로 화면을 확인하기 위한 테스트 기능입니다."
         size="md"
       >
+        {/*
+          비회원.
+
+          공고를 로그인 없이 볼 수 있게 만들어 둔 이상, 그 화면이 실제로
+          어떻게 보이는지 확인할 방법이 있어야 한다. 로그인이 붙으면
+          이 줄은 로그아웃 버튼이 된다.
+        */}
+        <button
+          type="button"
+          onClick={() => handleSwitch(null)}
+          className={cn(
+            "mb-3 flex w-full items-center gap-2 rounded-field border px-4 py-3 text-left transition",
+            staffId === null
+              ? "border-brand bg-surface-selected"
+              : "border-border-main hover:border-brand hover:bg-surface-hover",
+          )}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-subtle text-font-2">
+            <Logout size={16} />
+          </span>
+
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-medium text-font-1">
+              비회원으로 보기
+            </span>
+            <span className="block text-[12px] text-font-2">
+              공고만 열립니다
+            </span>
+          </span>
+
+          {staffId === null && <Badge tone="success">현재</Badge>}
+        </button>
+
         <ul className="flex flex-col gap-1.5">
           {accounts.map((account) => {
             const isCurrent = account.staffId === current?.staffId;

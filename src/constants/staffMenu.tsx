@@ -5,6 +5,8 @@ export interface StaffMenuItem {
   label: string;
   href: string;
   icon: ReactNode;
+  /** 로그인하지 않아도 열리는 화면인지. 비회원에게는 이 탭만 남는다 */
+  isPublic?: boolean;
 }
 
 const ICON_SIZE = 20;
@@ -31,9 +33,11 @@ export const STAFF_MENU: StaffMenuItem[] = [
     icon: <Calendar size={ICON_SIZE} />,
   },
   {
+    /* 공고만 `/my` 밖이다. 로그인하지 않아도 볼 수 있는 유일한 화면이다. */
     label: "공고",
-    href: "/my/postings",
+    href: "/postings",
     icon: <Megaphone size={ICON_SIZE} />,
+    isPublic: true,
   },
   {
     label: "계약서",
