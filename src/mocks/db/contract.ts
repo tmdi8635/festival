@@ -1,11 +1,13 @@
 import type { Contract, ContractTemplate } from "@/type/contract";
 import {
   buildContractFileName,
+  buildDocumentHash,
   contractNameTag,
   findDuplicateStaffNames,
   summarizeContractWork,
 } from "@/type/contract";
 import { buildPlaceholderPdfDataUrl } from "../placeholderPdf";
+import { buildPlaceholderSignatureDataUrl } from "../placeholderSignature";
 import {
   calculateScheduledWorkHours,
   groupAssignmentsByStaff,
@@ -270,30 +272,7 @@ export const contracts: Contract[] = events
 
       contractSequence += 1;
 
-      return {
-        contractId: contractSequence,
-        contractNumber,
-        staffId: first.staffId,
-        staffName: first.staffName,
-        staffPhone: first.staffPhone,
-        staffBirthDate: staff?.birthDate ?? "",
-        staffAddress: staff?.address ?? "",
-        eventId: event.eventId,
-        eventTitle: event.title,
-        clientName: event.clientName,
-        venue: event.venue,
-        role: first.role,
-        templateId: template.templateId,
-        templateName: template.name,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        endDayOffset: event.endDayOffset,
-        breakMinutes: event.breakMinutes,
-        workHours,
-        // 근무일 · 총 시간 · 총액은 한 곳에서만 계산한다.
-        ...work,
-        status: "SIGNED",
-        revision: 1,
+      const buildPaperSignedFile = () => ({
         /*
           서명본 파일.
 
@@ -324,11 +303,146 @@ export const contracts: Contract[] = events
           mimeType: "application/pdf",
           uploadedAt: toIsoDateTime(workDates[0], "09:30"),
         },
+        signedAt: toIsoDateTime(workDates[0], "09:30"),
+      });
+
+      return {
+        contractId: contractSequence,
+        contractNumber,
+        staffId: first.staffId,
+        staffName: first.staffName,
+        staffPhone: first.staffPhone,
+        staffBirthDate: staff?.birthDate ?? "",
+        staffAddress: staff?.address ?? "",
+        eventId: event.eventId,
+        eventTitle: event.title,
+        clientName: event.clientName,
+        venue: event.venue,
+        role: first.role,
+        templateId: template.templateId,
+        templateName: template.name,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        endDayOffset: event.endDayOffset,
+        breakMinutes: event.breakMinutes,
+        workHours,
+        // 근무일 · 총 시간 · 총액은 한 곳에서만 계산한다.
+        ...work,
+        status: "SIGNED",
+        revision: 1,
+        /*
+          같은 '서명완료'라도 **어떻게 받았는지**가 갈린다.
+
+          셋 중 하나는 본인이 화면에서 그린 전자서명이고, 나머지는 종이를 스캔해
+          담당자가 올린 것이다. 시드에 한쪽만 있으면 상세 화면의 두 갈래 중 하나가
+          목업에서 확인되지 않고, 그쪽이 반드시 나중에 깨진 채로 발견된다.
+        */
+        ...(contractSequence % 3 === 0
+          ? {
+              signature: {
+                imageDataUrl: buildPlaceholderSignatureDataUrl(
+                  first.staffId + contractSequence,
+                ),
+                signedName: first.staffName,
+                signedAt: toIsoDateTime(workDates[0], "08:40"),
+                documentHash: buildDocumentHash(
+                  `${contractNumber}${first.staffName}${work.totalWage}`,
+                ),
+              },
+              signedAt: toIsoDateTime(workDates[0], "08:40"),
+              sentAt: toIsoDateTime(workDates[0], "08:10"),
+            }
+          : buildPaperSignedFile()),
         registeredAt: toIsoDateTime(workDates[0], "09:30"),
         createdAt: first.createdAt,
         } satisfies Contract;
       },
     );
+  });
+
+/**
+ * 아직 서명이 안 된 건 — **서명 대기 · 반려**를 섞어 둔다.
+ *
+ * 위쪽 시드는 서명이 끝난 사람만 계약서를 갖는다. 그것만 있으면 스태프 포털의
+ * "서명할 계약서"가 목업에서 늘 비어 있고, 관리자 명단에도 '발급 전'과 '서명완료'
+ * 두 상태만 나타난다. 실제로 확인해야 하는 것은 그 사이의 두 자리다.
+ *
+ * 대상은 **앞으로 있을 행사의 확정 배치**다. 지난 행사에 서명 대기가 남아 있으면
+ * 그건 사고이지 정상 상태가 아니라, 시드로 만들어 두면 화면이 거짓말을 하게 된다.
+ */
+events
+  .filter((event) => event.status === "CONFIRMED" || event.status === "RECRUITING")
+  .forEach((event) => {
+    const workHours = calculateScheduledWorkHours(event);
+
+    groupAssignmentsByStaff(event.assignments)
+      .filter(
+        (assignments) =>
+          !assignments[0].isEmployee &&
+          !assignments[0].isContractSigned &&
+          assignments[0].status === "CONFIRMED",
+      )
+      /* 전부 만들면 '발급 전'이 사라진다. 절반만 보낸 것으로 둔다. */
+      .filter((assignments) => assignments[0].assignmentId % 2 === 0)
+      .forEach((assignments) => {
+        const [first] = assignments;
+        const staff = findStaff(first.staffId);
+
+        const work = summarizeContractWork(
+          assignments.map((item) => ({
+            workDate: item.workDate,
+            wageType: item.wageType,
+            wage: item.wage,
+          })),
+          workHours,
+        );
+
+        const template =
+          first.role === "SUPERVISOR"
+            ? contractTemplates[1]
+            : work.workDates.length > 1
+              ? contractTemplates[2]
+              : contractTemplates[0];
+
+        contractSequence += 1;
+
+        /* 셋 중 하나는 본인이 "내용이 다르다"고 되돌려 보낸 건이다. */
+        const isRejected = contractSequence % 3 === 0;
+
+        contracts.push({
+          contractId: contractSequence,
+          /* 보내는 순간 번호가 붙는다. 번호 없는 문서를 근로자가 열면 정식인지 알 수 없다. */
+          contractNumber: buildContractNumber(
+            work.workDates[0],
+            contractSequence,
+          ),
+          staffId: first.staffId,
+          staffName: first.staffName,
+          staffPhone: first.staffPhone,
+          staffBirthDate: staff?.birthDate ?? "",
+          staffAddress: staff?.address ?? "",
+          eventId: event.eventId,
+          eventTitle: event.title,
+          clientName: event.clientName,
+          venue: event.venue,
+          role: first.role,
+          templateId: template.templateId,
+          templateName: template.name,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          endDayOffset: event.endDayOffset,
+          breakMinutes: event.breakMinutes,
+          workHours,
+          ...work,
+          status: isRejected ? "REJECTED" : "SENT",
+          revision: 1,
+          sentAt: daysAgo(3),
+          rejectedReason: isRejected
+            ? "근무일이 하루 더 적게 적혀 있습니다. 확인 부탁드립니다."
+            : undefined,
+          createdAt: daysAgo(4),
+        } satisfies Contract);
+      });
   });
 
 export const findContract = (contractId: number) =>

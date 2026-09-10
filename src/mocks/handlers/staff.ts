@@ -1,8 +1,11 @@
 import { HttpResponse, delay, http } from "msw";
 import type {
+  DocumentLane,
+  DocumentReviewState,
   JobRole,
   ReputationVerdict,
   StaffDetail,
+  StaffDocumentReviews,
   StaffFormValues,
   StaffReputation,
   StaffStatus,
@@ -10,11 +13,14 @@ import type {
   StaffWorkHistory,
 } from "@/type/staff";
 import {
+  DOCUMENT_LANE_LABEL,
   REPUTATION_BASE_SCORE,
   calculateReputationDelta,
+  resolveDocumentReviewState,
   resolveReputationCount,
   resolveTagVerdict,
   resolveStaffStatus,
+  resubmitDocumentLane,
 } from "@/type/staff";
 import {
   calculateBasePay,
@@ -24,8 +30,10 @@ import { findContractByWork } from "../db/contract";
 import { events } from "../db/event";
 import {
   findStaff,
+  snapshotStaffDocuments,
   sortedStaff,
   staffList,
+  syncStaffDocuments,
 } from "../db/staff";
 import {
   BASE_URI,
@@ -35,6 +43,7 @@ import {
   nextId,
   notFound,
   paginate,
+  findRequester,
   requesterCan,
   requirePermission,
 } from "../utils";
@@ -180,10 +189,14 @@ export const staffHandlers = [
       if (role && !staff.roles.includes(role)) return false;
       if (region && staff.region !== region) return false;
       if (onlyFavorite && !staff.isFavorite) return false;
-      if (documentState === "COMPLETE" && !staff.isDocumentComplete) {
-        return false;
-      }
-      if (documentState === "INCOMPLETE" && staff.isDocumentComplete) {
+      /*
+        서류 필터는 심사 상태를 그대로 받는다.
+
+        예전에는 완료 · 미제출 둘뿐이었는데, 본인이 직접 올리게 되면서
+        "냈지만 아직 안 본 것"과 "되돌려 보낸 것"이 생겼다. 이 둘이
+        미제출에 섞이면 서류 담당자가 무엇부터 손대야 할지 알 수 없다.
+      */
+      if (documentState && staff.documentReviewState !== documentState) {
         return false;
       }
 
@@ -461,21 +474,40 @@ export const staffHandlers = [
       body.idCardImageUrl && body.bankBookImageUrl,
     );
 
+    const now = new Date().toISOString();
+
+    /*
+      함께 올린 서류는 **승인이 아니라 제출**이다.
+      담당자가 대신 올렸더라도 확인은 따로 눌러야 한다. 올리는 순간 승인이 되면
+      "이 서류를 누가 확인했나"에 답할 수 있는 기록이 남지 않는다.
+    */
+    const reviews: StaffDocumentReviews = {
+      ID_CARD: resubmitDocumentLane(Boolean(body.idCardImageUrl), now),
+      BANK_ACCOUNT: resubmitDocumentLane(
+        Boolean(body.bankBookImageUrl && body.accountNumber),
+        now,
+      ),
+    };
+
+    const documentReviewState = resolveDocumentReviewState(reviews);
+
     const created: StaffDetail = {
       ...body,
       staffId: nextId(staffList, "staffId"),
       /*
-        새로 등록한 사람은 서류가 갖춰졌는지에 따라 갈린다.
-        서류를 함께 올렸으면 곧바로 활동중, 아니면 대기중이다.
+        새로 등록한 사람은 서류 승인 여부에 따라 갈린다.
+        방금 올린 서류는 아직 승인 전이므로 대기중에서 시작한다.
         (`resolveStaffStatus` — 화면·시드와 같은 함수)
       */
       status: resolveStaffStatus({
-        isDocumentComplete,
+        documentReviewState,
         employment: "FREELANCER",
       }),
       /* 인력풀에서 만드는 사람은 프리랜서다. 직원은 운영 > 직원 관리에서 등록한다. */
       employment: "FREELANCER",
       isDocumentComplete,
+      documentReviewState,
+      reviews,
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,
@@ -508,12 +540,12 @@ export const staffHandlers = [
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
+    const before = snapshotStaffDocuments(staff);
+
     Object.assign(staff, body);
-    staff.isDocumentComplete = Boolean(
-      staff.idCardImageUrl && staff.bankBookImageUrl,
-    );
-    // 서류가 바뀌면 상태도 따라 움직인다. 판단은 한 함수에서만 한다.
-    staff.status = resolveStaffStatus(staff);
+
+    // 서류가 바뀌면 심사와 상태가 따라 움직인다. 판단은 한 함수에서만 한다.
+    syncStaffDocuments(staff, before);
 
     await delay(MOCK_DELAY_MS);
 
@@ -650,15 +682,75 @@ export const staffHandlers = [
 
       if (!staff) return notFound("존재하지 않는 인력입니다.");
 
+      const before = snapshotStaffDocuments(staff);
+
       Object.assign(staff, body);
-      staff.isDocumentComplete = Boolean(
-        staff.idCardImageUrl && staff.bankBookImageUrl,
-      );
+
       /*
-        상태는 서류가 정한다. 서류를 채우면 활동중, 지우면 대기중이다.
+        바뀐 갈래는 다시 승인 대기가 되고, 상태도 따라 움직인다.
         여기서 따라 움직이지 않으면 "서류를 지웠는데 목록은 활동중"이 남고,
         그 사람을 배치하려다 확정 단계에서야 막힌다.
       */
+      syncStaffDocuments(staff, before);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(staff);
+    },
+  ),
+
+  /**
+   * 서류 심사 — 승인 · 반려.
+   *
+   * **반려는 사유 없이 할 수 없다.** 사유 없는 반려를 받은 사람은 무엇을 다시
+   * 올려야 하는지 알 수 없어 같은 사진을 다시 올리고, 그 왕복이 담당자에게 돌아온다.
+   * (블랙리스트가 사유를 강제하는 것과 같은 이유다)
+   */
+  http.patch(
+    `${BASE_URI}/admin/staff/:staffId/documents/review`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "staffDocument:write");
+
+      if (denied) return denied;
+
+      const staff = findStaff(Number(params.staffId));
+      const body = (await request.json()) as {
+        lane: DocumentLane;
+        state: Extract<DocumentReviewState, "APPROVED" | "REJECTED">;
+        rejectReason?: string;
+      };
+
+      if (!staff) return notFound("존재하지 않는 인력입니다.");
+
+      const review = staff.reviews[body.lane];
+
+      if (!review) return badRequest("알 수 없는 서류 종류입니다.");
+
+      if (review.state === "NONE") {
+        return badRequest(
+          `${DOCUMENT_LANE_LABEL[body.lane]}이(가) 아직 제출되지 않았습니다.`,
+        );
+      }
+
+      const reason = body.rejectReason?.trim() ?? "";
+
+      if (body.state === "REJECTED" && reason.length < 5) {
+        return badRequest(
+          "반려 사유를 5자 이상 적어 주세요. 무엇을 다시 올려야 하는지 알 수 있어야 합니다.",
+          "REJECT_REASON_REQUIRED",
+        );
+      }
+
+      staff.reviews[body.lane] = {
+        ...review,
+        state: body.state,
+        reviewedAt: new Date().toISOString(),
+        reviewerName: findRequester(request)?.name ?? "관리자",
+        rejectReason: body.state === "REJECTED" ? reason : undefined,
+      };
+
+      staff.documentReviewState = resolveDocumentReviewState(staff.reviews);
+      /* 승인이 끝나야 활동중이 된다. 판단은 언제나 같은 함수에서. */
       staff.status = resolveStaffStatus(staff);
 
       await delay(MOCK_DELAY_MS);

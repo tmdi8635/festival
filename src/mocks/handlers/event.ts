@@ -15,7 +15,8 @@ import type { AttendanceStatus, Gender, JobRole } from "@/type/staff";
 import {
   REPUTATION_BASE_SCORE,
   canConfirmAssignment,
-  DOCUMENT_BLOCK_MESSAGE,
+  documentBlockMessage,
+  isDocumentApproved,
 } from "@/type/staff";
 import { clients } from "../db/client";
 import {
@@ -72,7 +73,7 @@ const calculateMatchScore = (params: {
   noShowCount: number;
   lateCount: number;
   hasConflict: boolean;
-  isDocumentComplete: boolean;
+  isDocumentApproved: boolean;
 }): number => {
   if (params.hasConflict) return -1;
 
@@ -90,7 +91,7 @@ const calculateMatchScore = (params: {
     Math.min(params.clientWorkCount, 10) * 4 +
     ratingScore +
     Math.min(params.workCount, 40) * 0.5 +
-    (params.isDocumentComplete ? 10 : 0) -
+    (params.isDocumentApproved ? 10 : 0) -
     params.noShowCount * 25 -
     params.lateCount * 4
   );
@@ -560,7 +561,8 @@ export const eventHandlers = [
             noShowCount: staff.noShowCount,
             lateCount: staff.lateCount,
             isFavorite: staff.isFavorite,
-            isDocumentComplete: staff.isDocumentComplete,
+            isDocumentApproved: isDocumentApproved(staff),
+            documentReviewState: staff.documentReviewState,
             isEmployee: staff.employment === "EMPLOYEE",
             position: staff.position,
             clientWorkCount,
@@ -575,7 +577,7 @@ export const eventHandlers = [
               noShowCount: staff.noShowCount,
               lateCount: staff.lateCount,
               hasConflict: isFullyBlocked,
-              isDocumentComplete: staff.isDocumentComplete,
+              isDocumentApproved: isDocumentApproved(staff),
             }),
           };
         })
@@ -642,12 +644,16 @@ export const eventHandlers = [
         if (!staff) return;
 
         /*
-          서류(신분증 · 통장사본)가 없으면 확정 배치를 막는다.
+          서류(신분증 · 통장사본)가 **승인되지 않았으면** 확정 배치를 막는다.
           일을 다 시킨 뒤에 통장사본이 없다는 걸 알면 지급할 방법이 없다.
+          올리기만 하고 아직 확인 전인 것도 같이 막는다 — 아무나 아무 사진이나
+          올릴 수 있으니, 사람이 보기 전까지는 근거가 아니다.
           제안 · 대기는 그대로 둔다. 서류는 보통 "같이 하기로 한 뒤에" 받는다.
         */
         if (body.status === "CONFIRMED" && !canConfirmAssignment(staff)) {
-          documentBlocked.push(staff.name);
+          documentBlocked.push(
+            documentBlockMessage(staff.documentReviewState, staff.name),
+          );
           return;
         }
 
@@ -718,10 +724,7 @@ export const eventHandlers = [
           한 문장으로 뭉뚱그리면 무엇을 해야 할지 알 수 없다.
         */
         if (documentBlocked.length > 0) {
-          return badRequest(
-            `${documentBlocked.join(", ")}님은 ${DOCUMENT_BLOCK_MESSAGE}`,
-            "DOCUMENT_REQUIRED",
-          );
+          return badRequest(documentBlocked.join(" "), "DOCUMENT_REQUIRED");
         }
 
         return badRequest(
@@ -840,7 +843,7 @@ export const eventHandlers = [
 
         if (staff && !canConfirmAssignment(staff)) {
           return badRequest(
-            `${staff.name}님은 ${DOCUMENT_BLOCK_MESSAGE}`,
+            documentBlockMessage(staff.documentReviewState, staff.name),
             "DOCUMENT_REQUIRED",
           );
         }

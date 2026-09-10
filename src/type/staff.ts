@@ -248,6 +248,121 @@ export const sanitizeJobRoles = (
  * - `ACTIVE`    활동중. 필요한 서류를 다 냈다
  * - `BLACKLIST` 에이전시가 직접 지정한다. 서류와 무관하게 이 값이 이긴다
  */
+/**
+ * 서류 심사의 갈래.
+ *
+ * 신분증과 통장사본을 **따로 심사하지 않는다.** 통장사본은 계좌번호의 근거이고,
+ * 둘을 갈라 두면 사본 없이 계좌만 승인되는 자리가 생긴다. 그 계좌로 돈이 나가면
+ * 무엇을 보고 승인했는지 아무도 답하지 못한다. 그래서 통장사본 + 계좌 정보가 한 묶음이다.
+ *
+ * - `ID_CARD`      신분증. 이 사람이 그 사람인가
+ * - `BANK_ACCOUNT` 통장사본 + 은행 · 계좌번호 · 예금주. 이 계좌로 보내도 되는가
+ */
+export type DocumentLane = "ID_CARD" | "BANK_ACCOUNT";
+
+export const DOCUMENT_LANE_LABEL: Record<DocumentLane, string> = {
+  ID_CARD: "신분증",
+  BANK_ACCOUNT: "통장사본 · 계좌",
+};
+
+export const DOCUMENT_LANES: DocumentLane[] = ["ID_CARD", "BANK_ACCOUNT"];
+
+/**
+ * 서류 한 갈래의 심사 상태.
+ *
+ * **'올라와 있다'와 '확인했다'는 다른 말이다.** 예전에는 파일 유무(`isDocumentComplete`)
+ * 하나로 둘을 함께 뜻했는데, 본인이 직접 올리게 되면서 갈라야 했다.
+ * 아무나 아무 사진이나 올릴 수 있고, 그것을 사람이 보기 전까지는 근거가 아니다.
+ *
+ * - `NONE`      아직 안 냈다
+ * - `SUBMITTED` 냈고 관리자를 기다린다
+ * - `APPROVED`  관리자가 확인했다. 이 상태라야 현장에 나갈 수 있다
+ * - `REJECTED`  관리자가 되돌려 보냈다. 사유가 반드시 함께 있다
+ */
+export type DocumentReviewState =
+  | "NONE"
+  | "SUBMITTED"
+  | "APPROVED"
+  | "REJECTED";
+
+export const DOCUMENT_REVIEW_STATE_LABEL: Record<DocumentReviewState, string> =
+  {
+    NONE: "미제출",
+    SUBMITTED: "승인 대기",
+    APPROVED: "승인 완료",
+    REJECTED: "반려",
+  };
+
+/** 서류 한 갈래의 심사 기록 */
+export interface DocumentReview {
+  state: DocumentReviewState;
+  /** 본인이 낸 시각 */
+  submittedAt?: string;
+  /** 관리자가 판단한 시각 */
+  reviewedAt?: string;
+  /** 판단한 사람. 나중에 "누가 승인했나"를 물을 곳이 있어야 한다 */
+  reviewerName?: string;
+  /** 반려 사유. `REJECTED`면 반드시 있다 (서버가 사유 없는 반려를 거절한다) */
+  rejectReason?: string;
+}
+
+export type StaffDocumentReviews = Record<DocumentLane, DocumentReview>;
+
+/**
+ * 서류가 바뀐 갈래의 심사를 되돌린다.
+ *
+ * **누가 올렸든 다시 심사 대기가 된다.** 관리자가 대신 올린 경우만 예외로 두면
+ * 규칙이 둘이 되고, "이건 확인된 서류인가"를 화면에서 알 수 없게 된다.
+ * 관리자가 직접 올렸다면 바로 옆의 승인 버튼을 누르면 되는 일이다.
+ */
+export const resubmitDocumentLane = (
+  hasEvidence: boolean,
+  submittedAt: string,
+): DocumentReview =>
+  hasEvidence ? { state: "SUBMITTED", submittedAt } : { state: "NONE" };
+
+export const EMPTY_DOCUMENT_REVIEWS = (): StaffDocumentReviews => ({
+  ID_CARD: { state: "NONE" },
+  BANK_ACCOUNT: { state: "NONE" },
+});
+
+/**
+ * 두 갈래를 합쳐 대표 상태 하나로 만든다. **손이 가야 하는 것이 이긴다.**
+ *
+ * 반려가 맨 앞이다. 되돌려 보낸 서류는 본인이 다시 내야 움직이고,
+ * 그동안 그 사람은 현장에 나갈 수 없다. 목록에서 가장 먼저 눈에 걸려야 한다.
+ * 승인 완료가 맨 뒤인 이유도 같다 — 할 일이 없는 줄이다.
+ *
+ * (근태를 합칠 때 최악을 대표로 삼는 `summarizeAttendance`와 같은 방식이다)
+ */
+export const resolveDocumentReviewState = (
+  reviews: StaffDocumentReviews,
+): DocumentReviewState => {
+  const states = DOCUMENT_LANES.map((lane) => reviews[lane].state);
+  const order: DocumentReviewState[] = [
+    "REJECTED",
+    "NONE",
+    "SUBMITTED",
+    "APPROVED",
+  ];
+
+  return order.find((state) => states.includes(state)) ?? "NONE";
+};
+
+/**
+ * 서류가 확인된 인력인가. **화면 · 목업 · 시드가 같은 함수를 쓴다.**
+ *
+ * **직원은 이 검사를 받지 않는다.** 서류를 요구하는 이유가
+ * "이 사람에게 돈을 보낼 수 있는가"인데, 직원의 급여는 회사가 이미 다른 경로로
+ * 내보내고 있다. 입사할 때 받은 서류를 인력풀에 다시 올리게 하면,
+ * 직원을 현장에 넣을 때마다 아무 뜻 없는 벽에 막힌다.
+ */
+export const isDocumentApproved = (staff: {
+  documentReviewState: DocumentReviewState;
+  employment?: EmploymentType;
+}): boolean =>
+  staff.employment === "EMPLOYEE" || staff.documentReviewState === "APPROVED";
+
 export type StaffStatus = "PENDING" | "ACTIVE" | "BLACKLIST";
 
 /**
@@ -257,7 +372,7 @@ export type StaffStatus = "PENDING" | "ACTIVE" | "BLACKLIST";
  * 서류를 넣고 빼는 자리, 인력을 만드는 자리가 전부 여기를 거친다.
  */
 export const resolveStaffStatus = (staff: {
-  isDocumentComplete: boolean;
+  documentReviewState: DocumentReviewState;
   employment?: EmploymentType;
   status?: StaffStatus;
 }): StaffStatus => {
@@ -267,7 +382,13 @@ export const resolveStaffStatus = (staff: {
   // 직원은 입사할 때 회사가 서류를 이미 받았다. 인력풀에 다시 낼 이유가 없다.
   if (staff.employment === "EMPLOYEE") return "ACTIVE";
 
-  return staff.isDocumentComplete ? "ACTIVE" : "PENDING";
+  /*
+    기준은 '냈다'가 아니라 **'승인됐다'**이다.
+
+    본인이 직접 올리게 되면서 제출과 확인이 갈렸다. 낸 것만으로 활동중이 되면
+    관리자가 아직 보지도 않은 사진 한 장으로 사람이 현장에 들어간다.
+  */
+  return isDocumentApproved(staff) ? "ACTIVE" : "PENDING";
 };
 
 export type Gender = "MALE" | "FEMALE";
@@ -316,8 +437,15 @@ export interface Staff {
   region: string;
   /** 활동 지역의 시/군/구 */
   district: string;
-  /** 신분증·통장사본이 모두 제출됐는지 */
+  /** 신분증·통장사본 파일이 모두 올라와 있는지. **확인됐다는 뜻은 아니다.** */
   isDocumentComplete: boolean;
+  /**
+   * 서류 심사의 대표 상태. 두 갈래를 `resolveDocumentReviewState`로 합친 값이다.
+   *
+   * 현장에 나갈 수 있는지를 가르는 것은 파일 유무가 아니라 이 값이다.
+   * (`isDocumentApproved` · `canConfirmAssignment`)
+   */
+  documentReviewState: DocumentReviewState;
   /** 누적 근무 횟수 */
   workCount: number;
   totalWorkHours: number;
@@ -356,6 +484,13 @@ export interface StaffDetail extends Staff {
   idCardImageUrl: string;
   /** 통장 사본 이미지 */
   bankBookImageUrl: string;
+  /**
+   * 갈래별 심사 기록. 상세에만 있다.
+   *
+   * 목록에는 대표 상태(`documentReviewState`)만 내려간다. 어느 갈래가 왜 반려됐는지는
+   * 본인과 서류 담당자에게만 필요한 이야기다.
+   */
+  reviews: StaffDocumentReviews;
   address: string;
   emergencyContact: string;
   height?: number;
@@ -560,7 +695,23 @@ export const ATTENDANCE_STATUS_LABEL: Record<AttendanceStatus, string> = {
 export const REQUIRED_DOCUMENT_LABEL = "신분증 · 통장사본";
 
 export const DOCUMENT_BLOCK_MESSAGE =
-  "신분증 또는 통장사본이 없어 확정 배치할 수 없습니다. 서류를 먼저 등록해 주세요.";
+  "신분증 · 통장사본이 아직 승인되지 않아 확정 배치할 수 없습니다. 서류 관리에서 승인해 주세요.";
+
+/** 심사 상태별로, 왜 막혔는지를 한 줄로 말한다. */
+export const documentBlockMessage = (
+  state: DocumentReviewState,
+  name: string,
+): string => {
+  if (state === "REJECTED") {
+    return `${name}님의 서류가 반려된 상태입니다. 다시 제출받아야 합니다.`;
+  }
+
+  if (state === "SUBMITTED") {
+    return `${name}님의 서류가 아직 승인 대기입니다. 서류 관리에서 확인해 주세요.`;
+  }
+
+  return `${name}님은 ${DOCUMENT_BLOCK_MESSAGE}`;
+};
 
 /**
  * 확정 배치가 가능한 인력인가. 화면과 목업이 같은 함수를 쓴다.
@@ -571,9 +722,9 @@ export const DOCUMENT_BLOCK_MESSAGE =
  * 직원을 현장에 넣을 때마다 아무 뜻 없는 벽에 막힌다.
  */
 export const canConfirmAssignment = (staff: {
-  isDocumentComplete: boolean;
+  documentReviewState: DocumentReviewState;
   employment?: EmploymentType;
-}): boolean => staff.employment === "EMPLOYEE" || staff.isDocumentComplete;
+}): boolean => isDocumentApproved(staff);
 
 export interface StaffFormValues {
   name: string;

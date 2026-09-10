@@ -14,6 +14,17 @@ import ContractDocumentView from "./ContractDocumentView";
 
 interface ContractSheetViewProps {
   document: ContractDocument;
+  /**
+   * 좁은 화면에서 지면을 **줄여서** 통째로 보여 준다.
+   *
+   * 기본은 가로 스크롤이다. 담당자 화면은 넓고, 스크롤로 넘겨 보는 것이
+   * 글자 크기를 지키는 방법이기 때문이다.
+   *
+   * 스태프 포털은 반대다. 본인이 **읽고 서명해야 하는** 문서를 폰에서 좌우로 밀며
+   * 읽게 두면 아무도 끝까지 읽지 않고, 그 상태로 받은 서명은 근거가 약하다.
+   * 줄여도 줄바꿈 위치는 그대로다 — 폭을 바꾸는 것이 아니라 배율만 바꾸기 때문이다.
+   */
+  fitToWidth?: boolean;
   className?: string;
 }
 
@@ -33,8 +44,13 @@ interface ContractSheetViewProps {
  *    여러 장짜리 계약서는 한 장이 빠지거나 뒤섞여도 티가 나지 않는다.
  *    장마다 식별자가 있어야 나중에 "그 조항은 못 봤다"는 다툼을 가릴 수 있다.
  */
-const ContractSheetView = ({ document, className }: ContractSheetViewProps) => {
+const ContractSheetView = ({
+  document,
+  fitToWidth = false,
+  className,
+}: ContractSheetViewProps) => {
   const [contentHeight, setContentHeight] = useState(0);
+  const [frameWidth, setFrameWidth] = useState(0);
 
   /*
     장수는 실제로 그려진 높이로만 알 수 있다. 글자 수로 어림하면
@@ -56,7 +72,29 @@ const ContractSheetView = ({ document, className }: ContractSheetViewProps) => {
     return () => observer.disconnect();
   }, []);
 
+  /* 지면을 담는 칸의 폭. 배율을 여기서 낸다. */
+  const frameRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setFrameWidth(entry.contentRect.width);
+    });
+
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, []);
+
   const pageCount = resolveA4PageCount(contentHeight);
+
+  /*
+    1을 넘기지 않는다. 넓은 화면에서 A4를 늘이면 종이보다 큰 문서가 되어
+    "인쇄 결과와 같다"는 말이 거짓이 된다.
+  */
+  const scale =
+    fitToWidth && frameWidth > 0
+      ? Math.min(1, frameWidth / A4_PAGE_WIDTH)
+      : 1;
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -88,11 +126,36 @@ const ContractSheetView = ({ document, className }: ContractSheetViewProps) => {
         </Alert>
       )}
 
-      <div className="overflow-x-auto">
+      {/*
+        가로 스크롤은 **언제나 켜 둔다.**
+
+        줄이는 배율은 실제로 그려진 폭을 재야 나오는데(`frameRef`), 그 측정이
+        늦거나 오지 않는 환경이 있다. 그때 스크롤까지 없으면 지면이 잘린 채로
+        갇혀서, 서명해야 하는 사람이 문서의 오른쪽 절반을 아예 볼 수 없다.
+        줄여서 다 들어오면 스크롤은 저절로 생기지 않으므로 켜 두어도 손해가 없다.
+      */}
+      <div
+        ref={frameRef}
+        className="overflow-x-auto"
+        style={
+          /*
+            줄인 만큼 아래 여백이 남는다. transform은 자리를 차지하는 크기를
+            바꾸지 않기 때문에, 줄인 높이를 여기서 직접 잡아 준다.
+          */
+          fitToWidth && scale < 1 && contentHeight > 0
+            ? { height: contentHeight * scale }
+            : undefined
+        }
+      >
         {/* 지면 폭은 A4 그대로 고정한다. 화면 폭에 맞춰 늘이면 줄바꿈 위치가 달라진다. */}
         <div
           className="relative mx-auto bg-surface shadow-card"
-          style={{ width: A4_PAGE_WIDTH }}
+          style={{
+            width: A4_PAGE_WIDTH,
+            ...(scale < 1
+              ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+              : null),
+          }}
         >
           <div ref={measureRef}>
             <ContractDocumentView document={document} />

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatTimeRange } from "@/type/event";
 import { useContractRosterQuery } from "@/api/contract/getContractRoster";
 import { useHasPermission } from "@/store/useAdminStore";
 import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import { useListSearch } from "@/hooks/useListSearch";
-import { Check, FileText, Refresh, Warning } from "@/icons";
+import { Check, FileText, Refresh, Send, Warning } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -99,7 +100,19 @@ const ContractManager = () => {
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
 
-  const [state, setState] = useState<ContractRosterState | "">("");
+  /*
+    대시보드의 할 일에서 넘어올 때 필터가 걸린 채로 열린다.
+
+    걸리지 않으면 '계약서 반려 3건'을 누른 담당자가 500줄짜리 전체 명단 앞에 서게 되고,
+    할 일에서 넘어온 의미가 사라진다. (다른 할 일 항목도 같은 방식이다)
+    처음 값만 읽는다 — 그 뒤에는 화면에서 고른 값이 이긴다.
+  */
+  const initialState = useSearchParams().get("state") ?? "";
+  const [state, setState] = useState<ContractRosterState | "">(
+    CONTRACT_ROSTER_STATE_ORDER.includes(initialState as ContractRosterState)
+      ? (initialState as ContractRosterState)
+      : "",
+  );
   const [role, setRole] = useState<JobRole | "">("");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
 
@@ -273,29 +286,44 @@ const ContractManager = () => {
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/*
-          '발급 전'이 첫 칸이다.
-          이 숫자가 0이 아니면 그만큼의 사람이 계약서 없이 현장에 설 수 있다.
+          **반려가 첫 칸이다.**
+
+          예전에는 '발급 전'이 맨 앞이었다. 그때는 계약서가 안 나간 것이 유일한 사고였는데,
+          본인이 되돌려 보낼 수 있게 되면서 더 급한 자리가 생겼다. 반려는 근로자가
+          "내용이 다르다"고 말한 것이고, 담당자가 고쳐서 다시 보내야 그때부터 움직인다.
+          그동안 그 사람은 계약서 없이 현장에 서게 된다.
         */}
         <StatTile
-          label="발급 전"
-          value={`${counts?.NONE ?? 0}명`}
-          description="확정 배치는 됐는데 아직 서명본이 없습니다."
-          tone={(counts?.NONE ?? 0) > 0 ? "danger" : "default"}
+          label="반려"
+          value={`${counts?.REJECTED ?? 0}명`}
+          description="근로자가 내용을 확인해 달라고 했습니다."
+          tone={(counts?.REJECTED ?? 0) > 0 ? "danger" : "default"}
           icon={<Warning size={18} />}
         />
         <StatTile
-          label="등록 대기"
-          value={`${counts?.DRAFT ?? 0}명`}
-          description="재작성해 놓고 서명본을 아직 못 받았습니다."
-          tone={(counts?.DRAFT ?? 0) > 0 ? "warning" : "default"}
+          label="발급 전"
+          value={`${counts?.NONE ?? 0}명`}
+          description="확정 배치는 됐는데 계약서가 아직 없습니다."
+          tone={(counts?.NONE ?? 0) > 0 ? "danger" : "default"}
           icon={<FileText size={18} />}
+        />
+        <StatTile
+          label="서명 대기"
+          value={`${(counts?.SENT ?? 0) + (counts?.DRAFT ?? 0)}명`}
+          description="보냈거나 재작성해 두고 서명을 기다립니다."
+          tone={
+            (counts?.SENT ?? 0) + (counts?.DRAFT ?? 0) > 0
+              ? "warning"
+              : "default"
+          }
+          icon={<Send size={18} />}
         />
         <StatTile
           label="서명 완료"
           value={`${counts?.SIGNED ?? 0}명`}
-          description="서명본이 등록돼 계약번호가 발급됐습니다."
+          description="전자서명 또는 서명본으로 계약이 끝났습니다."
           icon={<Check size={18} />}
         />
       </div>

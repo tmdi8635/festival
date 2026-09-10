@@ -9,7 +9,7 @@ export default function StaffDocumentPage() {
     <>
       <PageHeader
         title="서류 관리"
-        description="신분증 · 통장사본 제출 현황을 봅니다. 서류가 없으면 정산 계좌를 확정할 수 없습니다."
+        description="본인이 올린 신분증 · 통장사본을 확인하고 승인합니다. 승인 전에는 확정 배치를 할 수 없습니다."
       />
 
       <PermissionGate required="staffDocument:read">

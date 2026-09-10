@@ -11,7 +11,8 @@ import {
   GENDER_PREFERENCE_OPTIONS,
   WAGE_TYPE_OPTIONS,
 } from "@/constants/eventOptions";
-import { Plus, Trash } from "@/icons";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { MapPin, Plus, Trash } from "@/icons";
 import {
   EMPTY_EVENT_VALUES,
   eventSchema,
@@ -70,6 +71,9 @@ const toFormValues = (event: EventDetail): EventSchemaInput => ({
   endDayOffset: event.endDayOffset,
   venue: event.venue,
   address: event.address,
+  /* 숫자 → 입력창 문자열. 미설정은 빈 칸이어야 0과 구분된다. */
+  latitude: event.latitude ?? "",
+  longitude: event.longitude ?? "",
   managerName: event.managerName,
   managerPhone: event.managerPhone,
   description: event.description,
@@ -147,6 +151,9 @@ const EventFormModal = ({
     resolver: zodResolver(eventSchema),
     defaultValues: EMPTY_EVENT_VALUES,
   });
+
+  /* 현장에서 좌표를 바로 채울 수 있게. 답사 때 한 번 누르면 끝난다. */
+  const geo = useGeolocation();
 
   const { fields, append, remove } = useFieldArray({ control, name: "roles" });
 
@@ -609,6 +616,61 @@ const EventFormModal = ({
             />
           </FormField>
         </div>
+
+        {/*
+          현장 좌표.
+
+          지도를 넣지 않는다. 필요한 것이 "여기서 몇 미터인가" 하나뿐이라
+          지도 라이브러리를 들일 이유가 없고, 담당자는 답사 때 현장에서
+          버튼을 누르거나 지도 앱에서 복사한 좌표를 붙여넣는다.
+
+          **비워 두면 위치를 확인하지 않는다.** 필수로 막으면 좌표를 모르는
+          행사를 등록할 수 없고, 그러면 담당자는 아무 숫자나 넣게 된다.
+        */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <FormField
+            label="위도"
+            hint="비우면 위치 확인 안 함"
+            error={errors.latitude?.message}
+          >
+            <Input
+              {...register("latitude")}
+              inputMode="decimal"
+              placeholder="예) 37.5447"
+              hasError={Boolean(errors.latitude)}
+            />
+          </FormField>
+
+          <FormField label="경도" error={errors.longitude?.message}>
+            <Input
+              {...register("longitude")}
+              inputMode="decimal"
+              placeholder="예) 127.0557"
+              hasError={Boolean(errors.longitude)}
+            />
+          </FormField>
+
+          <Button
+            type="button"
+            variant="secondary"
+            leftIcon={<MapPin size={15} />}
+            isLoading={geo.isLoading}
+            onClick={async () => {
+              const next = await geo.request();
+
+              if (!next) return;
+
+              setValue("latitude", next.latitude, { shouldDirty: true });
+              setValue("longitude", next.longitude, { shouldDirty: true });
+            }}
+          >
+            현재 위치로
+          </Button>
+        </div>
+
+        {geo.error && (
+          <p className="text-[12px] text-danger">{geo.error.message}</p>
+        )}
 
         <FormField
           label="집합 장소 · 시간"

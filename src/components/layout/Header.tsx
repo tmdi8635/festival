@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { ADMIN_MENU, isMenuItemActive } from "@/constants/menu";
 import { useIsClient } from "@/hooks/useIsClient";
-import { ChevronRight, Menu, Moon, Search, Sun } from "@/icons";
+import { ChevronRight, Menu, Moon, Search, Sun, UserCheck } from "@/icons";
 import { useAdminStore } from "@/store/useAdminStore";
 import { useSidebarStore } from "@/store/useSidebarStore";
 import IconButton from "@/components/ui/IconButton";
@@ -90,6 +91,22 @@ const Header = () => {
             ⌘K
           </kbd>
         </button>
+
+        {/*
+          스태프 포털로 건너가는 길 — **테스트용**.
+
+          실제로는 근로자와 담당자가 다른 계정이라 한 사람이 두 화면을 오갈 일이 없다.
+          다만 만들면서 확인하려면 양쪽을 나란히 두고 "여기서 승인하면 저기가
+          어떻게 바뀌는가"를 봐야 한다. 로그인이 붙으면 이 링크를 뺀다.
+        */}
+        <Link
+          href="/my"
+          title="스태프 화면 보기 (테스트)"
+          aria-label="스태프 화면 보기"
+          className="inline-flex size-9 shrink-0 items-center justify-center rounded-field text-font-2 transition hover:bg-surface-hover hover:text-font-1 active:scale-[0.94]"
+        >
+          <UserCheck size={18} />
+        </Link>
 
         {/* 테스트용. 로그인이 붙으면 이 두 줄만 지우면 된다. */}
         <AdminAccountSwitcher />

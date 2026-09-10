@@ -1,8 +1,10 @@
 import type { BadgeTone, SelectOption } from "@/components/ui";
 import {
   ATTENDANCE_STATUS_LABEL,
+  DOCUMENT_REVIEW_STATE_LABEL,
   GENDER_LABEL,
   type AttendanceStatus,
+  type DocumentReviewState,
   type StaffStatus,
 } from "@/type/staff";
 
@@ -33,8 +35,8 @@ export const STAFF_STATUS_TONE: Record<StaffStatus, BadgeTone> = {
 
 /** 상태별로 지금 무엇을 뜻하는지. 배지 옆·필터 안내에 그대로 쓴다. */
 export const STAFF_STATUS_HINT: Record<StaffStatus, string> = {
-  PENDING: "신분증 · 통장사본이 없어 확정 배치할 수 없습니다.",
-  ACTIVE: "필요한 서류를 모두 냈습니다. 배치할 수 있습니다.",
+  PENDING: "신분증 · 통장사본이 아직 승인되지 않아 확정 배치할 수 없습니다.",
+  ACTIVE: "필요한 서류가 모두 승인됐습니다. 배치할 수 있습니다.",
   BLACKLIST: "에이전시가 지정했습니다. 배치 대상에서 빠집니다.",
 };
 
@@ -71,11 +73,50 @@ export const GENDER_FILTER_OPTIONS: SelectOption[] = [
   ...GENDER_OPTIONS,
 ];
 
-/** 서류 제출 여부 필터. 정산 계좌를 확정할 수 있는지와 직결된다. */
+/**
+ * 계좌 이체에 쓰는 은행 목록.
+ *
+ * 관리자 폼에만 있던 것을 여기로 올렸다. 본인이 직접 계좌를 내는 화면이 생기면서
+ * 두 곳이 쓰게 됐는데, 목록이 갈리면 한쪽에만 있는 은행을 고른 사람의 이체가
+ * 다른 화면에서는 '선택 안 됨'으로 보인다.
+ */
+export const BANK_OPTIONS: SelectOption[] = [
+  "국민",
+  "신한",
+  "우리",
+  "하나",
+  "농협",
+  "기업",
+  "카카오뱅크",
+  "토스뱅크",
+  "케이뱅크",
+  "새마을금고",
+].map((bank) => ({ label: bank, value: bank }));
+
+/**
+ * 서류 심사 상태별 색.
+ *
+ * 반려와 미제출을 함께 붉게 두지 않는다. 미제출은 아직 아무 일도 없었던 것이고,
+ * 반려는 **되돌려 보낸 뒤 답을 기다리는 중**이다. 담당자가 손을 대야 하는 쪽은
+ * 승인 대기이므로 그쪽을 눈에 걸리게 둔다.
+ */
+export const DOCUMENT_REVIEW_STATE_TONE: Record<
+  DocumentReviewState,
+  BadgeTone
+> = {
+  NONE: "neutral",
+  SUBMITTED: "warning",
+  APPROVED: "success",
+  REJECTED: "danger",
+};
+
+/** 서류 심사 상태 필터. 정산 계좌를 확정할 수 있는지와 직결된다. */
 export const DOCUMENT_STATE_FILTER_OPTIONS: SelectOption[] = [
   { label: "서류 전체", value: "" },
-  { label: "제출 완료", value: "COMPLETE" },
-  { label: "미제출", value: "INCOMPLETE" },
+  ...(["SUBMITTED", "REJECTED", "NONE", "APPROVED"] as const).map((state) => ({
+    label: DOCUMENT_REVIEW_STATE_LABEL[state],
+    value: state,
+  })),
 ];
 
 /**

@@ -11,10 +11,15 @@ import {
   calculateScheduledWorkHours,
   resolveBillingRate,
 } from "@/type/event";
+import { contracts } from "../db/contract";
 import { events } from "../db/event";
 import { payrollItems } from "../db/payroll";
 import { applications } from "../db/recruit";
-import { staffList, staffMissingDocuments } from "../db/staff";
+import {
+  staffList,
+  staffMissingDocuments,
+  staffWaitingDocumentReview,
+} from "../db/staff";
 import {
   BASE_URI,
   MOCK_DELAY_MS,
@@ -127,6 +132,11 @@ export const dashboardHandlers = [
     const unsignedContractCount = new Set(unsignedAssignments).size;
 
     const missingDocuments = staffMissingDocuments();
+    const waitingDocuments = staffWaitingDocumentReview();
+    /* 근로자가 되돌려 보낸 계약서. 담당자가 고쳐서 다시 보내야 움직인다. */
+    const rejectedContracts = contracts.filter(
+      (contract) => contract.status === "REJECTED",
+    );
 
     const pendingPayrolls = payrollItems.filter(
       (item) => item.status !== "PAID",
@@ -201,6 +211,36 @@ export const dashboardHandlers = [
           "현장 투입 전까지 서명본이 등록돼야 합니다. 행사 상세의 근로계약서 탭에서 내려받아 배부하세요.",
         href: "/schedule/events",
         count: unsignedContractCount,
+      });
+    }
+
+    /*
+      승인을 기다리는 서류.
+
+      미제출보다 **앞**이다. 미제출은 본인에게 달린 일이고, 승인 대기는
+      담당자가 지금 열어 보면 끝나는 일이다. 그 사이 그 사람은 확정 배치가 막혀 있다.
+    */
+    if (canSeeDocument && waitingDocuments.length > 0) {
+      actions.push({
+        actionId: 8,
+        type: "DOCUMENT_REVIEW",
+        title: `서류 승인 대기 ${waitingDocuments.length}명`,
+        description:
+          "본인이 올린 신분증 · 통장사본을 확인해 주세요. 승인 전에는 확정 배치를 할 수 없습니다.",
+        href: "/staff/documents",
+        count: waitingDocuments.length,
+      });
+    }
+
+    if (canSeeContract && rejectedContracts.length > 0) {
+      actions.push({
+        actionId: 9,
+        type: "CONTRACT_REJECTED",
+        title: `계약서 반려 ${rejectedContracts.length}건`,
+        description:
+          "근로자가 내용을 확인해 달라고 했습니다. 근무일 · 금액을 고친 뒤 다시 보내 주세요.",
+        href: "/contracts?state=REJECTED",
+        count: rejectedContracts.length,
       });
     }
 

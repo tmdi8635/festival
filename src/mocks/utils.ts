@@ -6,6 +6,7 @@ import {
   type PermissionKey,
 } from "@/type/permission";
 import { adminRoles, employees } from "./db/ops";
+import { staffList } from "./db/staff";
 import { DEFAULT_PAGE_SIZE, PageResponse } from "@/type/api";
 
 /**
@@ -225,4 +226,61 @@ export const requesterCan = (
   const role = adminRoles.find((item) => item.roleId === employee.roleId);
 
   return hasPermission(role?.permissions, required, role?.isSuperAdmin);
+};
+
+/* ------------------------------------------------------------------ */
+/* 스태프 포털 (`/my/*`)                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 포털 요청을 보낸 인력을 찾는다.
+ *
+ * **`X-Admin-Id`는 보지 않는다.** 관리자 목업 계정이 늘 있어서 그 헤더는
+ * 포털에서도 함께 실려 오는데, 여기서 그걸 받기 시작하면 본인 것만 보여 줘야 할
+ * 주소가 관리자 권한으로 열린다. 신원의 출처를 하나로 못 박아 둔다.
+ *
+ * 서버가 붙는 날 이 함수 하나만 토큰 해석으로 바꾸면 된다. (`findRequester`와 같다)
+ */
+export const findStaffRequester = (request: Request) => {
+  const staffId = Number(request.headers.get("X-Staff-Id"));
+
+  return staffList.find((staff) => staff.staffId === staffId);
+};
+
+/**
+ * 포털을 쓸 수 있는 사람인지 본다. **모든 `/my/*` 핸들러의 첫 줄이다.**
+ *
+ * 블랙리스트는 막는다. 지정된 사람이 공고를 보고 지원까지 할 수 있으면
+ * 지정한 일이 아무 뜻도 없어지고, 담당자는 매번 손으로 걸러 내게 된다.
+ *
+ * 통과하면 인력을 그대로 돌려준다. 핸들러가 `staffId`를 쿼리에서 받지 않게 하려는 것이다 —
+ * 쿼리로 받는 순간 남의 계좌와 평판을 조회할 수 있는 주소가 된다.
+ */
+export const requireStaff = (request: Request) => {
+  const staff = findStaffRequester(request);
+
+  if (!staff) {
+    return {
+      staff: undefined,
+      response: HttpResponse.json(
+        { code: "UNAUTHENTICATED", message: "로그인이 필요합니다." },
+        { status: 401 },
+      ),
+    };
+  }
+
+  if (staff.status === "BLACKLIST") {
+    return {
+      staff: undefined,
+      response: HttpResponse.json(
+        {
+          code: "STAFF_BLOCKED",
+          message: "지금은 이용할 수 없는 계정입니다. 담당자에게 문의해 주세요.",
+        },
+        { status: 403 },
+      ),
+    };
+  }
+
+  return { staff, response: null };
 };

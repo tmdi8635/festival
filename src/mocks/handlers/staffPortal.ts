@@ -1,0 +1,1312 @@
+import { HttpResponse, delay, http } from "msw";
+import type {
+  MyApplication,
+  MyContract,
+  MyDocumentFormValues,
+  MyPayroll,
+  MyPosting,
+  MyProfile,
+  MyProfileFormValues,
+  MyReputation,
+  MySummary,
+  MyTodo,
+  MyWork,
+} from "@/type/my";
+import type { Contract } from "@/type/contract";
+import type { Application } from "@/type/recruit";
+import type { Assignment, EventDetail } from "@/type/event";
+import type { ReputationVerdict, StaffDetail } from "@/type/staff";
+import { buildDocumentHash } from "@/type/contract";
+import {
+  applyCheckTimeRule,
+  calculateBasePay,
+  calculateDistanceMeters,
+  calculateScheduledWorkHours,
+  resolveCheckTimeWindow,
+  resolveEarlyLeaveMinutes,
+  resolveLateMinutes,
+  resolveWorkHours,
+  toCheckDateTime,
+  toDateKey,
+} from "@/type/event";
+import type { CheckLocation } from "@/type/event";
+import {
+  calculateReputationDelta,
+  resolveTagVerdict,
+} from "@/type/staff";
+import {
+  contractsByStaff,
+  findContract,
+  findContractTemplate,
+} from "../db/contract";
+import { events, findConflictEvent, findEvent } from "../db/event";
+import { payrollItems, syncPayrollWithAssignment } from "../db/payroll";
+import { operationSettings } from "../db/ops";
+import {
+  applications,
+  findPosting,
+  postings,
+  recalculatePostingCounts,
+} from "../db/recruit";
+import {
+  snapshotStaffDocuments,
+  staffList,
+  syncStaffDocuments,
+} from "../db/staff";
+import { markAssignmentsSigned } from "./contract";
+import { formatDateTime } from "@/lib/dayjs";
+import {
+  BASE_URI,
+  MOCK_DELAY_MS,
+  badRequest,
+  nextId,
+  notFound,
+  requireStaff,
+} from "../utils";
+
+/**
+ * 스태프 포털(`/my/*`) 목업.
+ *
+ * 관리자 API와 **주소부터 가른다.** `/admin/*`은 `requirePermission`이 관리자 권한 키로
+ * 판정하는 곳이고, 여기는 "본인 것인가" 하나만 본다. 한 주소에 두 규칙을 얹으면
+ * 언젠가 반드시 헷갈리고, 그때 새는 것은 남의 계좌와 평판이다.
+ *
+ * 모든 핸들러가 `requireStaff(request)`로 시작하고, **`staffId`를 쿼리에서 받지 않는다.**
+ * 쿼리로 받는 순간 주소만 알면 누구나 남의 자료를 꺼낼 수 있는 문이 된다.
+ */
+
+/**
+ * 응답에 담을 것만 골라 담는다. `StaffDetail`을 그대로 내리지 않는다.
+ *
+ * 메모(주의 메모 포함) · 블랙리스트 사유 · 누적 지급액은 본인이 볼 자료가 아니다.
+ * 화면에서 걸러 내는 방식은 화면이 늘어나면 반드시 한 곳을 빠뜨린다.
+ */
+export const toMyProfile = (staff: StaffDetail): MyProfile => ({
+  staffId: staff.staffId,
+  name: staff.name,
+  phoneNumber: staff.phoneNumber,
+  profileImageUrl: staff.profileImageUrl,
+  birthDate: staff.birthDate,
+  gender: staff.gender,
+  status: staff.status,
+  employment: staff.employment,
+  roles: staff.roles,
+  region: staff.region,
+  district: staff.district,
+  address: staff.address,
+  emergencyContact: staff.emergencyContact,
+  height: staff.height,
+  clothingSize: staff.clothingSize,
+
+  bankName: staff.bankName,
+  accountNumber: staff.accountNumber,
+  accountHolder: staff.accountHolder,
+  idCardImageUrl: staff.idCardImageUrl,
+  bankBookImageUrl: staff.bankBookImageUrl,
+  reviews: staff.reviews,
+  documentReviewState: staff.documentReviewState,
+
+  workCount: staff.workCount,
+  totalWorkHours: staff.totalWorkHours,
+  reputationScore: staff.reputationScore,
+  goodCount: staff.goodCount,
+  badCount: staff.badCount,
+  lastWorkedAt: staff.lastWorkedAt,
+  createdAt: staff.createdAt,
+});
+
+/* ------------------------------------------------------------------ */
+/* 조립기                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 배치 한 건을 **현장에서 필요한 한 장**으로 만든다.
+ *
+ * 행사 정보를 여기서 합쳐 넣는다. 배치만 내리면 화면이 행사를 한 번 더 부르게 되고,
+ * 목록 스무 줄이면 조회가 스무 번 나간다. 관리자 명단이 배치에 이름 · 번호를
+ * 복사해 두는 것과 같은 이유다. (`type/event.ts`의 `Assignment` 주석)
+ */
+const toMyWork = (event: EventDetail, assignment: Assignment): MyWork => {
+  const scheduled = {
+    startTime: event.startTime,
+    endTime: event.endTime,
+    breakMinutes: assignment.actualBreakMinutes ?? event.breakMinutes,
+    endDayOffset: event.endDayOffset,
+  };
+
+  /* 출퇴근이 찍혔으면 실제 시간, 아니면 예정 시간. 정산과 같은 함수다. */
+  const { workHours } = resolveWorkHours(assignment, scheduled);
+
+  return {
+    assignmentId: assignment.assignmentId,
+    eventId: event.eventId,
+    eventTitle: event.title,
+    clientName: event.clientName,
+    workDate: assignment.workDate,
+    role: assignment.role,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    endDayOffset: event.endDayOffset,
+    breakMinutes: scheduled.breakMinutes,
+    venue: event.venue,
+    address: event.address,
+    meetingPoint: event.meetingPoint,
+    dressCode: event.dressCode,
+    belongings: event.belongings,
+    managerName: event.managerName,
+    managerPhone: event.managerPhone,
+
+    wageType: assignment.wageType,
+    wage: assignment.wage,
+    payAmount: calculateBasePay(
+      assignment.wageType,
+      assignment.wage,
+      workHours,
+    ),
+    workHours,
+
+    attendance: assignment.attendance,
+    checkInAt: assignment.checkInAt,
+    checkOutAt: assignment.checkOutAt,
+    /*
+      저장된 `lateMinutes`를 그대로 내리지 않는다.
+
+      본인이 찍는 경로는 그 값을 0으로 두고 출근 시각에만 사실을 남긴다.
+      저장값을 읽으면 새로 찍은 지각 건이 화면에서 정시로 보인다.
+    */
+    lateMinutes: resolveLateMinutes(
+      assignment.workDate,
+      event.startTime,
+      assignment.checkInAt,
+    ),
+
+    ...resolveCheckAvailability(event, assignment),
+    venueLatitude: event.latitude,
+    venueLongitude: event.longitude,
+
+    reputationVerdict: assignment.reputationVerdict,
+    isContractSigned: assignment.isContractSigned,
+  };
+};
+
+/**
+ * 지금 출퇴근을 찍을 수 있는지와, 못 찍으면 왜인지.
+ *
+ * 판정을 화면에 맡기지 않는다. 서버가 막는 조건과 화면이 잠그는 조건이 갈리면
+ * 눌리는데 거부당하거나, 눌리지 않는데 사실은 가능한 상태가 된다.
+ */
+const resolveCheckAvailability = (
+  event: EventDetail,
+  assignment: Assignment,
+): Pick<MyWork, "canCheckIn" | "canCheckOut" | "checkBlockReason"> => {
+  if (assignment.status !== "CONFIRMED") {
+    return {
+      canCheckIn: false,
+      canCheckOut: false,
+      checkBlockReason: "확정된 근무가 아닙니다.",
+    };
+  }
+
+  if (assignment.checkInAt && assignment.checkOutAt) {
+    return { canCheckIn: false, canCheckOut: false };
+  }
+
+  const rule = operationSettings.attendance;
+  const window = resolveCheckTimeWindow(
+    assignment.workDate,
+    event,
+    rule.checkInWindowBeforeHours,
+    rule.checkInWindowAfterHours,
+  );
+
+  if (!window.isOpen) {
+    const isBefore = new Date() < window.opensAt;
+
+    return {
+      canCheckIn: false,
+      canCheckOut: false,
+      checkBlockReason: isBefore
+        ? `근무 시작 ${rule.checkInWindowBeforeHours}시간 전부터 찍을 수 있습니다.`
+        : "출퇴근을 찍을 수 있는 시간이 지났습니다. 담당자에게 문의해 주세요.",
+    };
+  }
+
+  return {
+    canCheckIn: !assignment.checkInAt,
+    canCheckOut: Boolean(assignment.checkInAt) && !assignment.checkOutAt,
+  };
+};
+
+/**
+ * 내 배치 한 건을 행사와 함께 찾는다.
+ *
+ * 남의 배치는 **없는 것으로 답한다.** 번호를 하나씩 올려 보며 누가 어느 현장에
+ * 나가는지 훑을 수 있는 문을 만들지 않는다. (계약서와 같은 규칙)
+ */
+const findMyAssignment = (staffId: number, assignmentId: number) => {
+  for (const event of events) {
+    const assignment = event.assignments.find(
+      (item) => item.assignmentId === assignmentId,
+    );
+
+    if (assignment) {
+      return assignment.staffId === staffId ? { event, assignment } : undefined;
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * 현장 근처인지 확인한다.
+ *
+ * **행사에 좌표가 없거나 반경이 0이면 확인하지 않는다.** 좌표를 깜빡한 행사에서
+ * 전원이 출근을 못 찍으면 그 순간 현장 전체가 멈춘다. 검증은 돕는 장치이지
+ * 일을 막는 장치가 아니다.
+ *
+ * 반경 밖이면 **얼마나 떨어졌는지** 함께 돌려준다. "위치가 확인되지 않았습니다"만으로는
+ * GPS가 튄 것인지 장소를 잘못 온 것인지 본인도 알 수 없다.
+ */
+const verifyLocation = (
+  event: EventDetail,
+  body: { latitude?: number; longitude?: number },
+  radiusMeters: number,
+): { location?: CheckLocation } | { error: Response } => {
+  const hasVenue =
+    typeof event.latitude === "number" && typeof event.longitude === "number";
+
+  if (!hasVenue || radiusMeters <= 0) {
+    /* 확인하지 않는다. 보내 준 좌표가 있으면 근거로만 남긴다. */
+    return {
+      location:
+        typeof body.latitude === "number" && typeof body.longitude === "number"
+          ? { latitude: body.latitude, longitude: body.longitude }
+          : undefined,
+    };
+  }
+
+  if (typeof body.latitude !== "number" || typeof body.longitude !== "number") {
+    return {
+      error: badRequest(
+        "위치를 확인할 수 없어 출퇴근을 기록할 수 없습니다. 담당자에게 문의해 주세요.",
+        "LOCATION_REQUIRED",
+      ),
+    };
+  }
+
+  const distanceMeters = calculateDistanceMeters(
+    body.latitude,
+    body.longitude,
+    event.latitude!,
+    event.longitude!,
+  );
+
+  if (distanceMeters > radiusMeters) {
+    return {
+      error: badRequest(
+        `현장에서 ${distanceMeters}m 떨어져 있습니다. ${radiusMeters}m 안에서 찍어 주세요.`,
+        "OUT_OF_RANGE",
+      ),
+    };
+  }
+
+  return {
+    location: {
+      latitude: body.latitude,
+      longitude: body.longitude,
+      distanceMeters,
+    },
+  };
+};
+
+/** 내 배치를 전부 모은다. 취소된 건은 담지 않는다 — 나가지 않기로 한 날이다. */
+const myWorks = (staffId: number): MyWork[] =>
+  events
+    .flatMap((event) =>
+      event.assignments
+        .filter(
+          (assignment) =>
+            assignment.staffId === staffId && assignment.status !== "CANCELED",
+        )
+        .map((assignment) => toMyWork(event, assignment)),
+    )
+    .sort((a, b) => a.workDate.localeCompare(b.workDate));
+
+/**
+ * 남의 계약서는 **없는 것으로 답한다.** (404이지 403이 아니다)
+ *
+ * 403은 "그 번호의 계약서가 있긴 하다"를 알려 준다. 번호를 하나씩 올려 보며
+ * 누가 어느 행사에 나가는지 훑을 수 있는 문이 된다.
+ */
+const findMyContract = (staffId: number, contractId: number) => {
+  const contract = findContract(contractId);
+
+  return contract?.staffId === staffId ? contract : undefined;
+};
+
+const toMyContract = (contract: Contract): MyContract => ({
+  contractId: contract.contractId,
+  contractNumber: contract.contractNumber,
+  eventId: contract.eventId,
+  eventTitle: contract.eventTitle,
+  clientName: contract.clientName,
+  role: contract.role,
+  workDates: contract.workDates,
+  totalWage: contract.totalWage,
+  status: contract.status,
+  revision: contract.revision,
+  sentAt: contract.sentAt,
+  signedAt: contract.signedAt,
+  rejectedReason: contract.rejectedReason,
+  /*
+    종이로 받아 둔 건은 본인 화면에서 다시 서명받지 않는다.
+    이미 서명한 문서에 또 서명하라고 하면, 본인은 앞선 서명이 무효가 된 줄 안다.
+  */
+  isPaperSigned: Boolean(contract.signedFile) && !contract.signature,
+});
+
+const toMyApplication = (application: Application): MyApplication => ({
+  applicationId: application.applicationId,
+  postingId: application.postingId,
+  postingTitle: application.postingTitle,
+  eventId: application.eventId,
+  eventTitle: application.eventTitle,
+  clientName: findEvent(application.eventId)?.clientName ?? "",
+  role: application.role,
+  workDate: application.workDate,
+  status: application.status,
+  appliedAt: application.appliedAt,
+  processedAt: application.processedAt,
+});
+
+/**
+ * 정산 한 건. **계좌번호는 뒤 4자리만 내린다.**
+ *
+ * 본인 계좌라도 전부 내릴 이유가 없다. 어느 계좌로 들어오는지 확인하는 데는
+ * 뒤 4자리면 충분하고, 이 화면이 캡처되어 돌아다니는 일은 실제로 일어난다.
+ */
+const toMyPayroll = (item: (typeof payrollItems)[number]): MyPayroll => ({
+  payrollId: item.payrollId,
+  eventId: item.eventId,
+  eventTitle: item.eventTitle,
+  clientName: item.clientName,
+  role: item.role,
+  workDates: item.workDates,
+  totalWorkHours: item.totalWorkHours,
+  basePay: item.basePay,
+  overtimePay: item.overtimePay,
+  nightPay: item.nightPay,
+  allowance: item.allowance,
+  deduction: item.deduction,
+  grossPay: item.grossPay,
+  withholdingTax: item.withholdingTax,
+  netPay: item.netPay,
+  status: item.status,
+  holdReason: item.holdReason,
+  paidAt: item.paidAt,
+  accountTail: item.accountNumber ? item.accountNumber.slice(-4) : "",
+  bankName: item.bankName,
+});
+
+export const staffPortalHandlers = [
+  /**
+   * 접속할 수 있는 인력 목록 — **테스트용**.
+   *
+   * 로그인이 아직 없어서, 심사 상태별로 화면이 어떻게 달라지는지 볼 방법이 없다.
+   * 서류를 안 낸 사람 · 반려된 사람 · 승인된 사람으로 갈아 끼워 봐야
+   * "이 화면이 그 사람에게 무엇을 말하는가"를 판단할 수 있다.
+   *
+   * 로그인이 붙으면 이 엔드포인트와 전환기 컴포넌트를 함께 지운다.
+   * 여기서만 인증 없이 열려 있고, 이름 · 심사 상태 말고는 아무것도 내리지 않는다.
+   */
+  http.get(`${BASE_URI}/my/accounts`, async () => {
+    const accounts = staffList
+      .filter((staff) => staff.employment === "FREELANCER")
+      .slice(0, 30)
+      .map((staff) => ({
+        staffId: staff.staffId,
+        name: staff.name,
+        profileImageUrl: staff.profileImageUrl,
+        status: staff.status,
+        documentReviewState: staff.documentReviewState,
+        workCount: staff.workCount,
+      }));
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ items: accounts });
+  }),
+
+  /** 내 정보 */
+  http.get(`${BASE_URI}/my/profile`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(toMyProfile(staff));
+  }),
+
+  /**
+   * 인적사항 수정 — **승인 없이 곧바로 반영된다.**
+   *
+   * 이름 한 글자를 고치는 데도 담당자를 기다려야 하면 아무도 고치지 않고,
+   * 결국 틀린 연락처로 현장 안내가 나간다. 검증이 필요한 것은 돈이 나가는
+   * 근거(서류 · 계좌)뿐이고, 그쪽은 따로 심사를 받는다. (`PUT /my/documents`)
+   */
+  http.put(`${BASE_URI}/my/profile`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const body = (await request.json()) as MyProfileFormValues;
+
+    /*
+      다른 사람이 이미 쓰는 번호로는 바꿀 수 없다.
+      번호는 지원 접수에서 사람을 잇는 열쇠라, 겹치면 남의 지원이 내게 붙는다.
+    */
+    const isDuplicated = staffList.some(
+      (item) =>
+        item.staffId !== staff.staffId &&
+        item.phoneNumber === body.phoneNumber,
+    );
+
+    if (isDuplicated) {
+      return HttpResponse.json(
+        {
+          code: "DUPLICATED_PHONE_NUMBER",
+          message: "이미 등록된 휴대폰번호입니다. 담당자에게 문의해 주세요.",
+        },
+        { status: 409 },
+      );
+    }
+
+    /*
+      본문에 담긴 칸만 반영한다. `Object.assign(staff, body)`로 통째로 덮으면
+      본문에 없는 값(계좌 · 서류 · 평판)이 `undefined`로 덮여 사라진다.
+    */
+    staff.name = body.name;
+    staff.phoneNumber = body.phoneNumber;
+    staff.profileImageUrl = body.profileImageUrl;
+    staff.birthDate = body.birthDate;
+    staff.gender = body.gender;
+    staff.roles = body.roles;
+    staff.region = body.region;
+    staff.district = body.district;
+    staff.address = body.address;
+    staff.emergencyContact = body.emergencyContact;
+    staff.height = body.height;
+    staff.clothingSize = body.clothingSize;
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(toMyProfile(staff));
+  }),
+
+  /**
+   * 내 계약서 목록.
+   *
+   * 아직 안 보낸 문서(`DRAFT`)는 **담지 않는다.** 담당자가 만들어 두기만 하고
+   * 금액을 아직 못 정한 문서가 본인 화면에 뜨면, 그것을 보고 서명해 버린다.
+   * 보낸 것(`SENT`)부터가 본인의 일이다.
+   */
+  http.get(`${BASE_URI}/my/contracts`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const items: MyContract[] = contractsByStaff(staff.staffId)
+      .filter((contract) => contract.status !== "DRAFT")
+      .map(toMyContract);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ items });
+  }),
+
+  /**
+   * 계약서 한 장의 원문 + 양식.
+   *
+   * 문서를 여기서 조립해 내리지 않는다. 조립에는 직무 이름이 필요한데
+   * 그 이름은 기준 설정에서 오고(`useOrgStore`), 화면이 이미 그것을 들고 있다.
+   * 서버가 한 번 더 조립하면 관리자 미리보기와 본인이 보는 문서가 **다른 함수**를
+   * 거치게 되어, 언젠가 두 문서의 글자가 갈린다. (`GET /admin/contracts/:id/preview`도 같다)
+   */
+  http.get(
+    `${BASE_URI}/my/contracts/:contractId/preview`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const contract = findMyContract(staff.staffId, Number(params.contractId));
+
+      if (!contract) return notFound("존재하지 않는 계약서입니다.");
+
+      const template = findContractTemplate(contract.templateId);
+
+      if (!template) return notFound("계약서 양식을 찾을 수 없습니다.");
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json({ contract, template });
+    },
+  ),
+
+  /**
+   * 전자서명 제출.
+   *
+   * 서명 시점의 문서 평문을 함께 받아 **해시로 남긴다.** 서명한 뒤에 금액을 고쳐도
+   * 서명 이미지는 그대로 붙어 있어서, 무엇에 서명했는지를 남기지 않으면
+   * 그 문서는 아무것도 증명하지 못한다.
+   *
+   * 서명이 끝나면 배치의 계약 상태와 정산 대상 여부까지 함께 움직인다.
+   * (`markAssignmentsSigned` — 종이 등록과 같은 함수를 쓴다)
+   */
+  http.post(
+    `${BASE_URI}/my/contracts/:contractId/sign`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const contract = findMyContract(staff.staffId, Number(params.contractId));
+
+      if (!contract) return notFound("존재하지 않는 계약서입니다.");
+
+      const body = (await request.json()) as {
+        signedName: string;
+        imageDataUrl: string;
+        documentText: string;
+      };
+
+      if (contract.status === "SIGNED") {
+        return badRequest("이미 서명이 끝난 계약서입니다.");
+      }
+
+      if (contract.status === "SUPERSEDED") {
+        return badRequest(
+          "다시 작성된 계약서입니다. 새 차수의 문서에 서명해 주세요.",
+        );
+      }
+
+      if (!body.imageDataUrl) return badRequest("서명을 입력해 주세요.");
+
+      if ((body.signedName ?? "").trim().length < 2) {
+        return badRequest("서명자 성명을 입력해 주세요.");
+      }
+
+      const signedAt = new Date().toISOString();
+
+      contract.signature = {
+        imageDataUrl: body.imageDataUrl,
+        signedName: body.signedName.trim(),
+        signedAt,
+        documentHash: buildDocumentHash(body.documentText ?? ""),
+      };
+      contract.status = "SIGNED";
+      contract.signedAt = signedAt;
+      /* 반려했다가 다시 받아 서명한 경우. 사유가 남아 있으면 화면이 거짓말을 한다. */
+      contract.rejectedReason = undefined;
+
+      markAssignmentsSigned(contract);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(toMyContract(contract));
+    },
+  ),
+
+  /**
+   * 계약서 반려 — "내용이 다릅니다".
+   *
+   * 되돌려 보낼 자리가 없으면 근로자가 할 수 있는 일은 **서명을 안 하고 버티는 것**뿐이고,
+   * 담당자는 왜 서명이 안 들어오는지 알 수 없다. 사유를 받아 두면 그 자리에서 고칠 수 있다.
+   */
+  http.post(
+    `${BASE_URI}/my/contracts/:contractId/reject`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const contract = findMyContract(staff.staffId, Number(params.contractId));
+
+      if (!contract) return notFound("존재하지 않는 계약서입니다.");
+
+      const body = (await request.json()) as { reason: string };
+      const reason = (body.reason ?? "").trim();
+
+      if (contract.status === "SIGNED") {
+        return badRequest(
+          "이미 서명한 계약서입니다. 담당자에게 직접 연락해 주세요.",
+        );
+      }
+
+      if (reason.length < 5) {
+        return badRequest(
+          "어디가 다른지 5자 이상 적어 주세요. 담당자가 그대로 고칠 수 있어야 합니다.",
+          "REJECT_REASON_REQUIRED",
+        );
+      }
+
+      contract.status = "REJECTED";
+      contract.rejectedReason = reason;
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(toMyContract(contract));
+    },
+  ),
+
+  /**
+   * 서류 · 계좌 제출.
+   *
+   * 내면 **승인이 아니라 승인 대기**가 된다. 그 사이에는 확정 배치가 막힌다.
+   * (`syncStaffDocuments` — 관리자 폼과 같은 함수를 쓴다)
+   */
+  http.put(`${BASE_URI}/my/documents`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const body = (await request.json()) as MyDocumentFormValues;
+    const before = snapshotStaffDocuments(staff);
+
+    staff.idCardImageUrl = body.idCardImageUrl;
+    staff.bankBookImageUrl = body.bankBookImageUrl;
+    staff.bankName = body.bankName;
+    staff.accountNumber = body.accountNumber;
+    staff.accountHolder = body.accountHolder;
+
+    syncStaffDocuments(staff, before);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(toMyProfile(staff));
+  }),
+  /* ---------------------------- 내 일정 ---------------------------- */
+
+  /**
+   * 내 근무 일정.
+   *
+   * `scope`로 예정 · 종료를 가른다. 한 화면에서 탭으로 오가는 자료라
+   * 두 벌을 따로 받으면 같은 배치를 두 번 훑게 된다.
+   *
+   * 기준은 **오늘**이다. 오늘 근무는 예정에 남는다 — 현장에 서 있는 사람에게
+   * 집합 장소와 담당자 번호가 필요한 순간이 바로 그날이기 때문이다.
+   */
+  http.get(`${BASE_URI}/my/assignments`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const scope = new URL(request.url).searchParams.get("scope") ?? "UPCOMING";
+    const today = toDateKey(new Date());
+
+    const items = myWorks(staff.staffId).filter((work) =>
+      scope === "PAST" ? work.workDate < today : work.workDate >= today,
+    );
+
+    await delay(MOCK_DELAY_MS);
+
+    /* 종료한 일정은 최근 것이 위로 온다. 예정은 가까운 것이 위다. */
+    return HttpResponse.json({
+      items: scope === "PAST" ? [...items].reverse() : items,
+    });
+  }),
+
+  /* --------------------------- 출퇴근 체크 --------------------------- */
+
+  /**
+   * 본인이 출근을 찍는다.
+   *
+   * 검사 순서가 곧 안내 순서다 — **먼저 걸리는 것부터 말해 준다.**
+   * 위치를 먼저 재고 시간이 안 됐다고 하면, 현장에 서 있는 사람은
+   * GPS를 켰다 껐다 하다가 결국 담당자에게 전화한다.
+   */
+  http.post(
+    `${BASE_URI}/my/assignments/:assignmentId/check-in`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const found = findMyAssignment(staff.staffId, Number(params.assignmentId));
+
+      if (!found) return notFound("존재하지 않는 근무입니다.");
+
+      const { event, assignment } = found;
+      const body = (await request.json()) as {
+        latitude?: number;
+        longitude?: number;
+      };
+
+      if (assignment.status !== "CONFIRMED") {
+        return badRequest("확정된 근무가 아닙니다.");
+      }
+
+      if (assignment.checkInAt) {
+        return badRequest("이미 출근을 찍었습니다.", "ALREADY_CHECKED_IN");
+      }
+
+      const rule = operationSettings.attendance;
+      const window = resolveCheckTimeWindow(
+        assignment.workDate,
+        event,
+        rule.checkInWindowBeforeHours,
+        rule.checkInWindowAfterHours,
+      );
+
+      if (!window.isOpen) {
+        /*
+          아직인지 지났는지를 갈라 말한다.
+
+          지난 근무에도 "…부터 찍을 수 있습니다"라고 답하면 앞으로 열릴 것처럼
+          읽혀서, 본인은 기다리다가 결국 아무것도 못 한 채로 넘어간다.
+          지난 건은 담당자가 대신 적어야 하는 일이라는 것을 그 자리에서 말해야 한다.
+        */
+        return badRequest(
+          new Date() < window.opensAt
+            ? `아직 출근을 찍을 수 없습니다. ${formatDateTime(window.opensAt.toISOString())}부터 열립니다.`
+            : "출퇴근을 찍을 수 있는 시간이 지났습니다. 담당자에게 문의해 주세요.",
+          "OUT_OF_WINDOW",
+        );
+      }
+
+      const located = verifyLocation(event, body, rule.checkInRadiusMeters);
+
+      if ("error" in located) return located.error;
+
+      const now = new Date().toISOString();
+      const scheduledStart = toCheckDateTime(
+        assignment.workDate,
+        event.startTime,
+      );
+
+      /* 규칙은 **본인이 찍는 이 길에만** 걸린다. 관리자 입력에는 걸지 않는다. */
+      const checkInAt = applyCheckTimeRule(
+        now,
+        scheduledStart ?? now,
+        rule.checkIn,
+        "IN",
+      );
+
+      assignment.checkInAt = checkInAt;
+      assignment.checkInLocation = located.location;
+      /*
+        지각은 상태로만 남기고 분수는 적지 않는다.
+        늦게 온 사실은 출근 시각이 이미 말한다. (`resolveLateMinutes`)
+      */
+      assignment.lateMinutes = 0;
+      assignment.attendance =
+        resolveLateMinutes(assignment.workDate, event.startTime, checkInAt) > 0
+          ? "LATE"
+          : "PRESENT";
+
+      syncPayrollWithAssignment(assignment, event);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(toMyWork(event, assignment));
+    },
+  ),
+
+  /**
+   * 본인이 퇴근을 찍는다.
+   *
+   * 출근 기록이 없으면 받지 않는다. 퇴근만 있는 기록은 근무시간을 계산할 수 없고,
+   * 그 상태로 정산에 올라가면 0시간짜리 지급 건이 된다.
+   */
+  http.post(
+    `${BASE_URI}/my/assignments/:assignmentId/check-out`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const found = findMyAssignment(staff.staffId, Number(params.assignmentId));
+
+      if (!found) return notFound("존재하지 않는 근무입니다.");
+
+      const { event, assignment } = found;
+      const body = (await request.json()) as {
+        latitude?: number;
+        longitude?: number;
+      };
+
+      if (!assignment.checkInAt) {
+        return badRequest("출근을 먼저 찍어 주세요.", "CHECK_IN_REQUIRED");
+      }
+
+      if (assignment.checkOutAt) {
+        return badRequest("이미 퇴근을 찍었습니다.", "ALREADY_CHECKED_OUT");
+      }
+
+      const rule = operationSettings.attendance;
+      const located = verifyLocation(event, body, rule.checkInRadiusMeters);
+
+      if ("error" in located) return located.error;
+
+      const now = new Date().toISOString();
+      const scheduledEnd = toCheckDateTime(
+        assignment.workDate,
+        event.endTime,
+        event.endDayOffset,
+      );
+
+      const checkOutAt = applyCheckTimeRule(
+        now,
+        scheduledEnd ?? now,
+        rule.checkOut,
+        "OUT",
+      );
+
+      /*
+        퇴근이 출근보다 이르면 받지 않는다.
+        규칙에 따라 예정 종료로 당겨졌는데 출근이 그보다 늦은 경우가 실제로 나온다.
+        (예정 종료를 넘겨 출근한 철야 교대) 음수 근무시간이 정산으로 넘어가면
+        지급액이 마이너스가 된다.
+      */
+      if (new Date(checkOutAt) <= new Date(assignment.checkInAt)) {
+        return badRequest(
+          "퇴근 시각이 출근 시각보다 빠릅니다. 담당자에게 문의해 주세요.",
+        );
+      }
+
+      assignment.checkOutAt = checkOutAt;
+      assignment.checkOutLocation = located.location;
+
+      /* 예정보다 일찍 나갔으면 조퇴. 지각과 겹치면 지각을 남긴다 — 더 먼저 벌어진 일이다. */
+      const earlyMinutes = resolveEarlyLeaveMinutes(
+        assignment.workDate,
+        event,
+        checkOutAt,
+      );
+
+      if (assignment.attendance !== "LATE" && earlyMinutes > 0) {
+        assignment.attendance = "EARLY_LEAVE";
+      }
+
+      syncPayrollWithAssignment(assignment, event);
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(toMyWork(event, assignment));
+    },
+  ),
+
+  /* ----------------------------- 내 정산 ---------------------------- */
+
+  http.get(`${BASE_URI}/my/payrolls`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const items = payrollItems
+      .filter((item) => item.staffId === staff.staffId)
+      .sort((a, b) => b.workDate.localeCompare(a.workDate))
+      .map(toMyPayroll);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ items });
+  }),
+
+  /* ----------------------------- 내 평판 ---------------------------- */
+
+  http.get(`${BASE_URI}/my/reputations`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const items: MyReputation[] = events
+      .flatMap((event) =>
+        event.assignments
+          .filter(
+            (assignment) =>
+              assignment.staffId === staff.staffId &&
+              assignment.reputationVerdict !== undefined,
+          )
+          .map((assignment) => ({
+            assignmentId: assignment.assignmentId,
+            eventId: event.eventId,
+            eventTitle: event.title,
+            clientName: event.clientName,
+            workDate: assignment.workDate,
+            role: assignment.role,
+            verdict: assignment.reputationVerdict!,
+            tags: assignment.reputationTags ?? [],
+            points: calculateReputationDelta(
+              assignment.reputationTags ?? [],
+              assignment.reputationVerdict,
+            ),
+            ratedAt: assignment.reputationRatedAt,
+            /* 메모(`reputationComment`)는 담지 않는다. 내부 기록이다. */
+          })),
+      )
+      .sort((a, b) => b.workDate.localeCompare(a.workDate));
+
+    const tagMap = new Map<string, { count: number; verdict: ReputationVerdict }>();
+
+    items.forEach((item) =>
+      item.tags.forEach((tag) => {
+        const current = tagMap.get(tag);
+
+        if (current) {
+          current.count += 1;
+          return;
+        }
+
+        /* 방향은 항목 자체에서 온다. 좋아요·별로예요가 섞인 평가가 있다. */
+        tagMap.set(tag, {
+          count: 1,
+          verdict: resolveTagVerdict(tag) ?? item.verdict,
+        });
+      }),
+    );
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({
+      items,
+      reputationScore: staff.reputationScore,
+      goodCount: staff.goodCount,
+      badCount: staff.badCount,
+      tagCounts: [...tagMap.entries()]
+        .map(([tag, value]) => ({ tag, ...value }))
+        .sort((a, b) => b.count - a.count),
+    });
+  }),
+
+  /* ------------------------------ 공고 ------------------------------ */
+
+  /**
+   * 공고 목록.
+   *
+   * `OPEN`만 내린다. 작성중(`DRAFT`)은 담당자가 아직 다듬는 중이고,
+   * 마감·충원완료는 지원해도 소용이 없다. 목록에 세워 두면 눌러 보고 실망할 뿐이다.
+   *
+   * 공고문 원문(`content`)은 내리지 않는다. 오픈카톡방에 붙여넣을 목적으로 만든
+   * 문자열이라 담당자 어투가 그대로 들어 있고("지원: 성함/나이/경력을 담당자에게"),
+   * 지원 버튼이 있는 화면에서는 앞뒤가 맞지 않는다.
+   */
+  http.get(`${BASE_URI}/my/postings`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const url = new URL(request.url);
+    const role = url.searchParams.get("role") ?? "";
+    const onlyMyRoles = url.searchParams.get("onlyMyRoles") === "true";
+    const today = toDateKey(new Date());
+
+    const items: MyPosting[] = postings
+      .filter((posting) => posting.status === "OPEN")
+      /* 이미 지난 공고는 목록에서 뺀다. 시드가 오늘 기준이라 시간이 지나면 생긴다. */
+      .filter((posting) => posting.workDates.some((date) => date >= today))
+      .filter((posting) => !role || posting.role === role)
+      .filter((posting) => !onlyMyRoles || staff.roles.includes(posting.role))
+      .map((posting) => {
+        const event = findEvent(posting.eventId);
+
+        const isApplied = applications.some(
+          (application) =>
+            application.staffId === staff.staffId &&
+            application.postingId === posting.postingId &&
+            application.status !== "CANCELED",
+        );
+
+        /*
+          같은 날 이미 확정된 행사가 있으면 미리 알린다.
+          지원한 뒤 확정 단계에서 거절당하면, 본인은 왜 떨어졌는지 모른 채
+          다음에도 같은 날에 또 지원한다.
+        */
+        const conflict = findConflictEvent(
+          staff.staffId,
+          posting.workDate,
+          posting.eventId,
+        );
+
+        return {
+          postingId: posting.postingId,
+          eventId: posting.eventId,
+          title: posting.title,
+          clientName: posting.clientName,
+          role: posting.role,
+          requiredCount: posting.requiredCount,
+          confirmedCount: posting.confirmedCount,
+          status: posting.status,
+          workDates: posting.workDates,
+          startTime: posting.startTime,
+          endTime: posting.endTime,
+          endDayOffset: posting.endDayOffset,
+          venue: posting.venue,
+          address: event?.address ?? "",
+          meetingPoint: event?.meetingPoint ?? "",
+          dressCode: event?.dressCode ?? "",
+          belongings: event?.belongings ?? "",
+          wageType: posting.wageType,
+          wage: posting.wage,
+          /* 하루치 예상 지급액. 화면이 다시 계산하지 않게 여기서 낸다. */
+          dailyPay: event
+            ? calculateBasePay(
+                posting.wageType,
+                posting.wage,
+                calculateScheduledWorkHours(event),
+              )
+            : posting.wage,
+          isApplied,
+          conflictEventTitle: conflict?.title,
+        } satisfies MyPosting;
+      })
+      .sort((a, b) => a.workDates[0].localeCompare(b.workDates[0]));
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ items });
+  }),
+
+  /* ----------------------------- 내 지원 ---------------------------- */
+
+  http.get(`${BASE_URI}/my/applications`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const items = applications
+      .filter((application) => application.staffId === staff.staffId)
+      .sort((a, b) => b.appliedAt.localeCompare(a.appliedAt))
+      .map(toMyApplication);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ items });
+  }),
+
+  /**
+   * 공고에 지원한다.
+   *
+   * 담당자가 문자를 받아 옮겨 적던 자리를 본인이 직접 누른다.
+   * (`POST /admin/applications`는 그대로 남는다 — 문자로 지원하는 사람은 계속 있다)
+   *
+   * 확정까지 하지 않는다. **누구를 부를지는 담당자가 정한다.**
+   * 지원이 곧 확정이면 정원을 넘겨 들어오고, 그 자리에서 배치가 만들어져
+   * 서류·중복 검사를 지나쳐 버린다.
+   */
+  http.post(`${BASE_URI}/my/applications`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const body = (await request.json()) as { postingId: number };
+    const posting = findPosting(Number(body.postingId));
+
+    if (!posting) return notFound("존재하지 않는 공고입니다.");
+
+    if (posting.status !== "OPEN") {
+      return badRequest("지금은 지원할 수 없는 공고입니다.");
+    }
+
+    const isDuplicated = applications.some(
+      (application) =>
+        application.staffId === staff.staffId &&
+        application.postingId === posting.postingId &&
+        application.status !== "CANCELED",
+    );
+
+    if (isDuplicated) {
+      return badRequest("이미 지원한 공고입니다.", "DUPLICATED_APPLICATION");
+    }
+
+    /*
+      같은 날 다른 행사에 이미 확정돼 있으면 여기서 막는다.
+      확정 단계에서 담당자가 거절하게 두면, 본인은 왜 떨어졌는지 모른 채
+      다음에도 같은 날에 또 지원한다.
+    */
+    const conflict = findConflictEvent(
+      staff.staffId,
+      posting.workDate,
+      posting.eventId,
+    );
+
+    if (conflict) {
+      return badRequest(
+        `같은 날 '${conflict.title}'에 이미 확정되어 있습니다.`,
+        "ASSIGNMENT_CONFLICT",
+      );
+    }
+
+    const created: Application = {
+      applicationId: nextId(applications, "applicationId"),
+      postingId: posting.postingId,
+      postingTitle: posting.title,
+      eventId: posting.eventId,
+      eventTitle: posting.eventTitle,
+      workDate: posting.workDate,
+      role: posting.role,
+      staffId: staff.staffId,
+      applicantName: staff.name,
+      phoneNumber: staff.phoneNumber,
+      isExistingStaff: true,
+      status: "PENDING",
+      note: "포털에서 직접 지원",
+      appliedAt: new Date().toISOString(),
+    };
+
+    applications.unshift(created);
+    recalculatePostingCounts();
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(toMyApplication(created), { status: 201 });
+  }),
+
+  /**
+   * 지원 취소.
+   *
+   * **검토 대기일 때만** 된다. 확정된 뒤에 화면에서 혼자 빠질 수 있으면
+   * 담당자는 현장 전날에 사람이 사라진 것을 알게 된다. 그때는 연락해서 말해야 한다.
+   */
+  http.patch(
+    `${BASE_URI}/my/applications/:applicationId/cancel`,
+    async ({ params, request }) => {
+      const { staff, response } = requireStaff(request);
+
+      if (!staff) return response;
+
+      const application = applications.find(
+        (item) =>
+          item.applicationId === Number(params.applicationId) &&
+          item.staffId === staff.staffId,
+      );
+
+      if (!application) return notFound("존재하지 않는 지원 건입니다.");
+
+      if (application.status !== "PENDING") {
+        return badRequest(
+          "이미 처리된 지원입니다. 담당자에게 직접 연락해 주세요.",
+        );
+      }
+
+      application.status = "CANCELED";
+      application.processedAt = new Date().toISOString();
+
+      recalculatePostingCounts();
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(toMyApplication(application));
+    },
+  ),
+
+  /* ------------------------------ 홈 요약 ---------------------------- */
+
+  /**
+   * 포털 첫 화면.
+   *
+   * 여러 조회를 한 번에 묶는다. 첫 화면이 네 번 요청하면 폰에서는 그만큼 늦게 뜨고,
+   * 그 사이 화면은 빈 칸 네 개로 보인다.
+   *
+   * 할 일은 **지금 손이 가야 하는 순서**로 담는다. 서류가 맨 앞이다 —
+   * 서류가 막혀 있으면 지원해도 확정되지 않으므로, 다른 어떤 것보다 먼저다.
+   */
+  http.get(`${BASE_URI}/my/summary`, async ({ request }) => {
+    const { staff, response } = requireStaff(request);
+
+    if (!staff) return response;
+
+    const today = toDateKey(new Date());
+    const works = myWorks(staff.staffId);
+    const nextWork = works.find((work) => work.workDate >= today);
+
+    const monthPrefix = today.slice(0, 7);
+    const monthWorks = works.filter((work) =>
+      work.workDate.startsWith(monthPrefix),
+    );
+
+    /*
+      이번 달 예상 지급액은 **정산이 잡힌 건**에서 가져온다.
+      배치의 지급액을 그냥 더하면 원천징수와 공제가 빠져 실제 입금액보다 크고,
+      그 숫자를 본 사람은 돈이 덜 들어왔다고 여긴다.
+    */
+    const monthNetPay = payrollItems
+      .filter(
+        (item) =>
+          item.staffId === staff.staffId &&
+          item.workDates.some((date) => date.startsWith(monthPrefix)),
+      )
+      .reduce((sum, item) => sum + item.netPay, 0);
+
+    const todos: MyTodo[] = [];
+
+    if (staff.documentReviewState === "REJECTED") {
+      todos.push({
+        type: "DOCUMENT_REJECTED",
+        title: "서류가 반려되었습니다",
+        description: "사유를 확인하고 다시 올려 주세요.",
+        href: "/my/profile#DOCUMENT",
+        tone: "danger",
+      });
+    } else if (staff.documentReviewState === "NONE") {
+      todos.push({
+        type: "DOCUMENT_MISSING",
+        title: "신분증 · 통장사본을 등록해 주세요",
+        description: "서류가 승인되어야 근무를 확정할 수 있습니다.",
+        href: "/my/profile#DOCUMENT",
+        tone: "warning",
+      });
+    } else if (staff.documentReviewState === "SUBMITTED") {
+      todos.push({
+        type: "DOCUMENT_WAITING",
+        title: "서류를 확인하고 있습니다",
+        description: "담당자 승인 후 근무를 확정할 수 있습니다.",
+        href: "/my/profile#DOCUMENT",
+        tone: "info",
+      });
+    }
+
+    const waitingContracts = contractsByStaff(staff.staffId).filter(
+      (contract) => contract.status === "SENT",
+    );
+
+    if (waitingContracts.length > 0) {
+      todos.push({
+        type: "CONTRACT_SIGN",
+        title: `서명할 근로계약서가 ${waitingContracts.length}건 있습니다`,
+        description: "내용을 확인하고 서명해 주세요.",
+        href: "/my/contracts",
+        tone: "warning",
+      });
+    }
+
+    const processedApplications = applications.filter(
+      (application) =>
+        application.staffId === staff.staffId &&
+        (application.status === "ACCEPTED" || application.status === "REJECTED"),
+    );
+
+    if (processedApplications.length > 0) {
+      todos.push({
+        type: "APPLICATION_RESULT",
+        title: "지원 결과가 나왔습니다",
+        description: `${processedApplications.length}건의 지원이 처리되었습니다.`,
+        href: "/my/postings?tab=MINE",
+        tone: "info",
+      });
+    }
+
+    const summary: MySummary = {
+      nextWork,
+      monthWorkCount: monthWorks.length,
+      monthNetPay,
+      todos,
+      documentReviewState: staff.documentReviewState,
+    };
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json(summary);
+  }),
+];

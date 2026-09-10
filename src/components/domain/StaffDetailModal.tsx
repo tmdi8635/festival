@@ -9,6 +9,7 @@ import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import {
   ATTENDANCE_STATUS_TONE,
+  DOCUMENT_REVIEW_STATE_TONE,
   STAFF_STATUS_HINT,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
@@ -22,6 +23,9 @@ import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import { CONTRACT_STATUS_LABEL } from "@/type/contract";
 import {
   ATTENDANCE_STATUS_LABEL,
+  DOCUMENT_LANES,
+  DOCUMENT_LANE_LABEL,
+  DOCUMENT_REVIEW_STATE_LABEL,
   GENDER_LABEL,
   RATER_TYPE_LABEL,
   REPUTATION_BASE_SCORE,
@@ -622,7 +626,27 @@ const StaffDetailModal = ({
               </Alert>
             )}
 
-            {!staff.isDocumentComplete && (
+            {/*
+              서류가 막힌 이유를 상태별로 갈라 말한다.
+
+              예전에는 '서류가 아직 없습니다' 한 문장이었는데, 본인이 직접 올리게 되면서
+              **낸 사람 · 안 낸 사람 · 반려된 사람**이 갈렸다. 한 문장으로 뭉뚱그리면
+              이미 올려 둔 사람에게도 "받아 오라"고 연락하게 된다.
+            */}
+            {staff.documentReviewState === "SUBMITTED" && (
+              <Alert tone="warning" title="서류 승인을 기다리고 있습니다.">
+                본인이 제출했습니다. 서류 관리에서 사본을 확인하고 승인해 주세요.
+                승인 전에는 확정 배치를 할 수 없습니다.
+              </Alert>
+            )}
+
+            {staff.documentReviewState === "REJECTED" && (
+              <Alert tone="danger" title="서류가 반려된 상태입니다.">
+                본인이 다시 제출해야 합니다. 사유는 서류 관리에서 볼 수 있습니다.
+              </Alert>
+            )}
+
+            {staff.documentReviewState === "NONE" && (
               <Alert tone="warning" title="서류가 아직 없습니다.">
                 신분증 또는 통장사본이 없어 정산 계좌를 확정할 수 없습니다.
               </Alert>
@@ -758,8 +782,49 @@ const StaffDetailModal = ({
 
                 {canViewDocument && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <SecureImage label="신분증 사본" url={staff.idCardImageUrl} />
-                    <SecureImage label="통장 사본" url={staff.bankBookImageUrl} />
+                    {/*
+                      사본 위에 심사 상태를 함께 세운다. 사본만 보이면
+                      "이 사진이 확인된 것인가"를 알 수 없어, 승인 여부를
+                      서류 관리 화면까지 가서 다시 확인하게 된다.
+                    */}
+                    {DOCUMENT_LANES.map((lane) => (
+                      <div key={lane} className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[13px] text-font-2">
+                            {DOCUMENT_LANE_LABEL[lane]}
+                          </span>
+                          <Badge
+                            tone={
+                              DOCUMENT_REVIEW_STATE_TONE[
+                                staff.reviews[lane].state
+                              ]
+                            }
+                          >
+                            {
+                              DOCUMENT_REVIEW_STATE_LABEL[
+                                staff.reviews[lane].state
+                              ]
+                            }
+                          </Badge>
+                        </div>
+
+                        <SecureImage
+                          label={DOCUMENT_LANE_LABEL[lane]}
+                          url={
+                            lane === "ID_CARD"
+                              ? staff.idCardImageUrl
+                              : staff.bankBookImageUrl
+                          }
+                        />
+
+                        {staff.reviews[lane].state === "REJECTED" &&
+                          staff.reviews[lane].rejectReason && (
+                            <p className="text-[12px] text-danger">
+                              {staff.reviews[lane].rejectReason}
+                            </p>
+                          )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

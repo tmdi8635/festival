@@ -5,7 +5,13 @@ import type {
   StaffMemo,
   StaffStatus,
 } from "@/type/staff";
-import { REPUTATION_BASE_SCORE, resolveStaffStatus } from "@/type/staff";
+import {
+  REPUTATION_BASE_SCORE,
+  resolveDocumentReviewState,
+  resolveStaffStatus,
+  resubmitDocumentLane,
+} from "@/type/staff";
+import type { DocumentReview, StaffDocumentReviews } from "@/type/staff";
 import type { EmployeePosition } from "@/type/employee";
 import { REGION_DISTRICTS } from "@/constants/regionOptions";
 import { dateFromToday, daysAgo, pickOne, randomInt } from "../utils";
@@ -171,11 +177,53 @@ export const staffList: StaffDetail[] = Array.from(
     const hasBankBook = !(workCount < 5 && seed % 4 === 1) && seed % 17 !== 0;
 
     /*
-      상태는 **서류가 정한다.** 여기서 직접 고르지 않는다.
+      심사 상태를 네 가지가 **모두 나오도록** 뿌린다.
+
+      승인 완료만 있으면 서류 관리 화면의 대기열도, 포털의 반려 안내도
+      눈으로 확인할 방법이 없다. 파일이 있는 사람 중 일부를 승인 대기와 반려로 돌린다.
+      (파일이 없으면 심사할 것도 없으므로 `NONE`이다)
+    */
+    const laneReview = (hasFile: boolean, laneSeed: number): DocumentReview => {
+      if (!hasFile) return { state: "NONE" };
+
+      if (laneSeed % 9 === 0) {
+        return {
+          state: "REJECTED",
+          submittedAt: daysAgo(randomInt(laneSeed, 6, 30)),
+          reviewedAt: daysAgo(randomInt(laneSeed * 3, 1, 5)),
+          reviewerName: "김도윤",
+          rejectReason: "사진이 흐려 글자를 읽을 수 없습니다. 다시 올려 주세요.",
+        };
+      }
+
+      if (laneSeed % 7 === 0) {
+        return {
+          state: "SUBMITTED",
+          submittedAt: daysAgo(randomInt(laneSeed, 1, 6)),
+        };
+      }
+
+      return {
+        state: "APPROVED",
+        submittedAt: daysAgo(randomInt(laneSeed, 40, 300)),
+        reviewedAt: daysAgo(randomInt(laneSeed * 3, 10, 39)),
+        reviewerName: "김도윤",
+      };
+    };
+
+    const reviews: StaffDocumentReviews = {
+      ID_CARD: laneReview(hasIdCard, seed * 5),
+      BANK_ACCOUNT: laneReview(hasBankBook, seed * 11),
+    };
+
+    const documentReviewState = resolveDocumentReviewState(reviews);
+
+    /*
+      상태는 **서류 승인이 정한다.** 여기서 직접 고르지 않는다.
       화면·핸들러와 같은 함수를 써야 "서류를 지웠는데 목록은 활동중"이 안 생긴다.
     */
     const status: StaffStatus = resolveStaffStatus({
-      isDocumentComplete: hasIdCard && hasBankBook,
+      documentReviewState,
       employment: "FREELANCER",
       status: isBlacklisted ? "BLACKLIST" : undefined,
     });
@@ -234,6 +282,7 @@ export const staffList: StaffDetail[] = Array.from(
       region,
       district,
       isDocumentComplete: hasIdCard && hasBankBook,
+      documentReviewState,
       workCount,
       totalWorkHours: workCount * randomInt(seed * 67, 6, 10),
       noShowCount,
@@ -265,6 +314,7 @@ export const staffList: StaffDetail[] = Array.from(
       bankBookImageUrl: hasBankBook
         ? `https://picsum.photos/seed/bankbook-${staffId}/600/380`
         : "",
+      reviews,
       address: `${region} ${district} ${randomInt(seed * 101, 1, 90)}길 ${randomInt(seed * 103, 1, 40)}`,
       emergencyContact: `010${String(randomInt(seed * 107, 2000, 9999))}${String(randomInt(seed * 109, 1000, 9999))}`,
       height: gender === "FEMALE" ? randomInt(seed * 113, 158, 175) : randomInt(seed * 113, 170, 187),
@@ -482,6 +532,7 @@ const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
       (`canConfirmAssignment` — 직원은 서류 검사를 받지 않는다)
     */
     isDocumentComplete: true,
+    documentReviewState: "APPROVED",
     workCount: randomInt(seed * 11, 20, 90),
     totalWorkHours: randomInt(seed * 13, 400, 2200),
     noShowCount: 0,
@@ -498,6 +549,10 @@ const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
     accountHolder: employee.name,
     idCardImageUrl: `https://picsum.photos/seed/idcard-${staffId}/600/380`,
     bankBookImageUrl: `https://picsum.photos/seed/bankbook-${staffId}/600/380`,
+    reviews: {
+      ID_CARD: { state: "APPROVED", reviewedAt: daysAgo(200) },
+      BANK_ACCOUNT: { state: "APPROVED", reviewedAt: daysAgo(200) },
+    } satisfies StaffDocumentReviews,
     address: `${region} ${district} ${randomInt(seed * 101, 1, 90)}길 ${randomInt(seed * 103, 1, 40)}`,
     emergencyContact: `010${String(randomInt(seed * 107, 2000, 9999))}${String(randomInt(seed * 109, 1000, 9999))}`,
     height: gender === "FEMALE" ? randomInt(seed * 113, 158, 175) : randomInt(seed * 113, 170, 187),
@@ -541,10 +596,33 @@ export const assignableStaff = () =>
  */
 export const everWorkedStaff = () => staffList;
 
-/** 서류 미제출 인력. 대시보드 할 일 목록에 올라간다. */
+/**
+ * 아직 서류를 내지 않은 인력. 대시보드 할 일 목록에 올라간다.
+ *
+ * `status === "ACTIVE"` 조건을 뺐다. 승인이 상태를 정하게 되면서 그 조건이
+ * **찾으려는 사람을 정확히 빼 버리는** 필터가 됐다 — 서류가 없으면 대기중(PENDING)이다.
+ * (직원은 회사가 입사할 때 받았으므로 애초에 대상이 아니다)
+ */
 export const staffMissingDocuments = () =>
   staffList.filter(
-    (staff) => !staff.isDocumentComplete && staff.status === "ACTIVE",
+    (staff) =>
+      staff.employment === "FREELANCER" &&
+      staff.status !== "BLACKLIST" &&
+      staff.documentReviewState === "NONE",
+  );
+
+/**
+ * 본인이 올렸고 관리자 확인을 기다리는 서류.
+ *
+ * 미제출과 갈라 센다. 미제출은 본인에게 달린 일이고, 이쪽은 **담당자가 열어 보면
+ * 끝나는 일**이다. 한 숫자로 묶으면 담당자는 자기 몫이 얼마인지 알 수 없다.
+ */
+export const staffWaitingDocumentReview = () =>
+  staffList.filter(
+    (staff) =>
+      staff.employment === "FREELANCER" &&
+      staff.status !== "BLACKLIST" &&
+      staff.documentReviewState === "SUBMITTED",
   );
 
 /** 최근 등록된 인력 순으로 정렬한 목록 (목록 화면 기본 정렬) */
@@ -553,3 +631,62 @@ export const sortedStaff = () =>
 
 /** 시드 데이터 생성 시점 기준 오늘 날짜 (행사 목업이 함께 참조한다) */
 export const TODAY = dateFromToday(0);
+
+/**
+ * 서류 · 계좌를 고친 뒤 인력의 파생 값을 다시 맞춘다. **바꾸는 자리는 전부 여기를 거친다.**
+ *
+ * 관리자 폼(`PUT /admin/staff/:id`) · 서류 갱신(`PATCH .../documents`) ·
+ * 본인 제출(`PUT /my/documents`)이 각자 계산하면 반드시 어긋난다.
+ * 실제로 예전에 "서류를 지웠는데 목록에는 활동중"이 그렇게 생겼다.
+ *
+ * 값이 **실제로 달라진 갈래만** 심사를 되돌린다. 이름 하나 고쳤다고 승인이
+ * 풀리면 본인은 아무 잘못 없이 현장에 못 나가게 된다.
+ */
+export const syncStaffDocuments = (
+  staff: StaffDetail,
+  before: {
+    idCardImageUrl: string;
+    bankBookImageUrl: string;
+    bankName: string;
+    accountNumber: string;
+    accountHolder: string;
+  },
+) => {
+  const now = new Date().toISOString();
+
+  if (staff.idCardImageUrl !== before.idCardImageUrl) {
+    staff.reviews.ID_CARD = resubmitDocumentLane(
+      Boolean(staff.idCardImageUrl),
+      now,
+    );
+  }
+
+  /* 통장사본과 계좌 정보는 한 묶음이다. 어느 쪽이 바뀌어도 다시 본다. */
+  const isBankChanged =
+    staff.bankBookImageUrl !== before.bankBookImageUrl ||
+    staff.bankName !== before.bankName ||
+    staff.accountNumber !== before.accountNumber ||
+    staff.accountHolder !== before.accountHolder;
+
+  if (isBankChanged) {
+    staff.reviews.BANK_ACCOUNT = resubmitDocumentLane(
+      Boolean(staff.bankBookImageUrl && staff.accountNumber),
+      now,
+    );
+  }
+
+  staff.isDocumentComplete = Boolean(
+    staff.idCardImageUrl && staff.bankBookImageUrl,
+  );
+  staff.documentReviewState = resolveDocumentReviewState(staff.reviews);
+  staff.status = resolveStaffStatus(staff);
+};
+
+/** 서류 · 계좌의 '고치기 전' 값을 떠 둔다. `syncStaffDocuments`와 짝이다. */
+export const snapshotStaffDocuments = (staff: StaffDetail) => ({
+  idCardImageUrl: staff.idCardImageUrl,
+  bankBookImageUrl: staff.bankBookImageUrl,
+  bankName: staff.bankName,
+  accountNumber: staff.accountNumber,
+  accountHolder: staff.accountHolder,
+});

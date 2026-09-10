@@ -55,8 +55,10 @@ npx tsc --noEmit && npx eslint src && npm run build
 ## 폴더 구조
 
 ```
-src/app/(admin)/     라우트. page.tsx는 서버 컴포넌트, 상태는 _components/의 클라이언트 컴포넌트
+src/app/(admin)/     관리자 라우트. page.tsx는 서버 컴포넌트, 상태는 _components/의 클라이언트 컴포넌트
+src/app/(portal)/    스태프 포털(/my). 하단 탭 · 모바일 우선. 관리자 셸을 공유하지 않는다
 src/api/<domain>/    API 함수 + react-query 훅을 같은 파일에 둔다 (getXxx.ts / mutateXxx.ts)
+src/api/my/          포털 전용. usePermittedQuery(관리자 권한)를 쓰지 않는다
 src/mocks/db/        도메인별 시드 배열 (모듈 스코프. 변경 API가 실제로 이 배열을 고친다)
 src/mocks/handlers/  도메인별 MSW 핸들러
 src/type/            타입 + 계산 순수 함수 (계산식의 단일 원본)
@@ -132,6 +134,38 @@ src/store/           zustand (useAdminStore 권한 · useOrgStore 기준 설정 
 서버가 막아야 할 규칙(중복 배치, 기본 템플릿 삭제, 권한)은 목업도 막는다.
 날짜는 `dateFromToday(offset)`, 난수는 seed 기반(`randomInt`/`pickOne`)으로만 만든다.
 핸들러 등록 순서에 의미가 있다 — 감사 로그가 맨 앞, `/events/calendar`가 `/events/:eventId`보다 먼저.
+
+### 스태프 포털은 권한이 아니라 "본인 것인가"로 가른다
+
+`/my/*`는 `/admin/*`과 **주소부터 갈라 둔다.** `requirePermission`은 관리자 권한 키만 보고,
+포털은 `requireStaff()`로 요청자가 누구인지만 본다. 한 주소에 두 규칙을 얹으면 언젠가
+헷갈리고, 그때 새는 것은 남의 계좌와 평판이다.
+
+- 요청자는 `X-Staff-Id` 하나로만 판별한다. **`/my/*` 핸들러는 `X-Admin-Id`를 보지 않는다.**
+  (목업 관리자 계정이 늘 있어서 그 헤더는 포털 요청에도 함께 실려 온다)
+- `staffId`를 쿼리로 받지 않는다. 받는 순간 주소만 알면 남의 자료를 꺼낼 수 있다.
+- 남의 자료는 403이 아니라 **404**다. 403은 "그 번호의 자료가 있긴 하다"를 알려 준다.
+- 응답은 `type/my.ts`의 전용 DTO다. `StaffDetail`을 그대로 내리면 메모 · 블랙리스트 사유가
+  함께 나가고, 화면에서 걸러 내는 방식은 화면이 늘면 반드시 한 곳을 빠뜨린다.
+- 포털은 **동적 라우트를 만들지 않는다.** 정적 내보내기 제약이다. 모달과 쿼리로 처리한다.
+
+서류는 **제출과 승인이 다른 값**이다. `isDocumentComplete`는 파일 유무,
+`documentReviewState`가 심사 결과다. 확정 배치를 가르는 것은 **승인 쪽**이고,
+`resolveStaffStatus()` · `canConfirmAssignment()`가 그 단일 원본이다.
+
+계약서 전자서명(`signature`)은 종이 등록(`signedFile`)을 대체하지 않고 나란히 선다.
+서명완료의 근거는 둘 중 하나라도 있으면이다.
+
+### 출퇴근은 본인이 찍고, 규칙은 기준 설정이 갖는다
+
+찍은 시각을 그대로 쓰지 않는다. `OperationSettings.attendance`의 규칙을
+`applyCheckTimeRule()`이 적용한다 — 단위 보정 먼저, 예정 시각 클램프 나중.
+**이 규칙은 `/my/*`(본인이 찍는 길)에만 걸린다.** 관리자가 근태 모달에서 적는 시각은
+적은 그대로 저장된다. 거기에도 걸면 잘못된 기록을 고칠 방법이 없어진다.
+
+위치는 `event.latitude/longitude`와 기준 설정의 반경으로 본다.
+**좌표가 없는 행사는 확인하지 않는다.** 지각 분수는 저장하지 않고
+`resolveLateMinutes()`로 그때 구한다 (출근 시각이 이미 말하는 사실이다).
 
 ### 응답 형태와 에러
 

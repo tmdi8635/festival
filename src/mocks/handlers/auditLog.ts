@@ -1,7 +1,7 @@
 import { http } from "msw";
 import type { LogDomain } from "@/type/ops";
 import { operationLogs } from "../db/ops";
-import { BASE_URI } from "../utils";
+import { BASE_URI, findStaffRequester } from "../utils";
 
 /** 경로 앞부분 → 운영 로그 도메인 */
 const DOMAIN_BY_PATH_SEGMENT: Record<string, LogDomain> = {
@@ -19,6 +19,9 @@ const DOMAIN_BY_PATH_SEGMENT: Record<string, LogDomain> = {
   managers: "OPS",
   settings: "OPS",
   files: "OPS",
+  /* 포털 쪽 경로 */
+  profile: "STAFF",
+  documents: "STAFF",
 };
 
 /** HTTP 메서드 → 사람이 읽는 동작 이름 */
@@ -31,7 +34,7 @@ const ACTION_BY_METHOD: Record<string, string> = {
 
 /** `/admin/events/3/assignments` → `EVENT` */
 const resolveDomain = (pathname: string): LogDomain => {
-  const segments = pathname.replace(/^\/admin\/?/, "").split("/");
+  const segments = pathname.replace(/^\/(admin|my)\/?/, "").split("/");
 
   for (const segment of segments) {
     const domain = DOMAIN_BY_PATH_SEGMENT[segment];
@@ -70,6 +73,36 @@ export const auditLogHandlers = [
     });
 
     // 반환값이 없으므로 실제 도메인 핸들러가 이어서 처리한다.
+    return;
+  }),
+
+  /**
+   * 포털에서 본인이 한 변경도 같은 자리에 남긴다.
+   *
+   * 서류 재제출 · 계좌 변경 · 지원 취소는 나중에 반드시 "언제 바뀌었나"를 묻게 되는
+   * 일들이다. 관리자가 한 일만 남기면, 담당자는 자기가 만지지도 않은 값이
+   * 달라진 것을 보고 시스템을 의심하게 된다.
+   *
+   * 행위자는 **본인 이름**이다. 관리자 로그와 같은 표에 섞이지만 누가 했는지는 갈린다.
+   */
+  http.all(`${BASE_URI}/my/*`, ({ request }) => {
+    const action = ACTION_BY_METHOD[request.method];
+
+    if (!action) return;
+
+    const { pathname } = new URL(request.url);
+    const staff = findStaffRequester(request);
+
+    operationLogs.unshift({
+      logId: Math.max(...operationLogs.map((log) => log.logId), 0) + 1,
+      level: "INFO",
+      domain: resolveDomain(pathname),
+      action,
+      actor: staff ? `${staff.name} (본인)` : "알 수 없음",
+      message: `${request.method} ${pathname}`,
+      createdAt: new Date().toISOString(),
+    });
+
     return;
   }),
 ];

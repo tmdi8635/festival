@@ -9,7 +9,11 @@ export interface ActionItem {
     | "UNDERSTAFFED"
     | "CHECK_TIME_MISSING"
     | "CONTRACT_MISSING"
+    /** 근로자가 "내용이 다르다"고 되돌려 보낸 계약서 */
+    | "CONTRACT_REJECTED"
     | "DOCUMENT_MISSING"
+    /** 본인이 올렸고 관리자 확인을 기다리는 서류 */
+    | "DOCUMENT_REVIEW"
     | "PAYROLL_PENDING"
     | "APPLICATION_PENDING";
   title: string;
@@ -25,7 +29,9 @@ export const ACTION_TYPE_LABEL: Record<ActionItem["type"], string> = {
   UNDERSTAFFED: "인원 미충원",
   CHECK_TIME_MISSING: "출퇴근 미기록",
   CONTRACT_MISSING: "계약서 미작성",
+  CONTRACT_REJECTED: "계약서 반려",
   DOCUMENT_MISSING: "서류 미제출",
+  DOCUMENT_REVIEW: "서류 승인 대기",
   PAYROLL_PENDING: "정산 대기",
   APPLICATION_PENDING: "지원 검토",
 };

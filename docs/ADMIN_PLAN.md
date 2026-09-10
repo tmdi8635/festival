@@ -53,9 +53,9 @@
 | 3 | 모집 | 공고 관리 | `/recruit/postings` | 공고문 자동 생성 · 복사 |
 | | | 지원자 관리 | `/recruit/applications` | 확정 시 배치 자동 생성 |
 | 4 | 인사관리 | 인력풀 | `/staff` | 목록 · 상세(4탭) · 등록/수정 |
-| | | 서류 관리 | `/staff/documents` | 신분증 · 통장사본 미제출 추적 |
+| | | 서류 관리 | `/staff/documents` | 본인이 올린 신분증 · 통장사본 **승인 · 반려** |
 | | | 블랙리스트 | `/staff/blacklist` | 지정 목록 + 지정 후보 |
-| 5 | 근로계약 | 계약서 관리 | `/contracts` | 일괄 생성 · 발송 · 서명 처리 |
+| 5 | 근로계약 | 계약서 관리 | `/contracts` | 명단 · 전자서명 요청 · 서명본 등록 · 재작성 |
 | | | 계약서 템플릿 | `/contracts/templates` | 직무별 양식 · 변수 검증 |
 | 6 | 정산 | — | `/payroll` | 지급액 계산 · 조정 · 은행 이체 파일 |
 | 7 | 거래처 | — | `/clients` | 청구 단가 · 마진율 |
@@ -65,6 +65,107 @@
 | 9 | 운영 | 담당자 관리 | `/ops/managers` | 계정 · 권한 |
 | | | 기준 설정 | `/ops/settings` | 시급 · 수당 · 승급 · 블랙리스트 기준 |
 | | | 운영 로그 | `/ops/logs` | 변경 이력 자동 적재 |
+
+---
+
+## 3-1. 스태프 포털 (`/my`)
+
+관리자의 반대쪽 절반이다. `docs/PLAN.md` 5장이 "근로자용 앱 — 다음 단계"로 미뤄 뒀던 것이고,
+배포용 서버로 옮기면서 프론트 쪽을 먼저 만들었다. 라우트 그룹은 `src/app/(portal)/`이다.
+
+| 라우트 | 화면 책임 |
+|---|---|
+| `/my` | 홈. 다음 근무 · 할 일(서류 반려 · 서명 대기 · 지원 결과) · 이번 달 예상 지급액 |
+| `/my/schedule` | 내 일정. 예정 / 종료 탭. 집합 장소 · 복장 · 준비물 · 담당자 전화 · **출퇴근 체크** |
+| `/my/postings` | 공고 열람 · 지원 · 내 지원(취소) |
+| `/my/contracts` | 내 계약서. 전문을 읽고 **전자서명**하거나 사유를 적어 되돌려 보낸다 |
+| `/my/profile` | 인적사항 수정(즉시) · 서류·계좌 제출(승인 대상) · 받은 평가 |
+| `/my/payroll` | 정산 내역. 왜 이 금액인지 펼쳐 본다. 계좌는 뒤 4자리만 |
+
+### 관리자와 갈라 두는 것
+
+| 축 | 관리자 | 포털 |
+|---|---|---|
+| 주소 | `/admin/*` | `/my/*` |
+| 신원 | `X-Admin-Id` → `findRequester()` | `X-Staff-Id` → `findStaffRequester()` |
+| 판정 | `requirePermission(권한 키)` | `requireStaff()` — "본인 것인가" 하나만 본다 |
+| 셸 | 사이드바 + 명령 팔레트 | 하단 탭 5개 (`constants/staffMenu.tsx`) |
+| 응답 | `StaffDetail` 등 도메인 타입 | `type/my.ts`의 전용 DTO |
+
+**`/my/*` 핸들러는 `X-Admin-Id`를 절대 보지 않는다.** 목업 관리자 계정이 늘 있어서
+그 헤더는 포털에서도 함께 실려 오는데, 여기서 받기 시작하면 본인 것만 보여 줘야 할
+주소가 관리자 권한으로 열린다.
+
+**`staffId`를 쿼리로 받지 않는다.** 받는 순간 주소만 알면 남의 계좌와 평판을 꺼낼 수 있다.
+남의 자료는 403이 아니라 **404**로 답한다 — 403은 "그 번호의 자료가 있긴 하다"를 알려 준다.
+
+**동적 라우트를 만들지 않는다.** 정적 내보내기라 동적 라우트마다 `generateStaticParams`가
+필요하다. 공고 상세 · 계약서 상세는 모달과 `?tab=` 쿼리로 처리한다.
+
+### 서류 승인
+
+서류는 **신분증**과 **통장사본 + 계좌 정보** 두 갈래로 심사한다. 통장사본이 계좌번호의
+근거이므로 갈라 두면 사본 없이 계좌만 승인되는 자리가 생긴다.
+
+```
+본인 제출 → SUBMITTED → 관리자 승인 APPROVED  (반려하면 REJECTED + 사유 필수)
+                              ↓
+        resolveStaffStatus()  →  대기중 / 활동중
+        canConfirmAssignment() →  확정 배치 가능 여부
+```
+
+판정 근거는 파일 유무(`isDocumentComplete`)가 아니라 **승인 여부**(`documentReviewState`)다.
+서버 세 곳이 막는다 — 배치 생성 · 배치 상태 승격 · 모집 지원 확정.
+
+### 출퇴근 — 본인이 찍는다
+
+기록하는 권한이 근로자에게 있고, **마지막 검증은 업체가 한다.** 관리자는 근태 모달로
+언제든 시각을 고칠 수 있고, 그 경로는 그대로다.
+
+```
+근로자가 포털에서 출근 → 기록 규칙 적용 → checkInAt · attendance · checkInLocation
+                              ↓
+           관리자가 근태 모달에서 확인 · 수정 (규칙이 다시 걸리지 않는다)
+```
+
+**기록 규칙은 기준 설정에서 업체가 정한다** (`OperationSettings.attendance`).
+출근·퇴근 각각 두 축이다.
+
+| 축 | 값 |
+|---|---|
+| 기준 (`base`) | `SCHEDULE` 예정 시각으로 맞춤 / `ACTUAL` 찍은 시각 그대로 |
+| 단위 보정 (`rounding` · `unit`) | 없음 / 올림 · 내림 · 반올림 × 10 · 15 · 30 · 60분 |
+
+적용 순서는 **단위 보정 → 예정 클램프**다(`applyCheckTimeRule`). 반대로 하면 맞춰 둔 값을
+다시 굴려 예정 시각에서 벗어난다. `SCHEDULE`은 **한 방향으로만** 당긴다 —
+출근은 이른 것만, 퇴근은 늦은 것만. 양쪽을 다 맞추면 지각과 조퇴가 화면에서 사라진다.
+
+**규칙은 본인이 찍는 경로에만 산다.** 관리자가 직접 적는 시각에 또 걸면
+잘못 들어간 기록을 고칠 방법이 없어진다.
+
+위치는 행사 좌표(`EventDetail.latitude` · `longitude`)와 기준 설정의 반경으로 판정한다.
+**좌표가 없는 행사는 확인하지 않는다** — 좌표를 깜빡한 행사에서 전원이 못 찍으면
+그 순간 현장이 멈춘다. 찍은 좌표와 거리는 `Assignment.checkInLocation`에 남는다.
+막는 것이 목적이 아니라 근거를 남기는 것이 목적이다.
+
+지각 분수(`lateMinutes`)는 **저장하지 않는다.** 늦게 온 사실은 출근 시각이 이미 말하고,
+같은 사실을 두 곳에 적으면 반드시 어긋난다. 화면에 적을 때는 `resolveLateMinutes()`로 그때 구한다.
+
+### 계약서 전자서명
+
+종이 등록을 **대체하지 않고 나란히** 선다. `Contract`가 `signature`(전자)와
+`signedFile`(종이)를 둘 다 optional로 갖고, 서명완료의 근거는 둘 중 하나라도 있으면이다.
+
+```
+관리자 발송(POST /admin/contracts/send, contract:send)
+   → 계약번호 발급 + SENT
+   → 본인이 /my/contracts에서 서명 → SIGNED (서명 이미지 + 문서 해시)
+                          또는 반려 → REJECTED + 사유
+   → 관리자가 고쳐서 다시 보내기 (같은 차수 · 같은 번호, 내용만 재조립)
+```
+
+차수(`revision`)는 **서명이 끝난 문서를 대체할 때만** 올린다. 서명 전에 고친 것은
+같은 문서의 수정이라 차수를 올리지 않는다.
 
 ---
 
@@ -186,6 +287,26 @@ GET    /admin/clients/{id}                    최근 행사 포함
 GET    /admin/managers                        (POST · PUT · DELETE)
 GET    /admin/logs
 GET    /admin/settings                        (PUT)
+
+POST   /admin/contracts/send                  전자서명 요청 (번호 발급 + SENT)
+PATCH  /admin/staff/{id}/documents/review     서류 승인 · 반려 (반려는 사유 필수)
+
+--- 스태프 포털 (요청자는 X-Staff-Id 하나로만 판별한다) ---
+
+GET    /my/accounts                           계정 전환 (테스트용. 로그인이 붙으면 삭제)
+GET    /my/profile                            (PUT — 인적사항, 승인 없이 즉시 반영)
+PUT    /my/documents                          서류 · 계좌 제출 → 승인 대기
+GET    /my/assignments?scope=UPCOMING|PAST    내 근무 (행사 정보를 합쳐 내린다)
+GET    /my/payrolls                           내 정산 (계좌는 뒤 4자리만)
+GET    /my/reputations                        내 평판 (항목은 보이고 담당자 메모는 없다)
+GET    /my/postings                           OPEN 공고만
+GET    /my/applications                       (POST — 지원 / PATCH {id}/cancel — 취소)
+GET    /my/contracts                          (GET {id}/preview — 원문 + 양식)
+POST   /my/contracts/{id}/sign                전자서명 제출
+POST   /my/contracts/{id}/reject              반려 (사유 필수)
+POST   /my/assignments/{id}/check-in          출근 (위치 · 시간 창 검증 + 기록 규칙)
+POST   /my/assignments/{id}/check-out         퇴근
+GET    /my/summary                            홈 화면 요약
 
 POST   /admin/files/upload/{fileType}         multipart, file 필드
 GET    /admin/search?keyword                  인력 · 행사 · 거래처 통합

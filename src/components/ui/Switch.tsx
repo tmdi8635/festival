@@ -27,6 +27,12 @@ const Switch = ({
       className={cn(
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition",
         "disabled:cursor-not-allowed disabled:opacity-50",
+        /*
+          보이는 크기는 24px 그대로 두고 **누를 수 있는 영역만** 위아래로 넓힌다.
+          손가락으로 누르는 화면에서 24px는 실제로 빗나가는데, 스위치를 키우면
+          표 안에서 혼자 커 보인다. 모양과 히트 영역을 갈라 둔다.
+        */
+        "before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-['']",
         checked ? "bg-brand" : "bg-border-strong",
         className,
       )}

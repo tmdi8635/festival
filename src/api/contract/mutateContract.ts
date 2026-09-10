@@ -34,6 +34,34 @@ export interface RegisterContractRequest {
   isSilent?: boolean;
 }
 
+/**
+ * 계약서를 본인에게 보낸다. (전자서명 요청)
+ *
+ * 이 요청이 성공하면 계약번호가 붙고, 그 사람의 포털 화면에 서명할 문서가 뜬다.
+ * 반려된 건을 다시 보내는 것도 같은 요청이다 — 내용을 지금 배치 기준으로
+ * 다시 조립하므로, 금액을 고친 뒤 그대로 부르면 된다.
+ */
+export interface SendContractRequest {
+  eventId: number;
+  staffIds: number[];
+  templateId?: number;
+}
+
+export interface SendContractResponse {
+  sent: Contract[];
+  /** 보내지 못한 사람과 그 이유. 숫자만 주면 누구인지 알 수 없다. */
+  skipped: string[];
+}
+
+export const sendContract = async (body: SendContractRequest) => {
+  const response = await adminAxios.post<SendContractResponse>(
+    "/admin/contracts/send",
+    body,
+  );
+
+  return response.data;
+};
+
 export const registerContract = async ({
   isSilent,
   ...body
@@ -132,6 +160,31 @@ export const useContractMutation = () => {
     queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
     queryClient.invalidateQueries({ queryKey: ["get-dashboard-summary"] });
   };
+
+  const sendMutation = useMutation<
+    SendContractResponse,
+    AppError,
+    SendContractRequest
+  >({
+    mutationFn: sendContract,
+    onSuccess: ({ sent, skipped }) => {
+      showAppToast(
+        "success",
+        `${sent.length}명에게 계약서를 보냈습니다.`,
+        {
+          /*
+            건너뛴 사람이 있으면 함께 알린다. "3명에게 보냈습니다"만 뜨면
+            5명을 골랐던 담당자는 나머지 둘이 어떻게 됐는지 영영 모른다.
+          */
+          description:
+            skipped.length > 0
+              ? skipped.join(" ")
+              : "서명이 들어오면 명단 상태가 바뀝니다.",
+        },
+      );
+      invalidateContract();
+    },
+  });
 
   const registerMutation = useMutation<
     Contract,
@@ -232,6 +285,7 @@ export const useContractMutation = () => {
   });
 
   return {
+    sendMutation,
     registerMutation,
     cancelRegistrationMutation,
     amendMutation,

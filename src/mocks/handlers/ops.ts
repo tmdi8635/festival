@@ -8,6 +8,7 @@ import type {
   LogLevel,
   OperationSettings,
 } from "@/type/ops";
+import { mergeAttendanceSettings } from "@/type/ops";
 import {
   adminRoles,
   employees,
@@ -225,6 +226,11 @@ export const opsHandlers = [
     */
     Object.assign(operationSettings, body, {
       jobRoles: sanitizeJobRoles(body.jobRoles ?? []),
+      /*
+        근태 규칙도 서버가 메운다. 일부만 담긴 요청이 오면 나머지 칸이 `undefined`가
+        되고, 그 상태로 출퇴근을 찍으면 규칙이 없는 것처럼 굴러간다.
+      */
+      attendance: mergeAttendanceSettings(body.attendance),
       updatedAt: new Date().toISOString(),
     });
 

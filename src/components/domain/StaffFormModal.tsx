@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useStaffMutation } from "@/api/staff/mutateStaff";
-import { GENDER_OPTIONS } from "@/constants/staffOptions";
+import { BANK_OPTIONS, GENDER_OPTIONS } from "@/constants/staffOptions";
 import {
   REGION_OPTIONS,
   districtOptions,
@@ -33,19 +33,6 @@ interface StaffFormModalProps {
   staff: StaffDetail | null;
   onClose: () => void;
 }
-
-const BANK_OPTIONS = [
-  "국민",
-  "신한",
-  "우리",
-  "하나",
-  "농협",
-  "기업",
-  "카카오뱅크",
-  "토스뱅크",
-  "케이뱅크",
-  "새마을금고",
-].map((bank) => ({ label: bank, value: bank }));
 
 const toFormValues = (staff: StaffDetail): StaffSchemaInput => ({
   name: staff.name,

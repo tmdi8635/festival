@@ -7,6 +7,7 @@ import axios, {
 import { BASE_PATH } from "@/lib/basePath";
 import { showAppToast } from "@/lib/toast";
 import { useAdminStore } from "@/store/useAdminStore";
+import { useStaffSessionStore } from "@/store/useStaffSessionStore";
 import type {
   ApiErrorResponse,
   ApiSuccessResponse,
@@ -99,6 +100,18 @@ const onRequest = (
   const { admin } = useAdminStore.getState();
 
   if (admin) config.headers.set("X-Admin-Id", String(admin.employeeId));
+
+  /*
+    스태프 포털(`/my/*`)의 요청자.
+
+    관리자 신원과 **따로 싣는다.** 목업 계정이 항상 있어서 `X-Admin-Id`는
+    포털에서도 함께 나가는데, `/my/*` 핸들러가 그것을 보기 시작하면
+    본인 것만 보여 줘야 할 주소가 관리자 권한으로 열린다.
+    보내는 쪽에서 갈라 두면 받는 쪽이 헷갈릴 일이 없다.
+  */
+  const { staffId } = useStaffSessionStore.getState();
+
+  if (staffId) config.headers.set("X-Staff-Id", String(staffId));
 
   return config;
 };

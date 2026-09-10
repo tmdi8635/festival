@@ -11,6 +11,7 @@ import { payrollHandlers } from "./payroll";
 import { recruitHandlers } from "./recruit";
 import { searchHandlers } from "./search";
 import { staffHandlers } from "./staff";
+import { staffPortalHandlers } from "./staffPortal";
 
 /**
  * MSW 핸들러 모음.
@@ -25,6 +26,11 @@ export const handlers = [
   // eventHandlers 안에서 `/admin/events/calendar`를 `/admin/events/:eventId`보다 먼저 등록한다.
   ...eventHandlers,
   ...staffHandlers,
+  /*
+    스태프 포털. 주소가 `/my/*`라 `/admin/*`과 겹치지 않으므로 순서에 매이지 않는다.
+    관리자 핸들러 뒤에 두는 것은 읽는 순서를 업무 흐름과 맞추기 위해서다.
+  */
+  ...staffPortalHandlers,
   ...employeeHandlers,
   ...contractHandlers,
   ...payrollHandlers,

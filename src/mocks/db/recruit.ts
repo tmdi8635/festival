@@ -117,6 +117,8 @@ export const postings: JobPosting[] = events
           wageType: slot.wageType,
           wage: slot.wage,
           workDate: event.startDate,
+          /* 근무일은 행사가 정한다. 기간이 아니라 반복 규칙의 결과다. (`resolveEventDates`) */
+          workDates: event.dates,
           startTime: event.startTime,
           endTime: event.endTime,
           endDayOffset: event.endDayOffset,

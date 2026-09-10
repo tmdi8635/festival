@@ -182,8 +182,107 @@ export interface OperationSettings {
   /** 기능별 운영 모드 */
   featureModes: Record<FeatureKey, FeatureMode>;
 
+  /** 본인이 찍는 출퇴근을 어떻게 기록할지 */
+  attendance: AttendanceSettings;
+
   updatedAt: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* 출퇴근 기록 규칙                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 찍은 시각을 **예정 시각에 맞출지**.
+ *
+ * - `ACTUAL`   찍은 그대로 남긴다
+ * - `SCHEDULE` 예정 시각 쪽으로 당긴다. **한 방향으로만** 당긴다는 것이 핵심이다
+ *              (출근은 이른 것만, 퇴근은 늦은 것만). 양쪽을 다 맞추면
+ *              지각과 조퇴가 화면에서 통째로 사라진다
+ */
+export type CheckTimeBase = "ACTUAL" | "SCHEDULE";
+
+export const CHECK_TIME_BASE_LABEL: Record<CheckTimeBase, string> = {
+  ACTUAL: "찍은 시각 그대로",
+  SCHEDULE: "예정 시각으로 맞춤",
+};
+
+/** 분 단위로 굴리는 방향 */
+export type CheckTimeRounding = "NONE" | "UP" | "DOWN" | "NEAREST";
+
+export const CHECK_TIME_ROUNDING_LABEL: Record<CheckTimeRounding, string> = {
+  NONE: "보정 안 함",
+  UP: "올림",
+  DOWN: "내림",
+  NEAREST: "반올림",
+};
+
+/** 고를 수 있는 보정 단위 (분) */
+export const CHECK_TIME_UNITS = [10, 15, 30, 60] as const;
+
+/**
+ * 출근 또는 퇴근 한쪽의 기록 규칙.
+ *
+ * 두 축으로 나눠 둔 이유가 있다. 한 덩어리 enum으로 만들면
+ * "10분 단위로 올린 다음 예정 시각을 넘지 않게" 같은 조합을 표현할 수 없다.
+ *
+ * **적용 순서는 단위 보정 → 예정 클램프다.** 반대로 하면 맞춰 둔 값을 다시 굴려
+ * 예정 시각에서 벗어난다. (`applyCheckTimeRule`)
+ */
+export interface CheckTimeRule {
+  base: CheckTimeBase;
+  rounding: CheckTimeRounding;
+  /** `rounding`이 `NONE`이면 쓰이지 않는다 */
+  unit: number;
+}
+
+/**
+ * 근태 기록 기준.
+ *
+ * **본인이 찍는 경로에만 적용된다.** 관리자가 근태 모달에서 직접 적는 시각에는
+ * 걸지 않는다. 관리자는 "실제로 이랬다"를 적는 사람이고, 그 입력에 규칙을 또 걸면
+ * 잘못 들어간 기록을 고칠 방법이 없어진다.
+ */
+export interface AttendanceSettings {
+  checkIn: CheckTimeRule;
+  checkOut: CheckTimeRule;
+  /** 근무 시작 몇 시간 전부터 출근을 찍을 수 있는지 */
+  checkInWindowBeforeHours: number;
+  /** 예정 종료 몇 시간 뒤까지 찍을 수 있는지 */
+  checkInWindowAfterHours: number;
+  /**
+   * 현장으로 인정하는 반경 (m).
+   *
+   * 0이면 위치를 확인하지 않는다. 행사에 좌표가 없을 때도 확인하지 않는다 —
+   * 좌표를 깜빡한 행사에서 전원이 출근을 못 찍으면 그 순간 현장이 멈춘다.
+   */
+  checkInRadiusMeters: number;
+}
+
+/**
+ * 기준 설정 응답에 근태 항목이 없을 때 메우는 기본값.
+ *
+ * 서버가 아직 이 필드를 모르는 동안에도 화면이 돌아야 한다. (`mergeJobRoles`와 같은 이유)
+ * 기본은 **예정 시각으로 맞춤**이다 — 일찍 온 것이 곧바로 돈이 되면 다들 일찍 찍고,
+ * 정리하고 나가느라 늦게 찍은 것이 연장수당이 되면 돈이 샌다.
+ */
+export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettings = {
+  checkIn: { base: "SCHEDULE", rounding: "NONE", unit: 10 },
+  checkOut: { base: "SCHEDULE", rounding: "NONE", unit: 10 },
+  checkInWindowBeforeHours: 2,
+  checkInWindowAfterHours: 2,
+  checkInRadiusMeters: 300,
+};
+
+/** 응답에 빠져 있거나 일부만 온 근태 설정을 기본값으로 메운다. */
+export const mergeAttendanceSettings = (
+  attendance?: Partial<AttendanceSettings>,
+): AttendanceSettings => ({
+  ...DEFAULT_ATTENDANCE_SETTINGS,
+  ...attendance,
+  checkIn: { ...DEFAULT_ATTENDANCE_SETTINGS.checkIn, ...attendance?.checkIn },
+  checkOut: { ...DEFAULT_ATTENDANCE_SETTINGS.checkOut, ...attendance?.checkOut },
+});
 
 /**
  * 직무를 하나도 안 쓰는 상태인지 본다.

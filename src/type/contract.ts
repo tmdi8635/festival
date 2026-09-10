@@ -47,10 +47,22 @@ import { formatPhoneNumber } from "./staff";
  * 그렇다고 지워 버리면 "왜 3일치가 아니라 하루치를 줬는가"를 설명할 근거가 사라진다.
  * 옛 문서는 그대로 두고 더 이상 유효하지 않다고만 표시한 뒤, 새 차수를 새로 만든다.
  *
- * 서버가 붙으면 발송됨 · 반려 · 기한만료가 이 사이에 들어온다.
- * 그 전까지는 만들지 않는다. 있지도 않은 절차를 화면에 세워 두는 셈이기 때문이다.
+ * `SENT`는 **본인에게 보낸 뒤 서명을 기다리는** 자리다. 스태프 포털이 생기면서
+ * 다시 필요해졌다. 보내는 순간 계약번호가 붙는다 — 번호 없는 문서를 근로자가 열면
+ * 그것이 정식 문서인지 알 방법이 없다.
+ *
+ * `REJECTED`는 **본인이 내용이 다르다고 되돌려 보낸** 것이다. 사유가 함께 있다.
+ * 반려를 받을 자리가 없으면 근로자는 서명을 안 하고 버티는 것 말고 할 수 있는 일이 없고,
+ * 담당자는 왜 서명이 안 들어오는지 알 수 없다.
+ *
+ * 기한만료는 만들지 않는다. 링크가 아니라 로그인이라 만료될 것이 없다.
  */
-export type ContractStatus = "DRAFT" | "SIGNED" | "SUPERSEDED";
+export type ContractStatus =
+  | "DRAFT"
+  | "SENT"
+  | "SIGNED"
+  | "REJECTED"
+  | "SUPERSEDED";
 
 /**
  * 계약서를 다시 내는 이유.
@@ -120,7 +132,9 @@ export const AMEND_REASON_PRESETS: Record<AmendReasonType, string[]> = {
 
 export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
   DRAFT: "등록 대기",
+  SENT: "서명 대기",
   SIGNED: "서명완료",
+  REJECTED: "반려",
   SUPERSEDED: "재작성됨",
 };
 
@@ -229,6 +243,49 @@ export interface ContractTemplateFormValues {
  * 파일명을 함께 남긴다. 나중에 원본 폴더에서 같은 문서를 찾아야 할 때
  * 화면의 계약번호만으로는 어느 파일인지 알 수 없다.
  */
+/**
+ * 전자서명.
+ *
+ * 문자로 받은 "네" 회신은 나중에 근거가 되지 않는다. 본인이 화면에서 직접 그린
+ * 서명을 이미지로 받아 문서에 붙인다.
+ *
+ * **종이 등록(`ContractSignedFile`)을 대체하지 않는다.** 서명을 못 하는 사람은 늘 있고,
+ * 이미 종이로 받아 둔 지난 계약서도 그대로 살아 있어야 한다. 두 경로가 나란히 서고,
+ * 서명완료의 근거는 **둘 중 하나라도 있으면**이다.
+ */
+export interface ContractSignature {
+  /** 캔버스에서 받은 서명 이미지 (data URL) */
+  imageDataUrl: string;
+  /** 서명자가 직접 입력한 성명 */
+  signedName: string;
+  signedAt: string;
+  /**
+   * 서명 시점 문서 내용의 해시.
+   *
+   * 서명한 뒤에 금액을 고쳐도 서명 이미지는 그대로 붙어 있다. 무엇에 서명했는지를
+   * 남겨 두지 않으면 그 문서는 아무것도 증명하지 못한다.
+   */
+  documentHash: string;
+}
+
+/**
+ * 문서 내용을 짧은 지문으로 만든다. (djb2 변형)
+ *
+ * 암호학적 해시가 아니다. 라이브러리를 하나 더 들이지 않으려는 것이고,
+ * 서버가 붙으면 이 함수만 실제 SHA-256으로 바뀐다. 지금 필요한 것은
+ * "서명 이후 문서가 달라졌는가"를 눈으로 대조할 수 있는 값 하나다.
+ */
+export const buildDocumentHash = (content: string): string => {
+  let hash = 0;
+
+  for (let i = 0; i < content.length; i += 1) {
+    hash = (hash << 5) - hash + content.charCodeAt(i);
+    hash |= 0;
+  }
+
+  return `SHA-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0")}`;
+};
+
 export interface ContractSignedFile {
   /** 업로드한 파일의 주소. (목업에서는 data URL) */
   url: string;
@@ -315,6 +372,20 @@ export interface Contract {
   signedFile?: ContractSignedFile;
   /** 서명본을 등록한 시각 */
   registeredAt?: string;
+  /**
+   * 본인이 화면에서 남긴 전자서명.
+   *
+   * `signedFile`(종이 스캔본)과 **둘 중 하나만** 있다. 어느 쪽이든 있으면 서명완료다.
+   * 어느 경로로 받았는지는 상세에서 그대로 보여 준다 — 나중에 원본을 찾을 때
+   * 폴더를 뒤져야 하는지 화면을 열면 되는지가 다르다.
+   */
+  signature?: ContractSignature;
+  /** 본인에게 보낸 시각. 이때 계약번호가 붙는다 */
+  sentAt?: string;
+  /** 서명이 끝난 시각. 전자서명·종이 등록 어느 쪽이든 채워진다 */
+  signedAt?: string;
+  /** 본인이 되돌려 보낸 사유. `REJECTED`면 반드시 있다 */
+  rejectedReason?: string;
 
   /* ---------------------------- 재작성(개정) 이력 --------------------------- */
 
@@ -405,8 +476,15 @@ export interface ContractRosterRow {
 
 /** 처리 순서. 손이 더 가야 하는 쪽이 끝난 것보다 뒤에 묻히면 안 된다. */
 export const CONTRACT_ROSTER_STATE_ORDER: ContractRosterState[] = [
+  /*
+    반려가 맨 앞이다. 본인이 "내용이 다르다"고 돌려보낸 건은 담당자가 고쳐서
+    다시 보내야 움직인다. 그동안 그 사람은 현장에 나갈 수 없다.
+  */
+  "REJECTED",
   "NONE",
   "DRAFT",
+  /* 서명 대기는 이미 보낸 것이라 담당자가 지금 할 일은 없다. 기다리는 줄이다. */
+  "SENT",
   "SIGNED",
   "SUPERSEDED",
 ];
@@ -816,6 +894,13 @@ export interface ContractDocument {
   issuedAt: string;
   /** 해시 계산과 문자 복사에 쓰는 평문 */
   plainText: string;
+  /**
+   * 이 문서에 붙은 전자서명. 없으면 서명란을 비워 둔다.
+   *
+   * 비어 있는 서명란은 **틀린 그림이 아니다.** 종이로 배부해 손으로 받는 경로에서는
+   * 그 칸이 비어 있는 것이 맞다. 전자서명으로 받은 건에서만 이미지가 박힌다.
+   */
+  signature?: ContractSignature;
 }
 
 const formatMoney = (value: number) => `${value.toLocaleString("ko-KR")}원`;
@@ -1118,6 +1203,7 @@ export const buildContractDocument = (
     requiresGuardianSignature: template.requiresGuardianSignature,
     issuedAt: contract.createdAt,
     plainText,
+    signature: contract.signature,
   };
 };
 

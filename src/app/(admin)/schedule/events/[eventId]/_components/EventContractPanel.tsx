@@ -6,6 +6,7 @@ import { getContractDrafts } from "@/api/contract/getContractDraft";
 import { useContractTemplateListQuery } from "@/api/contract/getContractTemplateList";
 import { useContractMutation } from "@/api/contract/mutateContract";
 import { useHasPermission } from "@/store/useAdminStore";
+import { openConfirm } from "@/store/useConfirmStore";
 import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import {
   CONTRACT_REVISION_COLUMNS,
@@ -15,7 +16,7 @@ import {
   CONTRACT_WORK_COLUMNS,
 } from "@/constants/csvColumns";
 import { useSelection } from "@/hooks/useSelection";
-import { Download, FileText, ImageIcon, Upload } from "@/icons";
+import { Download, FileText, ImageIcon, Send, Upload } from "@/icons";
 import type { CsvColumn } from "@/lib/csv";
 import {
   downloadContractAsImage,
@@ -132,8 +133,9 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
   });
   const { data: templateData } = useContractTemplateListQuery();
   const canWrite = useHasPermission("contract:write");
+  const canSend = useHasPermission("contract:send");
 
-  const { registerMutation } = useContractMutation();
+  const { registerMutation, sendMutation } = useContractMutation();
 
   const contracts = data?.content ?? [];
 
@@ -237,6 +239,31 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
         ? contractNameTag(contract.staffPhone)
         : undefined,
     );
+
+  /**
+   * 고른 사람들에게 계약서를 한 번에 보낸다.
+   *
+   * 되돌릴 수 없는 일이라 한 번 더 묻는다. 보내는 순간 계약번호가 붙고
+   * 그 사람들의 화면에 문서가 뜬다. (`docs/DEVELOPMENT_GUIDE.md`의 확인창 규칙)
+   */
+  const handleBulkSend = () => {
+    openConfirm({
+      title: `${selectedIds.length}명에게 전자서명을 요청할까요?`,
+      description:
+        "선택한 인원의 내 페이지에 계약서가 뜨고, 화면에서 직접 서명하게 됩니다.",
+      warning:
+        "보내는 순간 계약번호가 발급됩니다. 근무일 · 금액이 확정됐는지 먼저 확인해 주세요.",
+      confirmText: "보내기",
+      onConfirm: async () => {
+        await sendMutation.mutateAsync({
+          eventId: event.eventId,
+          staffIds: selectedIds,
+          templateId: Number(templateId) || undefined,
+        });
+        clear();
+      },
+    });
+  };
 
   /** 고른 사람들의 문서를 한 번에 조립해 받는다. */
   const fetchSelectedDrafts = async () => {
@@ -603,6 +630,25 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
             >
               이미지로 각각
             </Button>
+
+            {/*
+              일괄 전자서명 요청.
+
+              내려받기 옆에 나란히 둔다. 어느 쪽이 옳은 방법이라고 정하지 않는다 —
+              화면을 못 쓰는 사람은 늘 있고, 그때는 종이가 맞다.
+              이미 서명이 끝난 사람은 서버가 건너뛰고 그 사실을 이름과 함께 알려 준다.
+            */}
+            {canSend && (
+              <Button
+                size="sm"
+                leftIcon={<Send size={14} />}
+                isLoading={sendMutation.isPending}
+                onClick={handleBulkSend}
+                title="선택한 인원의 내 페이지로 계약서를 보냅니다."
+              >
+                전자서명 요청
+              </Button>
+            )}
 
             <Button size="sm" variant="ghost" onClick={clear}>
               선택 해제

@@ -6,6 +6,7 @@ export { default as ContractDetailModal } from "./ContractDetailModal";
 export { default as ContractUploadZone } from "./ContractUploadZone";
 export { default as ContractDocumentView } from "./ContractDocumentView";
 export { default as ContractSheetView } from "./ContractSheetView";
+export { default as SignaturePad } from "./SignaturePad";
 export { default as CopyButton } from "./CopyButton";
 export { default as DayOffsetField } from "./DayOffsetField";
 export { default as EventFormModal } from "./EventFormModal";

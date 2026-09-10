@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useStaffListQuery } from "@/api/staff/getStaffList";
 import {
+  DOCUMENT_REVIEW_STATE_TONE,
   DOCUMENT_STATE_FILTER_OPTIONS,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
@@ -11,7 +12,11 @@ import { useListSearch } from "@/hooks/useListSearch";
 import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
-import { formatPhoneNumber, type Staff, type StaffDetail } from "@/type/staff";
+import {
+  DOCUMENT_REVIEW_STATE_LABEL,
+  formatPhoneNumber,
+  type Staff,
+} from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Card from "@/components/ui/Card";
@@ -21,14 +26,16 @@ import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
 import Table, { type TableColumn } from "@/components/ui/Table";
 import StaffCell from "@/components/domain/StaffCell";
-import StaffDetailModal from "@/components/domain/StaffDetailModal";
-import StaffFormModal from "@/components/domain/StaffFormModal";
+import StaffDocumentReviewModal from "@/components/domain/StaffDocumentReviewModal";
 
 const DOCUMENT_CSV_COLUMNS: CsvColumn<Staff>[] = [
   { header: "이름", value: (row) => row.name },
   { header: "연락처", value: (row) => formatPhoneNumber(row.phoneNumber) },
   { header: "상태", value: (row) => STAFF_STATUS_LABEL[row.status] },
-  { header: "서류", value: (row) => (row.isDocumentComplete ? "완료" : "미제출") },
+  {
+    header: "서류 심사",
+    value: (row) => DOCUMENT_REVIEW_STATE_LABEL[row.documentReviewState],
+  },
   { header: "누적 근무", value: (row) => row.workCount },
   { header: "등록일", value: (row) => formatDate(row.createdAt) },
 ];
@@ -37,42 +44,56 @@ const DOCUMENT_CSV_COLUMNS: CsvColumn<Staff>[] = [
  * 서류 관리.
  *
  * "첫 근무자면 신분증과 통장사본을 받는다"를 사람 기억이 아니라 목록으로 만든다.
- * 미제출 인력은 정산이 보류되므로 근무 전에 여기서 걸러야 한다.
+ *
+ * 본인이 직접 올리게 되면서 이 화면의 일이 **추적에서 심사로** 바뀌었다.
+ * 예전에는 "누가 아직 안 냈나"만 보면 됐지만, 이제는 올라온 사본을 열어 보고
+ * 승인하거나 되돌려 보내야 한다. 그래서 기본 필터가 미제출이 아니라 **승인 대기**다.
+ * 화면을 열자마자 지금 손이 가야 하는 줄이 위에 있어야 한다.
  */
 const DocumentManager = () => {
   const { page, setPage, keyword, handleSearch, withPageReset } =
     useListSearch();
 
-  // 기본값을 '미제출'로 두어 화면을 열자마자 할 일이 보이게 한다.
-  const [documentState, setDocumentState] = useState("INCOMPLETE");
+  // 기본값을 '승인 대기'로 두어 화면을 열자마자 할 일이 보이게 한다.
+  const [documentState, setDocumentState] = useState("SUBMITTED");
 
-  const [detailStaffId, setDetailStaffId] = useState<number | null>(null);
-  const [formStaff, setFormStaff] = useState<StaffDetail | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  /*
+    이 화면은 심사 모달 하나만 연다.
+
+    예전에는 줄을 누르면 인력 상세가 열리고 거기서 수정 폼으로 이어졌는데,
+    그 길은 인력풀에도 그대로 있다. 같은 길을 두 화면에 두면 이 화면이
+    무엇을 하는 자리인지 흐려진다. 사람 기록 전체를 볼 일은 인력풀에서 한다.
+  */
+  const [reviewStaffId, setReviewStaffId] = useState<number | null>(null);
 
   const { data, isLoading } = useStaffListQuery({
     page,
     size: DEFAULT_PAGE_SIZE,
     keyword: keyword || undefined,
     documentState: documentState || undefined,
-    status: "ACTIVE",
+    /*
+      상태 필터를 걸지 않는다.
+
+      예전에는 `status: "ACTIVE"`로 걸러 활동 인력만 봤는데, 승인이 상태를 정하게 되면서
+      그 조건이 **심사해야 할 사람을 정확히 빼 버리는** 필터가 됐다.
+      아직 승인 안 된 사람은 대기중(PENDING)이고, 그 사람들이 이 화면의 일감이다.
+    */
   });
 
   /**
-   * 미제출 인원.
+   * 승인을 기다리는 인원.
    *
-   * 목록이 '전체'로 걸려 있어도 미제출이 남아 있으면 안내를 띄워야 해서
+   * 목록을 다른 조건으로 걸러 놓았어도 대기 중인 건이 남아 있으면 알려야 해서
    * 한 건만 따로 센다. (제출률은 세지 않는다 — 여기서 할 일은 비율이 아니라
-   * 남은 사람의 서류를 받는 것이다)
+   * 올라온 사본을 열어 보고 판단하는 것이다)
    */
-  const { data: incompleteData } = useStaffListQuery({
+  const { data: waitingData } = useStaffListQuery({
     page: 1,
     size: 1,
-    status: "ACTIVE",
-    documentState: "INCOMPLETE",
+    documentState: "SUBMITTED",
   });
 
-  const incompleteCount = incompleteData?.totalCount ?? 0;
+  const waitingCount = waitingData?.totalCount ?? 0;
 
   const columns: TableColumn<Staff>[] = [
     {
@@ -99,14 +120,13 @@ const DocumentManager = () => {
     },
     {
       key: "document",
-      header: "서류 제출",
+      header: "서류 심사",
       align: "center",
-      render: (staff) =>
-        staff.isDocumentComplete ? (
-          <Badge tone="success">완료</Badge>
-        ) : (
-          <Badge tone="danger">미제출</Badge>
-        ),
+      render: (staff) => (
+        <Badge tone={DOCUMENT_REVIEW_STATE_TONE[staff.documentReviewState]}>
+          {DOCUMENT_REVIEW_STATE_LABEL[staff.documentReviewState]}
+        </Badge>
+      ),
     },
     {
       key: "workCount",
@@ -142,9 +162,9 @@ const DocumentManager = () => {
       {/*
         요약 타일을 두지 않는다.
 
-        '활동 인력 84명 · 미제출 6명 · 제출률 93%'는 세 칸이 전부 같은 것을
+        '활동 인력 84명 · 승인 대기 6명 · 승인율 93%'는 세 칸이 전부 같은 것을
         말하고, 그중 무엇도 여기서 할 일을 알려 주지 않는다. 이 화면에서 하는
-        일은 **미제출인 사람의 서류를 받는 것** 하나이고, 그건 아래 목록이
+        일은 **올라온 사본을 열어 보고 판단하는 것** 하나이고, 그건 아래 목록이
         답한다. 목록이 첫 화면에 들어와야 그 일이 시작된다.
       */}
       <Card noPadding>
@@ -173,11 +193,14 @@ const DocumentManager = () => {
           </div>
         </div>
 
-        {incompleteCount > 0 && documentState === "INCOMPLETE" && (
+        {waitingCount > 0 && (
           <div className="border-b border-border-main px-5 py-3">
-            <Alert tone="warning" title="근무 전에 받아야 합니다.">
-              공지 · 발송 화면의 &lsquo;신규 인력 서류 요청&rsquo; 템플릿으로 한
-              번에 요청할 수 있습니다.
+            <Alert
+              tone="warning"
+              title={`승인을 기다리는 서류가 ${waitingCount}명 있습니다.`}
+            >
+              줄을 눌러 사본을 확인하고 승인하거나 반려해 주세요. 승인 전에는
+              확정 배치를 할 수 없습니다.
             </Alert>
           </div>
         )}
@@ -187,9 +210,14 @@ const DocumentManager = () => {
           rows={data?.content ?? []}
           getRowKey={(staff) => String(staff.staffId)}
           isLoading={isLoading}
-          onRowClick={(staff) => setDetailStaffId(staff.staffId)}
-          emptyTitle="미제출 인력이 없습니다."
-          emptyDescription="모든 활동 인력의 서류가 갖춰져 있습니다."
+          /*
+            줄을 누르면 인력 상세가 아니라 **심사 모달**이 열린다.
+            이 화면에 온 이유가 그것 하나이고, 사본을 보려면 상세에서 탭을 한 번 더
+            눌러야 하는 구조라면 결국 아무도 열어 보지 않고 승인하게 된다.
+          */
+          onRowClick={(staff) => setReviewStaffId(staff.staffId)}
+          emptyTitle="심사할 서류가 없습니다."
+          emptyDescription="이 조건에 해당하는 인력이 없습니다."
         />
 
         <Pagination
@@ -200,21 +228,11 @@ const DocumentManager = () => {
         />
       </Card>
 
-      <StaffDetailModal
-        staffId={detailStaffId}
-        onClose={() => setDetailStaffId(null)}
-        onEdit={(staff) => {
-          setDetailStaffId(null);
-          setFormStaff(staff);
-          setIsFormOpen(true);
-        }}
+      <StaffDocumentReviewModal
+        staffId={reviewStaffId}
+        onClose={() => setReviewStaffId(null)}
       />
 
-      <StaffFormModal
-        isOpen={isFormOpen}
-        staff={formStaff}
-        onClose={() => setIsFormOpen(false)}
-      />
     </>
   );
 };

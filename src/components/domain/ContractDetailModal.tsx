@@ -8,8 +8,9 @@ import { useContractMutation } from "@/api/contract/mutateContract";
 import { useEventDetailQuery } from "@/api/event/getEventDetail";
 import { useHasPermission } from "@/store/useAdminStore";
 import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
-import { Download, ImageIcon, Refresh, Trash } from "@/icons";
-import { formatDate } from "@/lib/dayjs";
+import { Download, ImageIcon, Refresh, Send, Trash } from "@/icons";
+import Image from "next/image";
+import { formatDate, formatDateTime } from "@/lib/dayjs";
 import {
   downloadContractAsImage,
   downloadContractAsPdf,
@@ -91,8 +92,9 @@ const ContractDetailModal = ({
 
   const jobRoleLabel = useJobRoleLabel();
   const canWrite = useHasPermission("contract:write");
+  const canSend = useHasPermission("contract:send");
 
-  const { registerMutation, cancelRegistrationMutation } =
+  const { sendMutation, registerMutation, cancelRegistrationMutation } =
     useContractMutation();
 
   /*
@@ -234,6 +236,33 @@ const ContractDetailModal = ({
     );
   };
 
+  /**
+   * 근로자에게 보낸다.
+   *
+   * 보내는 순간 계약번호가 붙고 그 사람의 포털에 서명할 문서가 뜬다.
+   * 반려된 건을 다시 보낼 때는 **지금 배치 기준으로 내용을 다시 조립**하므로,
+   * 금액이나 근무일을 고친 뒤 그대로 누르면 된다.
+   */
+  const handleSend = () => {
+    if (!target) return;
+
+    openConfirm({
+      title: viewing?.status === "REJECTED" ? "다시 보낼까요?" : "전자서명을 요청할까요?",
+      description: `${contract?.staffName ?? ""}님의 내 페이지에 계약서가 뜨고, 화면에서 직접 서명하게 됩니다.`,
+      warning:
+        viewing?.status === "REJECTED"
+          ? "지금 배치에 적힌 근무일 · 금액으로 문서를 다시 만들어 보냅니다. 반려 사유대로 고쳤는지 먼저 확인해 주세요."
+          : undefined,
+      confirmText: "보내기",
+      onConfirm: () =>
+        sendMutation.mutateAsync({
+          eventId: target.eventId,
+          staffIds: [target.staffId],
+          templateId: contract?.templateId,
+        }),
+    });
+  };
+
   const handleCancelRegistration = () => {
     if (!current) return;
 
@@ -307,7 +336,7 @@ const ContractDetailModal = ({
                   파일이 남지 않고, 파일명도 매번 확인해 줘야 했다.
                 */}
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   leftIcon={<Download size={15} />}
                   isLoading={isDownloadingPdf}
                   onClick={handleDownloadPdf}
@@ -315,6 +344,27 @@ const ContractDetailModal = ({
                 >
                   PDF 내려받기
                 </Button>
+
+                {/*
+                  전자서명 요청.
+
+                  종이 배부와 **나란히** 둔다. 어느 쪽이 옳은 방법이라고 정하지 않는다 —
+                  화면을 못 쓰는 사람은 늘 있고, 그때는 내려받아 종이로 받는 것이 맞다.
+                  이미 서명이 끝난 건에는 뜨지 않는다.
+                */}
+                {canSend && isViewingCurrent !== false && viewing?.status !== "SIGNED" && (
+                  <Button
+                    variant="primary"
+                    leftIcon={<Send size={15} />}
+                    isLoading={sendMutation.isPending}
+                    onClick={handleSend}
+                    title="근로자의 내 페이지로 보냅니다."
+                  >
+                    {viewing?.status === "REJECTED"
+                      ? "고쳐서 다시 보내기"
+                      : "전자서명 요청"}
+                  </Button>
+                )}
               </div>
             </div>
           )
@@ -338,6 +388,36 @@ const ContractDetailModal = ({
                 아래 문서를 <b>PDF나 이미지로 내려받아</b> 근로자에게 배부하고,
                 서명받은 종이를 다시 올려 주세요. 올리는 순간 계약번호가 붙고
                 서명완료가 됩니다.
+              </Alert>
+            )}
+
+            {isViewingCurrent && current?.status === "SENT" && (
+              <Alert
+                tone="info"
+                title="서명을 기다리는 중입니다."
+                className="contract-print-hidden"
+              >
+                {current.staffName}님의 내 페이지에 계약서가 떠 있습니다.
+                서명이 들어오면 이 자리에 서명이 표시되고 명단 상태가 바뀝니다.
+                급하면 문서를 내려받아 종이로 받아도 됩니다.
+              </Alert>
+            )}
+
+            {/*
+              반려는 **사유가 함께 보여야 뜻이 있다.**
+              "반려됨"만 뜨면 담당자는 무엇을 고쳐야 하는지 알 수 없어
+              결국 전화를 걸게 되고, 되돌려 보낼 자리를 만든 이유가 사라진다.
+            */}
+            {isViewingCurrent && current?.status === "REJECTED" && (
+              <Alert
+                tone="danger"
+                title={`${current.staffName}님이 내용을 확인해 달라고 했습니다.`}
+                className="contract-print-hidden"
+              >
+                {current.rejectedReason}
+                <br />
+                행사에서 근무일 · 금액을 고친 뒤 <b>다시 보내기</b>를 누르면
+                지금 배치 기준으로 문서를 새로 만들어 보냅니다.
               </Alert>
             )}
 
@@ -395,6 +475,11 @@ const ContractDetailModal = ({
                   )}
                 </p>
 
+                {/*
+                  전자서명 건에는 '등록 취소'를 두지 않는다. 취소는 **잘못 올린 파일을
+                  떼어 내는** 일이고, 본인이 그린 서명은 담당자가 지울 성질이 아니다.
+                  내용이 틀렸다면 재작성으로 새 차수를 만들어 다시 받는다.
+                */}
                 {canWrite && isViewingCurrent && current?.signedFile && (
                   <div className="flex items-center gap-1.5">
                     <Button
@@ -419,7 +504,37 @@ const ContractDetailModal = ({
                 )}
               </div>
 
-              {viewing?.signedFile ? (
+              {viewing?.signature ? (
+                /*
+                  전자서명으로 받은 건.
+
+                  이미지만 띄우지 않고 **성명 · 시각 · 문서검증 해시**를 함께 세운다.
+                  서명한 뒤에 금액을 고쳐도 서명 이미지는 그대로 붙어 있어서,
+                  무엇에 서명했는지가 옆에 없으면 그 그림은 아무것도 증명하지 못한다.
+                */
+                <div className="flex flex-col gap-2 rounded-field border border-border-main bg-subtle p-3">
+                  <div className="relative h-24 w-full max-w-64 overflow-hidden rounded-field bg-surface">
+                    <Image
+                      src={viewing.signature.imageDataUrl}
+                      alt={`${viewing.staffName} 서명`}
+                      fill
+                      sizes="256px"
+                      className="object-contain"
+                      unoptimized
+                    />
+                  </div>
+
+                  <p className="text-[13px] text-font-1">
+                    {viewing.signature.signedName}
+                    <span className="ml-2 text-[12px] text-font-2 tabular-nums">
+                      {formatDateTime(viewing.signature.signedAt)} 전자서명
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-font-disabled tabular-nums">
+                    문서검증 {viewing.signature.documentHash}
+                  </p>
+                </div>
+              ) : viewing?.signedFile ? (
                 <ContractFilePreview file={viewing.signedFile} />
               ) : isViewingCurrent || !viewing ? (
                 canWrite ? (

@@ -2,7 +2,16 @@ import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 import type { SelectOption } from "@/components/ui";
 import type { WageType } from "@/type/event";
-import type { FeatureKey, FeatureMode, OperationSettings } from "@/type/ops";
+import type {
+  AttendanceSettings,
+  FeatureKey,
+  FeatureMode,
+  OperationSettings,
+} from "@/type/ops";
+import {
+  DEFAULT_ATTENDANCE_SETTINGS,
+  mergeAttendanceSettings,
+} from "@/type/ops";
 import {
   DEFAULT_JOB_ROLES,
   mergeJobRoles,
@@ -24,6 +33,8 @@ import {
 interface OrgState {
   jobRoles: JobRoleView[];
   featureModes: Record<FeatureKey, FeatureMode>;
+  /** 본인이 찍는 출퇴근 기록 규칙. 포털 모달과 기준 설정이 같은 값을 읽는다 */
+  attendance: AttendanceSettings;
   hydrate: (settings: OperationSettings) => void;
 }
 
@@ -37,6 +48,7 @@ const DEFAULT_FEATURE_MODES: Record<FeatureKey, FeatureMode> = {
 export const useOrgStore = create<OrgState>((set) => ({
   jobRoles: mergeJobRoles(DEFAULT_JOB_ROLES),
   featureModes: DEFAULT_FEATURE_MODES,
+  attendance: DEFAULT_ATTENDANCE_SETTINGS,
   hydrate: (settings) =>
     set({
       /*
@@ -45,6 +57,8 @@ export const useOrgStore = create<OrgState>((set) => ({
       */
       jobRoles: mergeJobRoles(settings.jobRoles),
       featureModes: settings.featureModes,
+      /* 서버가 아직 이 필드를 모를 수 있다. 빠진 자리는 기본값으로 메운다. */
+      attendance: mergeAttendanceSettings(settings.attendance),
     }),
 }));
 
@@ -257,3 +271,15 @@ export const useJobRoleFilterOptions = (): SelectOption[] => {
 /** 기능 운영 모드 (MOCK 배너 · 메뉴 잠금 판단에 쓴다) */
 export const useFeatureMode = (key: FeatureKey): FeatureMode =>
   useOrgStore((state) => state.featureModes[key] ?? "ENABLED");
+
+/**
+ * 근태 기록 규칙.
+ *
+ * 컴포넌트는 훅으로, 모듈 스코프(목업 · 유틸)는 `attendanceSettings()`로 읽는다.
+ * 직무 이름을 다루는 방식과 같다.
+ */
+export const useAttendanceSettings = (): AttendanceSettings =>
+  useOrgStore((state) => state.attendance);
+
+export const attendanceSettings = (): AttendanceSettings =>
+  useOrgStore.getState().attendance;

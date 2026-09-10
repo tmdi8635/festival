@@ -1,9 +1,11 @@
 import type {
   AttendanceStatus,
+  DocumentReviewState,
   Gender,
   JobRole,
   ReputationVerdict,
 } from "./staff";
+import type { CheckTimeRule } from "./ops";
 
 /**
  * 행사 한 건의 직무별 **청구** 단가 (시급).
@@ -370,6 +372,16 @@ export interface EventSummary {
   endDayOffset: DayOffset;
   venue: string;
   address: string;
+  /**
+   * 현장 좌표. **없어도 된다.**
+   *
+   * 있으면 본인이 출근을 찍을 때 반경 안에 있는지 확인한다.
+   * 없으면 위치를 확인하지 않고 그냥 찍힌다 — 좌표를 깜빡한 행사에서
+   * 전원이 출근을 못 찍으면 그 순간 현장 전체가 멈춘다.
+   * (0을 넣으면 아프리카 서쪽 바다가 된다. 미설정은 `undefined`다)
+   */
+  latitude?: number;
+  longitude?: number;
   managerName: string;
   /**
    * 담당 매니저 연락처.
@@ -443,6 +455,14 @@ export const ASSIGNMENT_STATUS_LABEL: Record<AssignmentStatus, string> = {
  * 근태 · 정산 · 대타 교체가 모두 "그날" 단위로 일어나기 때문에,
  * 배치를 기간으로 묶으면 하루만 빠지는 상황을 표현할 수 없다.
  */
+/** 출퇴근을 찍은 자리와 현장에서 떨어진 거리 */
+export interface CheckLocation {
+  latitude: number;
+  longitude: number;
+  /** 행사 좌표로부터의 거리 (m). 행사에 좌표가 없으면 `undefined` */
+  distanceMeters?: number;
+}
+
 export interface Assignment {
   assignmentId: number;
   eventId: number;
@@ -494,6 +514,16 @@ export interface Assignment {
   checkOutAt?: string;
   /** 실제 사용한 휴게 시간(분). 비어 있으면 행사 기본값을 쓴다. */
   actualBreakMinutes?: number;
+  /**
+   * 본인이 출근을 찍은 자리.
+   *
+   * 위치 확인의 목적은 막는 것이 아니라 **근거를 남기는 것**이다.
+   * 나중에 "이 사람 진짜 왔나"를 물을 때 답할 수 있어야 하고,
+   * 관리자가 시각을 고칠 때도 원래 어디서 찍혔는지가 보여야 판단이 된다.
+   * 관리자가 대신 적은 기록에는 이 값이 없다.
+   */
+  checkInLocation?: CheckLocation;
+  checkOutLocation?: CheckLocation;
   lateMinutes: number;
   /**
    * 행사 종료 후 평가. **한 번 남기면 고칠 수 없다.**
@@ -619,7 +649,16 @@ export interface AssignmentCandidate {
   noShowCount: number;
   lateCount: number;
   isFavorite: boolean;
-  isDocumentComplete: boolean;
+  /**
+   * 서류가 **승인까지** 끝났는가. 파일 유무가 아니다.
+   *
+   * 확정 배치를 가르는 값이라 여기서 파일 유무를 내려보내면,
+   * 화면은 넣을 수 있다고 하고 서버는 막는 상태가 된다.
+   * (`isDocumentApproved` · `canConfirmAssignment`)
+   */
+  isDocumentApproved: boolean;
+  /** 서류 심사가 지금 어디까지 왔는지. 왜 막혔는지를 설명하는 데 쓴다. */
+  documentReviewState: DocumentReviewState;
   /**
    * 우리 직원인가.
    *
@@ -664,6 +703,9 @@ export interface EventFormValues {
   endTime: string;
   endDayOffset: DayOffset;
   venue: string;
+  /** 현장 좌표. 비워 두면 출퇴근 위치를 확인하지 않는다 */
+  latitude?: number;
+  longitude?: number;
   address: string;
   managerName: string;
   managerPhone: string;
@@ -1136,6 +1178,199 @@ export const toCheckDateTime = (
   if (dayOffset) base.setDate(base.getDate() + dayOffset);
 
   return base.toISOString();
+};
+
+/* ------------------------------------------------------------------ */
+/* 본인이 찍는 출퇴근                                                     */
+/* ------------------------------------------------------------------ */
+
+const MINUTE = 60 * 1000;
+
+/**
+ * 찍은 시각에 기록 규칙을 적용한다. **화면 · 목업이 같은 함수를 쓴다.**
+ *
+ * 순서가 중요하다 — **단위 보정 먼저, 예정 클램프 나중.**
+ * 반대로 하면 예정 시각에 맞춰 놓은 값을 다시 굴려 08:00이 08:10이 된다.
+ *
+ * `SCHEDULE`은 한 방향으로만 당긴다.
+ * - 출근: 예정보다 **이른 것만** 예정으로 올린다. 늦은 것은 늦은 대로 남아야 지각이 보인다
+ * - 퇴근: 예정보다 **늦은 것만** 예정으로 내린다. 일찍 간 것은 그대로 남아야 조퇴가 보인다
+ *
+ * 관리자가 직접 입력한 시각에는 이 함수를 쓰지 않는다. (`AttendanceModal`)
+ */
+export const applyCheckTimeRule = (
+  actualIso: string,
+  scheduledIso: string,
+  rule: CheckTimeRule,
+  side: "IN" | "OUT",
+): string => {
+  const actual = new Date(actualIso);
+
+  if (Number.isNaN(actual.getTime())) return actualIso;
+
+  let time = actual.getTime();
+
+  /* 1) 단위 보정 */
+  if (rule.rounding !== "NONE" && rule.unit > 0) {
+    const step = rule.unit * MINUTE;
+    const ratio = time / step;
+
+    const rounded =
+      rule.rounding === "UP"
+        ? Math.ceil(ratio)
+        : rule.rounding === "DOWN"
+          ? Math.floor(ratio)
+          : Math.round(ratio);
+
+    time = rounded * step;
+  }
+
+  /* 2) 예정 시각 클램프 */
+  if (rule.base === "SCHEDULE") {
+    const scheduled = new Date(scheduledIso).getTime();
+
+    if (!Number.isNaN(scheduled)) {
+      time = side === "IN" ? Math.max(time, scheduled) : Math.min(time, scheduled);
+    }
+  }
+
+  return new Date(time).toISOString();
+};
+
+/**
+ * 규칙을 사람이 읽는 한 문장으로. **모달과 기준 설정이 같은 문장을 쓴다.**
+ *
+ * 본인에게는 "왜 내가 찍은 시각과 다른가"를 답해야 하고, 담당자에게는
+ * "이 설정이 무슨 뜻인가"를 답해야 한다. 두 곳에서 다르게 적으면 둘 다 못 믿는다.
+ */
+export const describeCheckTimeRule = (
+  rule: CheckTimeRule,
+  side: "IN" | "OUT",
+): string => {
+  const parts: string[] = [];
+
+  if (rule.rounding !== "NONE" && rule.unit > 0) {
+    const how =
+      rule.rounding === "UP"
+        ? "올려"
+        : rule.rounding === "DOWN"
+          ? "내려"
+          : "반올림해";
+
+    parts.push(`${rule.unit}분 단위로 ${how}`);
+  }
+
+  if (rule.base === "SCHEDULE") {
+    parts.push(
+      side === "IN"
+        ? "근무 시작 시각보다 이르면 시작 시각으로 맞춰"
+        : "근무 종료 시각보다 늦으면 종료 시각으로 맞춰",
+    );
+  }
+
+  if (parts.length === 0) return "찍은 시각을 그대로 기록합니다.";
+
+  return `${parts.join(", ")} 기록합니다.`;
+};
+
+/**
+ * 두 좌표 사이의 거리 (m). Haversine.
+ *
+ * 지도 라이브러리를 들이지 않는다. 필요한 것이 "여기서 저기까지 몇 미터인가" 하나뿐이고,
+ * 그 답은 공식 한 줄이면 나온다.
+ */
+export const calculateDistanceMeters = (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number => {
+  const EARTH_RADIUS_M = 6_371_000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+
+  return Math.round(EARTH_RADIUS_M * 2 * Math.asin(Math.sqrt(a)));
+};
+
+/** 거리를 사람이 읽는 문구로. 1km를 넘으면 미터로 적어도 감이 안 온다. */
+export const formatDistance = (meters: number): string =>
+  meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`;
+
+/**
+ * 이 근무의 출퇴근을 지금 찍을 수 있는 시간대인지.
+ *
+ * 창을 두지 않으면 행사 전날 근처를 지나다 출근이 찍힌다.
+ * 반대로 너무 좁으면 새벽 집합 현장에서 아무도 못 찍는다. 그래서 폭을 설정으로 뺐다.
+ */
+export const resolveCheckTimeWindow = (
+  workDate: string,
+  scheduled: ScheduledTime,
+  beforeHours: number,
+  afterHours: number,
+  now: Date = new Date(),
+): { opensAt: Date; closesAt: Date; isOpen: boolean } => {
+  const start = new Date(`${workDate}T${scheduled.startTime}:00`);
+  const end = new Date(`${workDate}T${scheduled.endTime}:00`);
+
+  if (scheduled.endDayOffset) {
+    end.setDate(end.getDate() + scheduled.endDayOffset);
+  }
+
+  const opensAt = new Date(start.getTime() - beforeHours * 60 * MINUTE);
+  const closesAt = new Date(end.getTime() + afterHours * 60 * MINUTE);
+
+  return {
+    opensAt,
+    closesAt,
+    isOpen: now >= opensAt && now <= closesAt,
+  };
+};
+
+/**
+ * 몇 분 늦었나. **저장하지 않고 그때그때 구한다.**
+ *
+ * `Assignment.lateMinutes`는 더 이상 쓰지 않는다. 늦게 온 사실은 출근 시각이
+ * 이미 말하고, 같은 사실을 두 곳에 적으면 반드시 어긋난다. (`AttendanceModal` 주석)
+ * 화면에 "지각 20분"을 적어야 할 때는 이 함수를 쓴다.
+ */
+export const resolveLateMinutes = (
+  workDate: string,
+  startTime: string,
+  checkInAt?: string,
+): number => {
+  if (!checkInAt || !workDate || !startTime) return 0;
+
+  const start = new Date(`${workDate}T${startTime}:00`).getTime();
+  const actual = new Date(checkInAt).getTime();
+
+  if (Number.isNaN(start) || Number.isNaN(actual)) return 0;
+
+  return Math.max(0, Math.round((actual - start) / MINUTE));
+};
+
+/** 몇 분 일찍 나갔나. 조퇴 판정에 쓴다. */
+export const resolveEarlyLeaveMinutes = (
+  workDate: string,
+  scheduled: ScheduledTime,
+  checkOutAt?: string,
+): number => {
+  if (!checkOutAt || !workDate) return 0;
+
+  const end = new Date(`${workDate}T${scheduled.endTime}:00`);
+
+  if (scheduled.endDayOffset) end.setDate(end.getDate() + scheduled.endDayOffset);
+
+  const actual = new Date(checkOutAt).getTime();
+
+  if (Number.isNaN(end.getTime()) || Number.isNaN(actual)) return 0;
+
+  return Math.max(0, Math.round((end.getTime() - actual) / MINUTE));
 };
 
 /**

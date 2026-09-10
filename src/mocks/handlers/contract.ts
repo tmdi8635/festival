@@ -1,6 +1,7 @@
 import { HttpResponse, delay, http } from "msw";
 import type {
   Contract,
+  ContractRosterState,
   ContractStatus,
   ContractTemplate,
   ContractTemplateFormValues,
@@ -112,7 +113,7 @@ const buildContractFrom = (
  * 계약서 한 장이 여러 근무일을 덮으므로 해당 날짜의 배치를 전부 처리한다.
  * 이 표시가 곧 "이 사람을 현장에 넣어도 되는가"의 근거다.
  */
-const markAssignmentsSigned = (contract: Contract) => {
+export const markAssignmentsSigned = (contract: Contract) => {
   const event = findEvent(contract.eventId);
 
   if (!event) return;
@@ -248,7 +249,14 @@ export const contractHandlers = [
     /* 상태별 인원은 **거른 뒤가 아니라 전체 기준**이다. 상단 지표로 쓴다. */
     const stateCounts = rows.reduce(
       (counts, row) => ({ ...counts, [row.state]: counts[row.state] + 1 }),
-      { NONE: 0, DRAFT: 0, SIGNED: 0, SUPERSEDED: 0 },
+      {
+        NONE: 0,
+        DRAFT: 0,
+        SENT: 0,
+        SIGNED: 0,
+        REJECTED: 0,
+        SUPERSEDED: 0,
+      } as Record<ContractRosterState, number>,
     );
 
     const filtered = rows.filter((row) => {
@@ -386,6 +394,128 @@ export const contractHandlers = [
       return HttpResponse.json({ items });
     },
   ),
+
+  /**
+   * 본인에게 계약서를 보낸다. (전자서명 요청)
+   *
+   * 여기서 **계약번호가 붙는다.** 근로자가 여는 문서에 번호가 없으면 그것이
+   * 정식 문서인지 알 방법이 없다. 종이 등록(`register`)도 같은 규칙으로 번호를 붙이고,
+   * 순번은 양쪽 다 계약서 ID에서 딴다 — 그래야 두 길로 만들어도 번호가 겹치지 않는다.
+   *
+   * **반려된 건은 다시 보낼 수 있다.** 차수를 올리지 않는다.
+   * 차수(`revision`)는 서명이 끝난 문서를 대체할 때 올리는 값이고, 서명 전에 고친 것은
+   * 같은 문서의 수정이다. 여기서 차수를 올리면 아무도 서명한 적 없는 1차가
+   * 이력에 남아 "왜 두 장인가"를 설명해야 한다.
+   */
+  http.post(`${BASE_URI}/admin/contracts/send`, async ({ request }) => {
+    const denied = requirePermission(request, "contract:send");
+
+    if (denied) return denied;
+
+    const body = (await request.json()) as {
+      eventId: number;
+      staffIds: number[];
+      templateId?: number;
+    };
+
+    const event = findEvent(Number(body.eventId));
+
+    if (!event) return notFound("존재하지 않는 행사입니다.");
+
+    const template =
+      findContractTemplate(Number(body.templateId)) ??
+      contractTemplates.find((item) => item.isDefault && item.isActive);
+
+    if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+
+    const sent: Contract[] = [];
+    /* 건너뛴 이유를 사람 이름과 함께 돌려준다. 숫자만 주면 누구인지 알 수 없다. */
+    const skipped: string[] = [];
+    const now = new Date().toISOString();
+
+    (body.staffIds ?? []).forEach((staffId) => {
+      const assignments = event.assignments
+        .filter(
+          (assignment) =>
+            assignment.staffId === staffId &&
+            assignment.status === "CONFIRMED",
+        )
+        .sort((a, b) => a.workDate.localeCompare(b.workDate));
+
+      if (assignments.length === 0) return;
+
+      const [first] = assignments;
+
+      /* 직원은 회사와 이미 근로계약이 되어 있다. 보낼 문서가 없다. */
+      if (first.isEmployee) {
+        skipped.push(`${first.staffName}님은 직원이라 계약 대상이 아닙니다.`);
+        return;
+      }
+
+      const existing = contracts.find(
+        (contract) =>
+          contract.eventId === event.eventId &&
+          contract.staffId === staffId &&
+          contract.status !== "SUPERSEDED",
+      );
+
+      if (existing?.status === "SIGNED") {
+        skipped.push(`${first.staffName}님은 이미 서명이 끝났습니다.`);
+        return;
+      }
+
+      /*
+        이미 만들어 둔 문서가 있으면 **내용을 지금 배치 기준으로 다시 조립한다.**
+        반려를 받고 금액을 고친 뒤 다시 보내는 것이 이 길의 주된 쓰임이라,
+        예전 내용을 그대로 보내면 같은 이유로 또 반려된다.
+      */
+      if (existing) {
+        Object.assign(existing, buildContractFrom(event, assignments, template), {
+          contractId: existing.contractId,
+          contractNumber:
+            existing.contractNumber ||
+            buildContractNumber(first.workDate, existing.contractId),
+          revision: existing.revision,
+          createdAt: existing.createdAt,
+          status: "SENT" as const,
+          sentAt: now,
+          rejectedReason: undefined,
+        });
+
+        sent.push(existing);
+        return;
+      }
+
+      const contractId = nextId(contracts, "contractId");
+
+      const created: Contract = {
+        ...buildContractFrom(event, assignments, template),
+        contractId,
+        contractNumber: buildContractNumber(first.workDate, contractId),
+        status: "SENT",
+        sentAt: now,
+        createdAt: now,
+      };
+
+      contracts.unshift(created);
+      template.usageCount += 1;
+      sent.push(created);
+    });
+
+    if (sent.length === 0) {
+      return badRequest(
+        skipped.length > 0
+          ? skipped.join(" ")
+          : "보낼 계약서가 없습니다. 확정된 배치를 먼저 만들어 주세요.",
+      );
+    }
+
+    recalculateEventCounts(event);
+
+    await delay(MOCK_DELAY_MS);
+
+    return HttpResponse.json({ sent, skipped }, { status: 201 });
+  }),
 
   /**
    * 서명받은 계약서를 등록한다.

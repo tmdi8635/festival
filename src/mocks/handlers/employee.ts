@@ -407,6 +407,11 @@ export const employeeHandlers = [
       district: "",
       /* 입사 서류는 회사가 이미 받았다. 배치 때 다시 막지 않는다. */
       isDocumentComplete: true,
+      documentReviewState: "APPROVED",
+      reviews: {
+        ID_CARD: { state: "APPROVED" },
+        BANK_ACCOUNT: { state: "APPROVED" },
+      },
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,

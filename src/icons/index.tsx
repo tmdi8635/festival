@@ -49,6 +49,7 @@ export { default as Dots } from "./Dots";
 export { default as Edit } from "./Edit";
 export { default as Filter } from "./Filter";
 export { default as Grip } from "./Grip";
+export { default as Home } from "./Home";
 export { default as Logout } from "./Logout";
 export { default as Plus } from "./Plus";
 export { default as Refresh } from "./Refresh";

@@ -31,7 +31,11 @@ const ACTION_TONE: Record<ActionItem["type"], "danger" | "warning" | "info"> = {
   UNDERSTAFFED: "danger",
   CHECK_TIME_MISSING: "warning",
   CONTRACT_MISSING: "danger",
+  /* 되돌아온 계약서는 담당자가 고쳐서 다시 보내야 움직인다. */
+  CONTRACT_REJECTED: "danger",
   DOCUMENT_MISSING: "warning",
+  /* 승인 대기는 열어 보면 끝나는 일이라 미제출과 같은 무게로 둔다. */
+  DOCUMENT_REVIEW: "warning",
   PAYROLL_PENDING: "warning",
   APPLICATION_PENDING: "info",
 };

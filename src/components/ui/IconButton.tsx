@@ -8,7 +8,13 @@ interface IconButtonProps extends ComponentPropsWithoutRef<"button"> {
   label: string;
   icon: ReactNode;
   tone?: IconButtonTone;
-  size?: "sm" | "md";
+  /**
+   * `lg`는 **손가락으로 누르는 자리**다. (44px — iOS 최소 권장)
+   *
+   * 마우스로 누르는 관리자 화면은 36px(`md`)로 충분하지만, 스태프 포털은
+   * 걸으면서 한 손으로 누르는 화면이라 그 크기로는 실제로 빗나간다.
+   */
+  size?: "sm" | "md" | "lg";
 }
 
 const TONE_CLASS: Record<IconButtonTone, string> = {
@@ -33,7 +39,7 @@ const IconButton = ({
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-field transition",
         "active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40",
-        size === "sm" ? "size-8" : "size-9",
+        size === "sm" ? "size-8" : size === "lg" ? "size-11" : "size-9",
         TONE_CLASS[tone],
         className,
       )}

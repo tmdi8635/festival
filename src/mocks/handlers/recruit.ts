@@ -8,6 +8,7 @@ import type {
 } from "@/type/recruit";
 import type { WageType } from "@/type/event";
 import type { JobRole } from "@/type/staff";
+import { canConfirmAssignment, documentBlockMessage } from "@/type/staff";
 import { jobRoleLabel } from "@/store/useOrgStore";
 import {
   defaultWageOf,
@@ -126,6 +127,7 @@ export const recruitHandlers = [
       wageType: body.wageType,
       wage: body.wage,
       workDate: event.startDate,
+      workDates: event.dates,
       startTime: event.startTime,
       endTime: event.endTime,
       endDayOffset: event.endDayOffset,
@@ -292,6 +294,20 @@ export const recruitHandlers = [
         const event = findEvent(application.eventId);
 
         if (!staff || !event) return notFound("행사 또는 인력을 찾을 수 없습니다.");
+
+        /*
+          지원 확정은 곧 **확정 배치**다. 그래서 배치와 같은 서류 검사를 받아야 한다.
+
+          여기가 오래 뚫려 있었다. 행사 상세의 배치 모달은 서류 없는 사람을 막는데
+          이 길로 들어오면 그대로 통과해서, 막으려던 일이 우회로 하나로 무의미해진다.
+          포털에서 본인이 직접 지원하게 되면 이 길로 들어오는 사람이 훨씬 많아진다.
+        */
+        if (!canConfirmAssignment(staff)) {
+          return badRequest(
+            documentBlockMessage(staff.documentReviewState, staff.name),
+            "DOCUMENT_REQUIRED",
+          );
+        }
 
         const conflict = findConflictEvent(
           staff.staffId,

@@ -53,13 +53,58 @@ const EVENT_TITLE_POOL = [
   "스포츠 브랜드 체험존",
 ];
 
-const VENUES = [
-  { venue: "성수동 팝업 스페이스", address: "서울 성동구 연무장길 41" },
-  { venue: "코엑스 A홀", address: "서울 강남구 영동대로 513" },
-  { venue: "더현대 서울 5층", address: "서울 영등포구 여의대로 108" },
-  { venue: "스타필드 하남 1층 아트리움", address: "경기 하남시 미사대로 750" },
-  { venue: "DDP 알림터", address: "서울 중구 을지로 281" },
-  { venue: "롯데월드몰 지하 1층", address: "서울 송파구 올림픽로 300" },
+/**
+ * 행사 장소.
+ *
+ * 좌표는 실제 값이다. 본인이 출근을 찍을 때 반경 안에 있는지 재는 데 쓰인다.
+ *
+ * **두 곳은 좌표를 비워 뒀다.** 좌표가 없으면 위치를 확인하지 않고 그냥 찍히는데,
+ * 그 길이 화면에서 확인되지 않으면 좌표를 깜빡한 행사에서 무슨 일이 벌어지는지
+ * 아무도 모른 채로 배포된다.
+ */
+const VENUES: {
+  venue: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+}[] = [
+  {
+    venue: "성수동 팝업 스페이스",
+    address: "서울 성동구 연무장길 41",
+    latitude: 37.5447,
+    longitude: 127.0557,
+  },
+  {
+    venue: "코엑스 A홀",
+    address: "서울 강남구 영동대로 513",
+    latitude: 37.5126,
+    longitude: 127.0589,
+  },
+  {
+    venue: "더현대 서울 5층",
+    address: "서울 영등포구 여의대로 108",
+    latitude: 37.5259,
+    longitude: 126.9284,
+  },
+  {
+    venue: "스타필드 하남 1층 아트리움",
+    address: "경기 하남시 미사대로 750",
+    latitude: 37.5453,
+    longitude: 127.2249,
+  },
+  {
+    venue: "DDP 알림터",
+    address: "서울 중구 을지로 281",
+    latitude: 37.5665,
+    longitude: 127.0092,
+  },
+  {
+    venue: "롯데월드몰 지하 1층",
+    address: "서울 송파구 올림픽로 300",
+    latitude: 37.5125,
+    longitude: 127.1025,
+  },
+  /* 좌표 미등록 — 위치 확인을 건너뛰는 길 */
   { venue: "가로수길 플래그십", address: "서울 강남구 압구정로10길 26" },
   { venue: "일산 킨텍스 3홀", address: "경기 고양시 일산서구 킨텍스로 217" },
 ];
@@ -664,6 +709,8 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     endDayOffset: time.endDayOffset as DayOffset,
     venue: place.venue,
     address: place.address,
+    latitude: place.latitude,
+    longitude: place.longitude,
     managerName: MANAGERS[index % MANAGERS.length].name,
     managerPhone: MANAGERS[index % MANAGERS.length].phoneNumber,
     days,

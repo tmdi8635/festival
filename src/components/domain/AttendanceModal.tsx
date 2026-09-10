@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/dayjs";
 import {
   calculateScheduledWorkHours,
   calculateWorkHoursFromTimes,
+  formatDistance,
   formatTimeRange,
   guessDayOffset,
   resolveCheckOutDayOffset,
@@ -201,6 +202,26 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
       }
     >
       <div className="flex flex-col gap-4">
+        {/*
+          본인이 찍은 기록이면 **어디서 찍었는지**를 먼저 보여 준다.
+
+          시각을 고치는 자리이므로, 고치기 전에 원래 무엇이 있었는지가 보여야
+          판단이 된다. 현장에서 20m 떨어져 찍은 기록과 3km 밖에서 찍힌 기록은
+          같은 시각이어도 다르게 다뤄야 한다.
+        */}
+        {assignment?.checkInLocation && (
+          <Alert tone="info" title="근로자가 직접 찍은 기록입니다.">
+            {assignment.checkInLocation.distanceMeters === undefined
+              ? "현장 좌표가 등록되지 않아 위치는 확인되지 않았습니다."
+              : `출근 시점에 현장에서 ${formatDistance(assignment.checkInLocation.distanceMeters)} 떨어진 곳에서 찍었습니다.`}
+            {assignment.checkOutLocation?.distanceMeters !== undefined &&
+              ` 퇴근은 ${formatDistance(assignment.checkOutLocation.distanceMeters)}.`}
+            <br />
+            아래에서 시각을 고치면 <b>적은 그대로</b> 저장됩니다. 기록 규칙은
+            근로자가 찍을 때만 적용됩니다.
+          </Alert>
+        )}
+
         {isNoWork && (
           <Alert tone="danger" title="누적 기록에 반영됩니다.">
             노쇼 · 결근은 인력의 누적 기록에 남아 블랙리스트 판정 근거가 되고,

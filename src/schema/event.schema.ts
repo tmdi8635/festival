@@ -84,6 +84,21 @@ export const eventSchema = z
       .max(2) as unknown as z.ZodType<DayOffset>,
     venue: z.string().min(1, "장소명을 입력해 주세요."),
     address: z.string().min(1, "주소를 입력해 주세요."),
+    /*
+      현장 좌표. **비워 둘 수 있다.**
+
+      넣으면 근로자가 출근을 찍을 때 반경 안에 있는지 확인하고, 비워 두면
+      확인하지 않는다. 필수로 막으면 좌표를 모르는 행사를 아예 등록할 수 없다.
+      빈 문자열을 `undefined`로 바꿔 두어야 0(아프리카 서쪽 바다)과 구분된다.
+    */
+    latitude: z
+      .union([z.literal(""), z.coerce.number().min(-90).max(90)])
+      .transform((value) => (value === "" ? undefined : value))
+      .optional(),
+    longitude: z
+      .union([z.literal(""), z.coerce.number().min(-180).max(180)])
+      .transform((value) => (value === "" ? undefined : value))
+      .optional(),
     managerName: z.string().min(1, "담당 매니저를 입력해 주세요."),
     /*
       담당 매니저 연락처.
@@ -194,6 +209,8 @@ export const EMPTY_EVENT_VALUES: EventSchemaInput = {
   endDayOffset: 0,
   venue: "",
   address: "",
+  latitude: "",
+  longitude: "",
   managerName: "",
   managerPhone: "",
   description: "",

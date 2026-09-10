@@ -23,6 +23,7 @@ import {
   type GenderPreference,
 } from "@/type/event";
 import {
+  DOCUMENT_REVIEW_STATE_LABEL,
   formatRegion,
   REQUIRED_DOCUMENT_LABEL,
   type Gender,
@@ -483,7 +484,7 @@ const StaffPickerModal = ({
               const isDocumentBlocked =
                 status === "CONFIRMED" &&
                 !candidate.isEmployee &&
-                !candidate.isDocumentComplete;
+                !candidate.isDocumentApproved;
               const isFullyBlocked =
                 availableCount === 0 || isDocumentBlocked;
               const hasPartialConflict =
@@ -583,11 +584,22 @@ const StaffPickerModal = ({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      {!candidate.isEmployee && !candidate.isDocumentComplete && (
-                        <Badge tone={isDocumentBlocked ? "danger" : "warning"}>
-                          서류 미제출
-                        </Badge>
-                      )}
+                      {/*
+                        무엇 때문에 막혔는지를 배지가 그대로 말한다.
+                        '서류 미제출' 하나로 뭉뚱그리면, 본인이 이미 올려 둔 사람에게도
+                        같은 말이 뜨고 담당자는 다시 받아 오라고 연락하게 된다.
+                      */}
+                      {!candidate.isEmployee &&
+                        candidate.documentReviewState !== "APPROVED" && (
+                          <Badge tone={isDocumentBlocked ? "danger" : "warning"}>
+                            서류{" "}
+                            {
+                              DOCUMENT_REVIEW_STATE_LABEL[
+                                candidate.documentReviewState
+                              ]
+                            }
+                          </Badge>
+                        )}
 
                       {/*
                         노쇼는 현장에 구멍을 내는 사고라 배치 전에 반드시 보여야 한다.

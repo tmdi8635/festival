@@ -126,11 +126,22 @@ const ImageUploadField = ({
             unoptimized
           />
 
-          {/* 업로드 후에도 바로 교체·삭제할 수 있게 이미지 위에 액션을 둔다. */}
+          {/*
+            업로드 후에도 바로 교체·삭제할 수 있게 이미지 위에 액션을 둔다.
+
+            보이는 크기는 작게(32px) 두고 **누를 수 있는 높이만** 넓힌다.
+            이 버튼은 이미지 위에 얹히는데, 40px로 키우면 프로필 사진처럼 작은
+            칸(160px)에서는 사진의 4분의 1을 가린다. 그렇다고 32px 그대로 두면
+            근로자가 폰에서 신분증을 올릴 때 실제로 빗나간다.
+
+            넓히는 것은 **세로뿐이다.** 가로로 번지면 옆의 '삭제'와 겹쳐서,
+            바꾸려다 사본을 지우는 일이 생긴다.
+          */}
           <div className="absolute right-2 bottom-2 flex items-center gap-1.5">
             <Button
-              size="sm"
               variant="secondary"
+              size="sm"
+              className="relative before:absolute before:-inset-y-2 before:inset-x-0 before:content-['']"
               leftIcon={<Upload size={14} />}
               onClick={() => inputRef.current?.click()}
               disabled={isBusy}
@@ -140,8 +151,9 @@ const ImageUploadField = ({
             </Button>
 
             <Button
-              size="sm"
               variant="danger"
+              size="sm"
+              className="relative before:absolute before:-inset-y-2 before:inset-x-0 before:content-['']"
               leftIcon={<Trash size={14} />}
               onClick={handleRemove}
               disabled={isBusy}

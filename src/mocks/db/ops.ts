@@ -1,4 +1,5 @@
 import type { AdminRole, OperationLog, OperationSettings } from "@/type/ops";
+import { DEFAULT_ATTENDANCE_SETTINGS } from "@/type/ops";
 import type { Employee } from "@/type/employee";
 import { normalizePermissions, type PermissionKey } from "@/type/permission";
 import { DEFAULT_JOB_ROLES } from "@/type/staff";
@@ -39,7 +40,7 @@ export const adminRoles: AdminRole[] = [
         올릴 수 있게 된다. 계정과 권한을 손대는 일은 최고관리자에게 남긴다.
       */
       "employee:read",
-      "contract:read", "contract:write",
+      "contract:read", "contract:write", "contract:send",
       "recruit:read", "recruit:write",
       "message:read", "message:write",
       "settings:read",
@@ -182,6 +183,15 @@ export const operationSettings: OperationSettings = {
     지금은 대부분의 업무를 손으로 처리한다.
     모집 공고와 문자 발송은 화면만 만들어 두고 MOCK으로 열어 둔다.
   */
+  /*
+    근태 기록 기준.
+
+    기본은 **예정 시각으로 맞춤**이다. 일찍 와서 찍은 것이 곧바로 돈이 되면
+    다들 일찍 찍고, 정리하고 나가느라 늦게 찍은 것이 연장수당이 되면 돈이 샌다.
+    업체마다 다르게 굴리므로 기준 설정에서 고칠 수 있다.
+  */
+  attendance: DEFAULT_ATTENDANCE_SETTINGS,
+
   featureModes: {
     RECRUIT: "MOCK",
     MESSAGE: "MOCK",

@@ -7,6 +7,17 @@ import { useSettingsMutation } from "@/api/ops/mutateSettings";
 import { useHasPermission } from "@/store/useAdminStore";
 import { Refresh, Warning } from "@/icons";
 import { cn, formatCurrency } from "@/lib/utils";
+import type { SelectOption } from "@/components/ui";
+import {
+  CHECK_TIME_BASE_LABEL,
+  CHECK_TIME_ROUNDING_LABEL,
+  CHECK_TIME_UNITS,
+  mergeAttendanceSettings,
+  type AttendanceSettings,
+  type CheckTimeBase,
+  type CheckTimeRounding,
+  type CheckTimeRule,
+} from "@/type/ops";
 import {
   FEATURE_HINT,
   FEATURE_LABEL,
@@ -17,7 +28,13 @@ import {
   type FeatureMode,
   type OperationSettings,
 } from "@/type/ops";
-import { WAGE_TYPE_UNIT, type WageType } from "@/type/event";
+import {
+  applyCheckTimeRule,
+  describeCheckTimeRule,
+  toTimeInput,
+  WAGE_TYPE_UNIT,
+  type WageType,
+} from "@/type/event";
 import {
   mergeJobRoles,
   sanitizeJobRoles,
@@ -44,6 +61,30 @@ import Switch from "@/components/ui/Switch";
  * 두 곳에서 같은 값을 고칠 수 있게 두면 어느 쪽이 지금 값인지 알 수 없다.
  */
 const FEATURE_KEYS: FeatureKey[] = ["RECRUIT", "MESSAGE", "CLIENT"];
+
+/**
+ * 규칙 미리보기에 쓰는 날짜.
+ *
+ * 오늘 날짜를 쓰면 자정 근처에서 렌더링할 때마다 값이 달라진다.
+ * 예시는 규칙만 보여 주면 되므로 고정한다.
+ */
+const PREVIEW_DATE = "2026-01-01";
+
+const CHECK_TIME_BASE_OPTIONS: SelectOption[] = (
+  ["SCHEDULE", "ACTUAL"] as const
+).map((base) => ({ label: CHECK_TIME_BASE_LABEL[base], value: base }));
+
+const CHECK_TIME_ROUNDING_OPTIONS: SelectOption[] = (
+  ["NONE", "UP", "DOWN", "NEAREST"] as const
+).map((rounding) => ({
+  label: CHECK_TIME_ROUNDING_LABEL[rounding],
+  value: rounding,
+}));
+
+const CHECK_TIME_UNIT_OPTIONS: SelectOption[] = CHECK_TIME_UNITS.map((unit) => ({
+  label: `${unit}분`,
+  value: String(unit),
+}));
 const FEATURE_MODES: FeatureMode[] = ["ENABLED", "MOCK", "LOCKED"];
 
 /**
@@ -97,6 +138,9 @@ const SettingsForm = () => {
   */
   const jobRoles = mergeJobRoles(settings.jobRoles);
 
+  /* 서버 응답에 근태 항목이 없을 수도 있다. 빠진 칸은 기본값으로 메운다. */
+  const attendance = mergeAttendanceSettings(settings.attendance);
+
   /**
    * 직무 한 줄의 단가 · 사용 여부를 고친다.
    *
@@ -112,6 +156,28 @@ const SettingsForm = () => {
         role.code === code ? { ...role, ...patch } : role,
       ),
     });
+
+  /**
+   * 출퇴근 기록 규칙 한 축을 고친다.
+   *
+   * **본인이 찍는 경로에만 걸리는 값이다.** 근태 모달에서 담당자가 직접 적는
+   * 시각에는 걸지 않는다 — 관리자는 "실제로 이랬다"를 적는 사람이고,
+   * 그 입력에 규칙을 또 걸면 잘못 들어간 기록을 고칠 방법이 없어진다.
+   */
+  const updateCheckRule = (
+    side: "checkIn" | "checkOut",
+    patch: Partial<CheckTimeRule>,
+  ) =>
+    setDraft({
+      ...settings,
+      attendance: {
+        ...attendance,
+        [side]: { ...attendance[side], ...patch },
+      },
+    });
+
+  const updateAttendance = (patch: Partial<AttendanceSettings>) =>
+    setDraft({ ...settings, attendance: { ...attendance, ...patch } });
 
   const updateFeature = (key: FeatureKey, mode: FeatureMode) =>
     setDraft({
@@ -453,6 +519,145 @@ const SettingsForm = () => {
         </div>
       </Card>
 
+
+      {/* -------------------------- 출퇴근 기록 --------------------------- */}
+      <Card
+        title="출퇴근 기록 규칙"
+        description="근로자가 자기 화면에서 찍은 시각을 어떻게 기록할지 정합니다."
+      >
+        <div className="flex flex-col gap-5">
+          <Alert tone="info" title="담당자가 직접 적는 시각에는 걸리지 않습니다.">
+            여기서 정한 규칙은 <b>근로자가 직접 찍을 때만</b> 적용됩니다. 배치 ·
+            근태 화면에서 담당자가 적는 시각은 적은 그대로 저장됩니다.
+          </Alert>
+
+          {(["checkIn", "checkOut"] as const).map((side) => {
+            const rule = attendance[side];
+            const isCheckIn = side === "checkIn";
+            const label = isCheckIn ? "출근" : "퇴근";
+            /* 미리보기의 예시 시각. 출근은 이르게, 퇴근은 늦게 찍은 경우를 보여 준다. */
+            const sample = isCheckIn ? "07:52" : "16:23";
+            const scheduled = isCheckIn ? "08:00" : "16:00";
+            const preview = toTimeInput(
+              applyCheckTimeRule(
+                `${PREVIEW_DATE}T${sample}:00`,
+                `${PREVIEW_DATE}T${scheduled}:00`,
+                rule,
+                isCheckIn ? "IN" : "OUT",
+              ),
+            );
+
+            return (
+              <div
+                key={side}
+                className="flex flex-col gap-3 rounded-card border border-border-main p-4"
+              >
+                <p className="text-[14px] font-semibold text-font-1">{label}</p>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <FormField label="기준">
+                    <Select
+                      options={CHECK_TIME_BASE_OPTIONS}
+                      value={rule.base}
+                      onChange={(event) =>
+                        updateCheckRule(side, {
+                          base: event.target.value as CheckTimeBase,
+                        })
+                      }
+                    />
+                  </FormField>
+
+                  <FormField label="단위 보정">
+                    <Select
+                      options={CHECK_TIME_ROUNDING_OPTIONS}
+                      value={rule.rounding}
+                      onChange={(event) =>
+                        updateCheckRule(side, {
+                          rounding: event.target.value as CheckTimeRounding,
+                        })
+                      }
+                    />
+                  </FormField>
+
+                  <FormField label="보정 단위">
+                    <Select
+                      options={CHECK_TIME_UNIT_OPTIONS}
+                      value={String(rule.unit)}
+                      disabled={rule.rounding === "NONE"}
+                      onChange={(event) =>
+                        updateCheckRule(side, { unit: Number(event.target.value) })
+                      }
+                    />
+                  </FormField>
+                </div>
+
+                {/*
+                  글로 된 규칙만 두면 무엇이 달라지는지 상상해야 한다.
+                  **예시 한 줄**이 있으면 고르는 순간 결과가 보인다.
+                */}
+                <p className="rounded-field bg-subtle px-3 py-2 text-[13px] text-font-1">
+                  예정 {scheduled} · {sample}에 찍으면 →{" "}
+                  <b className="tabular-nums">{preview}</b>{" "}
+                  <span className="text-font-2">
+                    {describeCheckTimeRule(rule, isCheckIn ? "IN" : "OUT")}
+                  </span>
+                </p>
+              </div>
+            );
+          })}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <FormField
+              label="현장 반경"
+              hint="0이면 위치 확인 안 함"
+              htmlFor="checkInRadiusMeters"
+            >
+              <Input
+                id="checkInRadiusMeters"
+                type="number"
+                value={attendance.checkInRadiusMeters}
+                onChange={(event) =>
+                  updateAttendance({
+                    checkInRadiusMeters: Number(event.target.value) || 0,
+                  })
+                }
+              />
+            </FormField>
+
+            <FormField label="시작 몇 시간 전부터" htmlFor="windowBefore">
+              <Input
+                id="windowBefore"
+                type="number"
+                value={attendance.checkInWindowBeforeHours}
+                onChange={(event) =>
+                  updateAttendance({
+                    checkInWindowBeforeHours: Number(event.target.value) || 0,
+                  })
+                }
+              />
+            </FormField>
+
+            <FormField label="종료 몇 시간 뒤까지" htmlFor="windowAfter">
+              <Input
+                id="windowAfter"
+                type="number"
+                value={attendance.checkInWindowAfterHours}
+                onChange={(event) =>
+                  updateAttendance({
+                    checkInWindowAfterHours: Number(event.target.value) || 0,
+                  })
+                }
+              />
+            </FormField>
+          </div>
+
+          <p className="text-[12px] text-font-2">
+            반경은 행사에 <b>현장 좌표가 등록된 경우에만</b> 쓰입니다. 좌표가 없는
+            행사는 위치를 확인하지 않고 기록됩니다. (행사 등록 · 수정에서 좌표를
+            넣을 수 있습니다)
+          </p>
+        </div>
+      </Card>
 
       {/* --------------------------- 인사 · 운영 --------------------------- */}
       <Card
