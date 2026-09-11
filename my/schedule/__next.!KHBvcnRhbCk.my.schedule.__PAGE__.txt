@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:"$Sreact.suspense"
+3:I[5519,["/festival/_next/static/chunks/874e12b8bfe2d6fb.js","/festival/_next/static/chunks/2f150249b10c9881.js","/festival/_next/static/chunks/feb4e1ea745d8f2c.js","/festival/_next/static/chunks/0410a99442b34c44.js","/festival/_next/static/chunks/72b1df0a60d05011.js","/festival/_next/static/chunks/20730cef2e3f039d.js"],"default"]
+4:I[97367,["/festival/_next/static/chunks/ff1a16fafef87110.js","/festival/_next/static/chunks/a2dfb6fc5208ab9b.js"],"OutletBoundary"]
+0:{"buildId":"JFxsbHb9vbN652PpOSNiQ","rsc":["$","$1","c",{"children":[["$","$2",null,{"fallback":["$","span",null,{"className":"skeleton block rounded-[6px] h-64 w-full rounded-card"}],"children":["$","$L3",null,{}]}],[["$","script","script-0",{"src":"/festival/_next/static/chunks/20730cef2e3f039d.js","async":true}]],["$","$L4",null,{"children":["$","$2",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"loading":null,"isPartial":false}
+5:null
