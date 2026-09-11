@@ -16,20 +16,25 @@ import {
   DOCUMENT_LANE_LABEL,
   REPUTATION_BASE_SCORE,
   calculateReputationDelta,
+  matchesHealthCertFilter,
+  resolveAttendancePenalty,
   resolveDocumentReviewState,
   resolveReputationCount,
   resolveTagVerdict,
   resolveStaffStatus,
   resubmitDocumentLane,
+  type HealthCertFilter,
 } from "@/type/staff";
 import {
   calculateBasePay,
   calculateScheduledWorkHours,
+  resolveAssignmentSchedule,
 } from "@/type/event";
 import { findContractByWork } from "../db/contract";
 import { events } from "../db/event";
 import {
   findStaff,
+  refreshHealthCertState,
   snapshotStaffDocuments,
   sortedStaff,
   staffList,
@@ -50,12 +55,16 @@ import {
 
 /** 목록 응답에서는 계좌 · 신분증처럼 민감한 값을 내려주지 않는다. */
 const toStaffSummary = (staff: StaffDetail) => {
+  /* 보건증 만료는 날짜가 지나면 생긴다. 내리기 직전에 오늘 기준으로 다시 구한다. */
+  refreshHealthCertState(staff);
+
   const {
     bankName,
     accountNumber,
     accountHolder,
     idCardImageUrl,
     bankBookImageUrl,
+    healthCertImageUrl,
     address,
     emergencyContact,
     memos,
@@ -72,6 +81,7 @@ const toStaffSummary = (staff: StaffDetail) => {
   void accountHolder;
   void idCardImageUrl;
   void bankBookImageUrl;
+  void healthCertImageUrl;
   void address;
   void emergencyContact;
   void memos;
@@ -101,6 +111,8 @@ const maskStaffDetail = (staff: StaffDetail, request: Request): StaffDetail => {
   if (!requesterCan(request, "staffDocument:read")) {
     masked.idCardImageUrl = "";
     masked.bankBookImageUrl = "";
+    /* 보건증도 개인 서류다. 상태(유효 · 만료)는 배치에 필요해 남기고 사진만 덜어 낸다. */
+    masked.healthCertImageUrl = "";
   }
 
   /*
@@ -148,6 +160,8 @@ const DOCUMENT_FIELDS = [
   "accountHolder",
   "idCardImageUrl",
   "bankBookImageUrl",
+  "healthCertImageUrl",
+  "healthCertIssuedAt",
 ] as const;
 
 const omitDocumentFields = (body: StaffFormValues): StaffFormValues => {
@@ -172,10 +186,21 @@ export const staffHandlers = [
     const role = url.searchParams.get("role") as JobRole | null;
     const region = url.searchParams.get("region") ?? "";
     const documentState = url.searchParams.get("documentState") ?? "";
+    /*
+      보건증 유무. 식음료 행사에 부를 사람을 고를 때 쓴다.
+      '없음'에는 만료 · 승인 대기 · 반려가 함께 들어간다 — 지금 현장에 세울 수 없다는 뜻이다.
+    */
+    const healthCert = (url.searchParams.get("healthCert") || undefined) as
+      | HealthCertFilter
+      | undefined;
     const onlyFavorite = url.searchParams.get("onlyFavorite") === "true";
     const sort = url.searchParams.get("sort") ?? "RECENT";
 
     const filtered = sortedStaff().filter((staff) => {
+      if (!matchesHealthCertFilter(refreshHealthCertState(staff), healthCert)) {
+        return false;
+      }
+
       /*
         직원은 인력풀 목록에 세우지 않는다.
 
@@ -256,6 +281,8 @@ export const staffHandlers = [
 
     if (!staff) return notFound("존재하지 않는 인력입니다.");
 
+    refreshHealthCertState(staff);
+
     return HttpResponse.json(maskStaffDetail(staff, request));
   }),
 
@@ -291,7 +318,12 @@ export const staffHandlers = [
 
         if (mine.length === 0) return;
 
-        const workHours = calculateScheduledWorkHours(event);
+        /* 시간은 배치마다 그 포지션의 예정 시간이다. 1일차 A타임 · 2일차 B타임이 섞인다. */
+        const hoursOf = (assignment: (typeof mine)[number]) =>
+          calculateScheduledWorkHours(
+            resolveAssignmentSchedule(event, assignment),
+          );
+        const workHours = hoursOf(mine[0]);
 
         const days: StaffWorkDay[] = mine
           .map((assignment) => ({
@@ -302,7 +334,7 @@ export const staffHandlers = [
             payAmount: calculateBasePay(
               assignment.wageType,
               assignment.wage,
-              workHours,
+              hoursOf(assignment),
             ),
             verdict: assignment.reputationVerdict,
           }))
@@ -335,7 +367,11 @@ export const staffHandlers = [
           workDate: workDates[0],
           dayCount: workDates.length,
           workHours,
-          totalWorkHours: Math.round(workHours * workDates.length * 10) / 10,
+          totalWorkHours:
+            Math.round(
+              mine.reduce((sum, assignment) => sum + hoursOf(assignment), 0) *
+                10,
+            ) / 10,
           payAmount: days.reduce((sum, day) => sum + day.payAmount, 0),
           days,
           verdict,
@@ -409,6 +445,39 @@ export const staffHandlers = [
             })),
         )
         .sort((a, b) => b.workDate.localeCompare(a.workDate));
+
+      /*
+        근태 감점도 같은 목록에 세운다. 총점은 평가와 감점을 함께 더한 값이라,
+        감점 줄이 빠지면 목록을 다 더해도 총점이 나오지 않는다.
+      */
+      events.forEach((event) =>
+        event.assignments.forEach((assignment) => {
+          if (assignment.staffId !== staffId) return;
+
+          const penalty = resolveAttendancePenalty(assignment);
+
+          if (!penalty) return;
+
+          items.push({
+            assignmentId: assignment.assignmentId,
+            eventId: event.eventId,
+            eventTitle: event.title,
+            clientName: event.clientName,
+            workDate: assignment.workDate,
+            role: assignment.role,
+            verdict: "BAD",
+            tags: [],
+            points: penalty.points,
+            comment: assignment.staffCancelReason,
+            ratedAt: assignment.staffCanceledAt,
+            ratedBy: "자동 감점",
+            raterType: "AGENCY",
+            penaltyType: penalty.type,
+          });
+        }),
+      );
+
+      items.sort((a, b) => b.workDate.localeCompare(a.workDate));
 
       /* 항목별 집계. "별로예요 12건"만으로는 무엇이 문제인지 알 수 없다. */
       const tagMap = new Map<string, { count: number; verdict: ReputationVerdict }>();
@@ -487,6 +556,7 @@ export const staffHandlers = [
         Boolean(body.bankBookImageUrl && body.accountNumber),
         now,
       ),
+      HEALTH_CERT: resubmitDocumentLane(Boolean(body.healthCertImageUrl), now),
     };
 
     const documentReviewState = resolveDocumentReviewState(reviews);
@@ -508,6 +578,10 @@ export const staffHandlers = [
       isDocumentComplete,
       documentReviewState,
       reviews,
+      /* 빈 문자열은 '발급일 없음'이다. 비교에서 날짜로 읽히지 않게 비워 둔다. */
+      healthCertImageUrl: body.healthCertImageUrl ?? "",
+      healthCertIssuedAt: body.healthCertIssuedAt || undefined,
+      healthCertState: reviews.HEALTH_CERT.state,
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,
@@ -543,6 +617,10 @@ export const staffHandlers = [
     const before = snapshotStaffDocuments(staff);
 
     Object.assign(staff, body);
+
+    /* 폼은 비운 발급일을 빈 문자열로 보낸다. 날짜로 읽히지 않게 비워 둔다. */
+    if (!staff.healthCertIssuedAt) staff.healthCertIssuedAt = undefined;
+    if (staff.healthCertImageUrl === undefined) staff.healthCertImageUrl = "";
 
     // 서류가 바뀌면 심사와 상태가 따라 움직인다. 판단은 한 함수에서만 한다.
     syncStaffDocuments(staff, before);
@@ -678,6 +756,8 @@ export const staffHandlers = [
         bankName?: string;
         accountNumber?: string;
         accountHolder?: string;
+        healthCertImageUrl?: string;
+        healthCertIssuedAt?: string;
       };
 
       if (!staff) return notFound("존재하지 않는 인력입니다.");
@@ -749,9 +829,11 @@ export const staffHandlers = [
         rejectReason: body.state === "REJECTED" ? reason : undefined,
       };
 
+      /* 대표 상태는 필수 서류만 본다. 보건증 심사는 활동 여부를 바꾸지 않는다. */
       staff.documentReviewState = resolveDocumentReviewState(staff.reviews);
       /* 승인이 끝나야 활동중이 된다. 판단은 언제나 같은 함수에서. */
       staff.status = resolveStaffStatus(staff);
+      refreshHealthCertState(staff);
 
       await delay(MOCK_DELAY_MS);
 

@@ -76,10 +76,10 @@
 | 라우트 | 화면 책임 |
 |---|---|
 | `/my` | 홈. 다음 근무 · 할 일(서류 반려 · 서명 대기 · 지원 결과) · 이번 달 예상 지급액 |
-| `/my/schedule` | 내 일정. **예정 / 신청 / 종료** 탭. 집합 장소 · 복장 · 준비물 · 담당자 전화 · **출퇴근 체크** |
-| `/postings` | 공고 열람 · 지원. **로그인 없이 열린다** (`/my` 밖에 있는 유일한 화면) |
-| `/my/contracts` | 내 계약서. 전문을 읽고 **전자서명**하거나 사유를 적어 되돌려 보낸다 |
-| `/my/profile` | 인적사항 수정(즉시) · 서류·계좌 제출(승인 대상) · 받은 평가 |
+| `/my/schedule` | 내 일정. **캘린더(기본) / 리스트** 전환. 리스트는 예정 / 신청 / 종료 탭. 집합 장소 · 복장 · 준비물 · 담당자 전화 · **출퇴근 체크** |
+| `/postings` | 공고 열람 · **포지션별 지원**. 성별 · 보건증 조건으로 거른다. **로그인 없이 열린다** (`/my` 밖에 있는 유일한 화면) |
+| `/my/contracts` | 내 계약서 목록 → `detail?id=` 상세(요약 · 차수 · 수정요청 이력) → `document?id=` 전문. **서명 · 수정요청은 전문에서만** (하단 시트) |
+| `/my/profile` | **읽기 전용.** 평판 점수(숫자만) · 인적사항 · 서류 상태. 수정은 `/my/profile/edit`(즉시 반영), 서류 · 계좌 · 보건증은 `/my/profile/documents`(승인 대상) |
 | `/my/payroll` | 정산 내역. 왜 이 금액인지 펼쳐 본다. 계좌는 뒤 4자리만 |
 
 ### 관리자와 갈라 두는 것
@@ -135,6 +135,10 @@
 붙어 있는데, 그건 담당자가 무엇을 채워야 하는지 보려고 붙인 내부 표기다.
 몇 자리 남았는지가 보이면 지원이 눈치 게임이 되고, 우리가 인력을 얼마나
 못 채웠는지가 그대로 밖으로 나간다. 포털은 `eventTitle`을 제목으로 쓴다.
+
+**공고 하나가 행사 하나다.** 그 안의 포지션(A타임 · B타임 · 인형탈 …)마다 시각 · 금액 ·
+성별 · 보건증 조건이 달라서, 상세에서 **포지션을 골라 지원**한다. 행사당 살아 있는 지원은
+하나뿐이다. 회원은 본인 성별로, 비회원은 고른 성별로 공고가 걸러진다.
 
 상세 모달은 공고 목록과 **일정 > 신청** 양쪽에서 같은 것을 연다.
 지원한 뒤 조건을 다시 확인하려는 사람이 실제로 많은데, 그때 보는 화면이
@@ -195,7 +199,7 @@
 기준 설정의 반경으로 확인한다.
 
 **동적 라우트를 만들지 않는다.** 정적 내보내기라 동적 라우트마다 `generateStaticParams`가
-필요하다. 공고 상세 · 계약서 상세는 모달과 `?tab=` 쿼리로 처리한다.
+필요하다. 공고 상세는 모달, 계약서 상세 · 전문과 내 정보 수정은 `?id=` 쿼리를 받는 정적 페이지로 처리한다.
 
 ### 서류 승인
 
@@ -383,23 +387,25 @@ GET    /admin/managers                        (POST · PUT · DELETE)
 GET    /admin/logs
 GET    /admin/settings                        (PUT)
 
-POST   /admin/contracts/send                  전자서명 요청 (번호 발급 + SENT)
-PATCH  /admin/staff/{id}/documents/review     서류 승인 · 반려 (반려는 사유 필수)
+POST   /admin/contracts/send                  전자서명 요청 (번호 발급 + SENT, 반려 · 발송된 건은 건너뜀)
+POST   /admin/contracts/{id}/reissue          수정요청(반려) 재발급 → 새 차수 SENT, 이전 차수 SUPERSEDED
+POST   /admin/events/{id}/positions           포지션 추가 (PUT · DELETE /{positionId})
+PATCH  /admin/staff/{id}/documents/review     서류 승인 · 반려 (반려는 사유 필수, 보건증 레인 포함)
 
 --- 스태프 포털 (요청자는 X-Staff-Id 하나로만 판별한다) ---
 
 GET    /my/accounts                           계정 전환 (테스트용. 로그인이 붙으면 삭제)
-GET    /my/profile                            (PUT — 인적사항, 승인 없이 즉시 반영)
+GET    /my/profile                            (PUT — 인적사항, 승인 없이 즉시 반영). 평판은 점수만
 PUT    /my/documents                          서류 · 계좌 제출 → 승인 대기
-GET    /my/assignments?scope=UPCOMING|PAST    내 근무 (행사 정보를 합쳐 내린다)
+PUT    /my/health-cert                        보건증 제출 (사진 + 발급일) → 승인 대기
+GET    /my/assignments?scope=UPCOMING|PAST|ALL 내 근무 (포지션 시각을 합쳐 내린다. ALL은 캘린더)
 GET    /my/payrolls                           내 정산 (계좌는 뒤 4자리만)
-GET    /my/reputations                        내 평판 (항목은 보이고 담당자 메모는 없다)
-GET    /postings                              OPEN 공고만. **로그인 불필요**
-GET    /postings/{id}                         공고 상세 (마감된 공고도 내린다)
-GET    /my/applications                       (POST — 지원 / PATCH {id}/cancel — 취소)
-GET    /my/contracts                          (GET {id}/preview — 원문 + 양식)
-POST   /my/contracts/{id}/sign                전자서명 제출
-POST   /my/contracts/{id}/reject              반려 (사유 필수)
+GET    /postings                              OPEN 공고만. **로그인 불필요**. role · onlyMyRoles · gender · healthCert
+GET    /postings/{id}                         공고 상세 + 포지션별 지원 가능 여부 (마감된 공고도 내린다)
+GET    /my/applications                       (POST {postingId, positionId} — 지원 / PATCH {id}/cancel — 취소)
+GET    /my/contracts                          (GET {id}/preview — 원문 + 양식 + 요약 + 차수 이력)
+POST   /my/contracts/{id}/sign                전자서명 제출 (SENT만)
+POST   /my/contracts/{id}/reject              수정요청 (SENT만, 사유 필수, 이력에 쌓임)
 POST   /my/assignments/{id}/check-in          출근 (위치 · 시간 창 검증 + 기록 규칙)
 POST   /my/assignments/{id}/check-out         퇴근
 GET    /my/summary                            홈 화면 요약

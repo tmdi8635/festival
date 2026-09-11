@@ -12,7 +12,7 @@ import {
   monthKey,
   summarizeEmployeeHours,
 } from "@/type/employee";
-import { resolveWorkHours } from "@/type/event";
+import { resolveAssignmentSchedule, resolveWorkHours } from "@/type/event";
 import type { StaffDetail } from "@/type/staff";
 import { REPUTATION_BASE_SCORE } from "@/type/staff";
 import { events } from "../db/event";
@@ -79,7 +79,10 @@ const summarizeMonth = (staffId: number, month: string) => {
     let eventScheduled = 0;
 
     for (const assignment of own) {
-      const { workHours, isActual } = resolveWorkHours(assignment, event);
+      const { workHours, isActual } = resolveWorkHours(
+        assignment,
+        resolveAssignmentSchedule(event, assignment),
+      );
 
       eventHours += workHours;
       if (!isActual) eventScheduled += workHours;
@@ -411,7 +414,9 @@ export const employeeHandlers = [
       reviews: {
         ID_CARD: { state: "APPROVED" },
         BANK_ACCOUNT: { state: "APPROVED" },
+        HEALTH_CERT: { state: "NONE" },
       },
+      healthCertState: "NONE",
       workCount: 0,
       totalWorkHours: 0,
       noShowCount: 0,
@@ -427,6 +432,7 @@ export const employeeHandlers = [
       accountHolder: body.name,
       idCardImageUrl: "",
       bankBookImageUrl: "",
+      healthCertImageUrl: "",
       address: body.address,
       emergencyContact: body.emergencyContact,
       totalPaidAmount: 0,

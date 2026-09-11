@@ -17,7 +17,11 @@ import {
 } from "@/schema/staff.schema";
 import { useHasPermission } from "@/store/useAdminStore";
 import { useActiveJobRoles } from "@/store/useOrgStore";
-import { type Gender, type StaffDetail } from "@/type/staff";
+import {
+  healthCertExpiresAt,
+  type Gender,
+  type StaffDetail,
+} from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
@@ -52,6 +56,8 @@ const toFormValues = (staff: StaffDetail): StaffSchemaInput => ({
   accountHolder: staff.accountHolder,
   idCardImageUrl: staff.idCardImageUrl,
   bankBookImageUrl: staff.bankBookImageUrl,
+  healthCertImageUrl: staff.healthCertImageUrl ?? "",
+  healthCertIssuedAt: staff.healthCertIssuedAt ?? "",
 });
 
 /**
@@ -88,6 +94,7 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
 
   // 시/도를 바꾸면 그 아래 구 목록이 통째로 달라진다.
   const region = watch("region");
+  const healthCertIssuedAt = watch("healthCertIssuedAt");
 
   const onSubmit = handleSubmit((values) => {
     if (staff) {
@@ -366,6 +373,45 @@ const StaffFormModal = ({ isOpen, staff, onClose }: StaffFormModalProps) => {
                   aspectRatio="16 / 10"
                 />
               )}
+            />
+          </FormField>
+        </div>
+
+        {/*
+          보건증. **선택이다.** 식음료 자리에 설 사람만 있으면 된다.
+          발급일을 함께 받는 이유는 유효기간이 발급일로부터 1년이라서다.
+          사진만 있고 날짜가 없으면 만료를 셀 수 없어 결국 쓸 수 없는 서류가 된다.
+          (올리면 심사 대기가 되고, 서류 관리에서 승인해야 유효해진다)
+        */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="보건증" hint="선택 · 식음료 포지션에 필요">
+            <Controller
+              control={control}
+              name="healthCertImageUrl"
+              render={({ field }) => (
+                <ImageUploadField
+                  value={field.value}
+                  onChange={field.onChange}
+                  fileType="STAFF_HEALTH_CERT"
+                  aspectRatio="16 / 10"
+                />
+              )}
+            />
+          </FormField>
+
+          <FormField
+            label="보건증 발급일"
+            hint={
+              healthCertIssuedAt && healthCertExpiresAt(healthCertIssuedAt)
+                ? `${healthCertExpiresAt(healthCertIssuedAt)}까지 유효`
+                : "발급일로부터 1년간 유효합니다"
+            }
+            error={errors.healthCertIssuedAt?.message}
+          >
+            <Input
+              type="date"
+              {...register("healthCertIssuedAt")}
+              hasError={Boolean(errors.healthCertIssuedAt)}
             />
           </FormField>
         </div>

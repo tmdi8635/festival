@@ -305,6 +305,19 @@ const handleSave = () => mutation.mutate(rows, { onSuccess: () => setDraft(null)
 | `resolveHourlyRate` | `type/event.ts` | 지각 공제처럼 분 단위로 따질 때 |
 | `calculateWorkHours` | `type/event.ts` | 행사 폼 (시각 · 휴게 · 날짜 넘김을 직접 넘길 때) |
 | `calculateScheduledWorkHours` ★ | `type/event.ts` | 행사 · 계약서에서 바로 실근무 시간 (인자 빠뜨릴 일이 없다) |
+| `resolveAssignmentSchedule` ★ | `type/event.ts` | 배치 한 건의 예정 시각 (포지션 기준). 출근 창 · 정산 · 계약서 · 명부 |
+| `findPosition` | `type/event.ts` | 행사 안에서 `positionId`로 포지션 찾기 |
+| `resolvePositionSchedule` | `type/event.ts` | 포지션의 예정 시각 (배치가 아직 없을 때) |
+| `formatPositionLabel` | `type/event.ts` | 포지션 이름 + 직무를 나란히 적는 곳 |
+| `comparePositionOrder` | `type/event.ts` | 포지션 나열 순서 (카탈로그 순서를 따른다) |
+| `resolveBillingRate` ★ | `type/event.ts` | 청구 단가 (원본은 `EventPosition.billingRate`) |
+| `resolveDocumentReviewState` ★ | `type/staff.ts` | 서류 심사 결과 (**필수 레인만** 본다 — 보건증 제외) |
+| `buildContractWorkDay` ★ | `type/contract.ts` | 배치 → 계약서 근무일 한 줄 (그날의 포지션 시각 · 금액) |
+| `summarizeContractWork` ★ | `type/contract.ts` | 근무일 목록 → 총 시간 · 총액 · `hasMixedSchedule` |
+| `resolveHealthCertState` ★ | `type/staff.ts` | 보건증 상태 (만료는 그때 구한다) |
+| `resolveStaffCancelPolicy` ★ | `type/event.ts` | 본인 취소 마감(포지션 시작 − 24시간) · 노쇼 간주 여부. 포털 카드 버튼과 취소 요청이 같이 쓴다 |
+| `resolveAttendancePenalty` ★ | `type/staff.ts` | 근태 감점 (무단 노쇼 −30 · 24시간 이내 취소 −20). 평판 집계 · 관리자 평판 탭 · 포털 기록 상자 |
+| `matchesGenderPreference` | `type/event.ts` | 공고 성별 필터 · 지원 차단 (성별 모름 = 통과) |
 | `formatTimeRange` ★ | `type/event.ts` | 시각을 나란히 적는 **모든** 화면 (`13:00~03:00 (+1)`) |
 | `toDateKey` · `nextDateKey` ★ | `type/event.ts` | `YYYY-MM-DD` 만들기 · 이어지는 날 비교 (`toISOString()` 금지) |
 | `confirmedRoster` ★ | `lib/notice.ts` | 단체 문자 명단 · 연락처 (사람 단위 · 직무 순서) |
@@ -381,6 +394,25 @@ import {
   모듈 스코프(CSV 컬럼 등)에서만 순수 함수(`jobRoleLabel`)를 쓴다.
 - 파생 배열(`filter`/`map`)은 **반드시 `useMemo`로 감싼다.**
   렌더마다 새 배열이 만들어져 `useEffect` 의존성에 들어가면 무한 루프가 난다.
+
+### 11-1. 포지션 — 직무는 그대로, 자리는 행사가 만든다 ★
+
+직무를 고정해 두면 "같은 스태프인데 A타임 · B타임(야간)의 시간과 시급이 다른 자리"를
+한 행사에 담을 수 없다. 담당자는 행사를 둘로 쪼개 등록했고, 거래처 하나의 일이
+캘린더 두 줄 · 계약서 두 장 · 정산 두 건으로 흩어졌다.
+
+그래서 **행사 안에 포지션(`EventPosition`)을 둔다.**
+
+- 포지션 = 자유 이름(A타임 · 인형탈) + **카탈로그 직무 하나**. 직무 목록은 여전히 사용자가 못 늘린다.
+  (인형탈처럼 대행사와 주고받는 새 직무는 카탈로그에 추가한다 — `COSTUME`)
+- 시각 · 휴게 · 지급 기준/금액 · 청구 단가 · 성별 · 보건증은 **포지션이 원본**이다.
+  행사의 시각은 "기본 근무시간"(새 포지션 초기값)이고, 청구 단가 배열(`billingRates`)은 없다.
+- 발주 슬롯 · 배치 · 공고 · 지원이 `positionId`로 가리킨다. 배치의 `role`은 포지션 직무의 사본이다.
+- 예정 시각이 필요하면 **반드시** `resolveAssignmentSchedule(event, assignment)`. `event`를 넘기지 않는다.
+- 같은 직무를 여러 번 둘 수 있지만 **같은 이름은 안 된다.** 종료가 시작보다 이르면 D+1을 골라야 한다.
+- 배치 · 처리 중 지원이 걸린 포지션은 지울 수 없고, 배치가 있으면 직무를 바꿀 수 없다.
+  금액을 고치면 그날만 따로 고친 슬롯 · 이미 배치된 사람의 금액은 그대로 둔다.
+- 포지션은 **행사 등록 폼**에서 만들고, 이후에는 행사 상세 개요의 포지션 카드에서 하나씩 고친다.
 
 기능 잠금은 `featureModes`로 다룬다.
 
@@ -594,6 +626,8 @@ import {
 
 - 단일 원본은 `event.days[].roles`다. `event.roles`는 그것을 합친 **파생값**이고
   `recalculateEventCounts()`가 다시 계산한다. 화면에서 `event.roles`를 고치면 안 된다.
+- 슬롯의 키는 **`positionId`**다. 직무로 합치면 A타임 · B타임 스태프가 한 줄로 뭉쳐
+  야간 자리가 비어도 '스태프 10/10'으로 읽힌다. (`aggregateDayPlans`)
 - 하루치만 고치는 API는 `PUT /admin/events/:eventId/days/:date/roles`다.
 - **발주를 고치는 자리는 일별 근무자 탭 하나뿐이다.** 행사 *등록* 폼은 첫 날들에 깔
   초기값을 받지만, *수정* 폼에서는 아예 감춘다. 수정에서 다시 받으면 담당자는
@@ -655,8 +689,12 @@ import {
 - **등록 취소**가 있어야 한다. 파일명이 비슷해 남의 서명본을 올리는 일이 실제로 난다.
   1차는 기록째 지워 '발급 전'으로, 재작성 차수는 파일만 떼어 '등록 대기'로 되돌린다.
   (번호와 이력은 남긴다)
-- 상태는 셋뿐이다. 발송됨 · 반려 · 기한만료는 **서버가 붙는 날 다시 만든다.**
-  있지도 않은 절차를 화면에 세워 두지 않는다. 같은 이유로 `contract:send` 권한도 없다.
+- 스태프 포털이 생기면서 **전자서명 경로**가 나란히 섰다. (`contract:send`)
+  서명 대기(`SENT`) → 본인이 전문을 끝까지 읽고 서명(`SIGNED`), 또는 **수정요청**(`REJECTED`).
+  수정요청을 받은 문서에는 서명할 수 없고, 담당자가 행사에서 금액 · 근무일을 고친 뒤
+  **재발급**하면 새 차수가 `SENT`로 나가고 반려 차수는 `SUPERSEDED`로 이력에 남는다.
+  요청 사유는 덮어쓰지 않고 `revisionRequests`에 쌓인다 (몇 차로 반영됐는지까지).
+  기한만료는 없다 — 링크가 아니라 로그인이라 만료될 것이 없다.
 
 | 상태 | 뜻 |
 |---|---|
@@ -906,6 +944,19 @@ PDF는 `data:` 주소를 그대로 `<iframe>`에 넣을 수 없어(크롬이 막
 
 `GET /admin/settings`만은 권한을 걸지 않는다. 직무 단가 · 사용 여부는 **모든 화면이 쓰는 기준 자료**라,
 막으면 권한과 무관한 화면까지 함께 깨진다. 기준 설정 *화면*은 `settings:read`로 막는다.
+
+---
+
+## 13-6. 스태프 포털의 화면 원칙 ★
+
+- **조회와 수정은 다른 페이지다.** `/my/profile`은 읽기 전용이고, 인적사항은 `/my/profile/edit`,
+  서류 · 보건증은 `/my/profile/documents`에서 고친다. 들어가자마자 폼이 열리면
+  본인은 무엇이 저장된 값이고 무엇이 입력 중인 값인지 구분하지 못한다.
+- **평가는 점수만.** 건별 평가 · 항목 · 건수는 본인에게 내리지 않는다 (DTO에도 없다).
+- **돌이킬 수 없는 행위는 내용을 본 자리에서만.** 계약서 서명 · 수정요청 버튼은 전문 페이지에만 있고,
+  끝까지 스크롤해야 켜진다. 입력은 하단 시트(`BottomSheet`)로 받는다 — 모달 아래쪽에 붙은 폼은 아무도 못 봤다.
+- 포털은 동적 라우트가 없다. 상세는 `?id=` 쿼리 페이지(`/my/contracts/detail?id=`)로 만든다.
+- 보건증은 선택 서류다. 필수 서류 폼과 따로 내고, 필요한 포지션에만 지원 조건으로 걸린다.
 
 ---
 

@@ -1,6 +1,11 @@
-import type { Contract, ContractTemplate } from "@/type/contract";
+import type {
+  Contract,
+  ContractRevisionRequest,
+  ContractTemplate,
+} from "@/type/contract";
 import {
   buildContractFileName,
+  buildContractWorkDay,
   buildDocumentHash,
   contractNameTag,
   findDuplicateStaffNames,
@@ -8,11 +13,7 @@ import {
 } from "@/type/contract";
 import { buildPlaceholderPdfDataUrl } from "../placeholderPdf";
 import { buildPlaceholderSignatureDataUrl } from "../placeholderSignature";
-import {
-  calculateScheduledWorkHours,
-  groupAssignmentsByStaff,
-  toDateKey,
-} from "@/type/event";
+import { groupAssignmentsByStaff, toDateKey } from "@/type/event";
 import { DEMO_STAFF_ID } from "../demo";
 import { daysAgo, toIsoDateTime } from "../utils";
 import { DEMO_EVENT_TITLE, events } from "./event";
@@ -213,6 +214,15 @@ export const buildContractNumber = (
 ): string =>
   `HC-${workDate.replace(/-/g, "")}-${String(sequence).padStart(3, "0")}`;
 
+/**
+ * 반려 상태의 두 칸을 함께 만든다. 최신 사유(`rejectedReason`)와 요청 이력(`revisionRequests`).
+ * 한쪽만 채우면 상세의 사유와 이력 목록이 다른 이야기를 한다.
+ */
+export const buildRevisionRequest = (reason: string, requestedAt: string) => ({
+  rejectedReason: reason,
+  revisionRequests: [{ reason, requestedAt }] as ContractRevisionRequest[],
+});
+
 let contractSequence = 0;
 
 /**
@@ -229,8 +239,6 @@ let contractSequence = 0;
 export const contracts: Contract[] = events
   .filter((event) => event.status !== "DRAFT" && event.status !== "CANCELED")
   .flatMap((event) => {
-    const workHours = calculateScheduledWorkHours(event);
-
     /*
       한 행사 안에서 이름이 겹치는 사람들.
       겹칠 때만 파일명에 휴대폰 뒤 네 자리를 붙인다. (`buildContractFileName`)
@@ -254,12 +262,7 @@ export const contracts: Contract[] = events
         대표 금액 하나에 일수를 곱하면 실제 지급액과 어긋난다.
       */
       const work = summarizeContractWork(
-        assignments.map((item) => ({
-          workDate: item.workDate,
-          wageType: item.wageType,
-          wage: item.wage,
-        })),
-        workHours,
+        assignments.map((item) => buildContractWorkDay(event, item)),
       );
       const { workDates } = work;
 
@@ -323,12 +326,7 @@ export const contracts: Contract[] = events
         role: first.role,
         templateId: template.templateId,
         templateName: template.name,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        endDayOffset: event.endDayOffset,
-        breakMinutes: event.breakMinutes,
-        workHours,
-        // 근무일 · 총 시간 · 총액은 한 곳에서만 계산한다.
+        // 근무일 · 시간대 · 총 시간 · 총액은 한 곳에서만 계산한다.
         ...work,
         status: "SIGNED",
         revision: 1,
@@ -375,8 +373,6 @@ export const contracts: Contract[] = events
 events
   .filter((event) => event.status === "CONFIRMED" || event.status === "RECRUITING")
   .forEach((event) => {
-    const workHours = calculateScheduledWorkHours(event);
-
     groupAssignmentsByStaff(event.assignments)
       .filter(
         (assignments) =>
@@ -391,12 +387,7 @@ events
         const staff = findStaff(first.staffId);
 
         const work = summarizeContractWork(
-          assignments.map((item) => ({
-            workDate: item.workDate,
-            wageType: item.wageType,
-            wage: item.wage,
-          })),
-          workHours,
+          assignments.map((item) => buildContractWorkDay(event, item)),
         );
 
         const template =
@@ -430,18 +421,16 @@ events
           role: first.role,
           templateId: template.templateId,
           templateName: template.name,
-          startTime: event.startTime,
-          endTime: event.endTime,
-          endDayOffset: event.endDayOffset,
-          breakMinutes: event.breakMinutes,
-          workHours,
           ...work,
           status: isRejected ? "REJECTED" : "SENT",
           revision: 1,
           sentAt: daysAgo(3),
-          rejectedReason: isRejected
-            ? "근무일이 하루 더 적게 적혀 있습니다. 확인 부탁드립니다."
-            : undefined,
+          ...(isRejected
+            ? buildRevisionRequest(
+                "근무일이 하루 더 적게 적혀 있습니다. 확인 부탁드립니다.",
+                daysAgo(1),
+              )
+            : {}),
           createdAt: daysAgo(4),
         } satisfies Contract);
       });
@@ -471,20 +460,17 @@ const buildDemoContract = (
       contract.staffId === DEMO_STAFF_ID && contract.eventId === event.eventId,
   );
 
-  const workHours = calculateScheduledWorkHours(event);
   const work = summarizeContractWork(
-    mine.map((item) => ({
-      workDate: item.workDate,
-      wageType: item.wageType,
-      wage: item.wage,
-    })),
-    workHours,
+    mine.map((item) => buildContractWorkDay(event, item)),
   );
 
-  const rejectedReason =
+  const rejection =
     status === "REJECTED"
-      ? "시급이 공고에 적힌 금액과 다릅니다. 확인 부탁드립니다."
-      : undefined;
+      ? buildRevisionRequest(
+          "시급이 공고에 적힌 금액과 다릅니다. 확인 부탁드립니다.",
+          daysAgo(1),
+        )
+      : { rejectedReason: undefined, revisionRequests: [] };
 
   /* 이미 문서가 있으면 상태만 되돌린다. 번호를 새로 발급하면 이력이 끊긴다. */
   if (existing) {
@@ -493,7 +479,7 @@ const buildDemoContract = (
     existing.signedFile = undefined;
     existing.signedAt = undefined;
     existing.sentAt = daysAgo(2);
-    existing.rejectedReason = rejectedReason;
+    Object.assign(existing, rejection);
 
     return;
   }
@@ -524,16 +510,11 @@ const buildDemoContract = (
     role: first.role,
     templateId: template.templateId,
     templateName: template.name,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    endDayOffset: event.endDayOffset,
-    breakMinutes: event.breakMinutes,
-    workHours,
     ...work,
     status,
     revision: 1,
     sentAt: daysAgo(2),
-    rejectedReason,
+    ...rejection,
     createdAt: daysAgo(3),
   } satisfies Contract);
 };

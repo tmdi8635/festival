@@ -3,12 +3,33 @@ import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
 import type { MyApplication, MyPosting } from "@/type/my";
-import type { JobRole } from "@/type/staff";
+import type { Gender, JobRole } from "@/type/staff";
 
 export interface MyPostingListParams {
   role?: JobRole | "";
-  /** 내가 할 수 있다고 신고한 직무만 본다 */
+  /**
+   * **내가 설 수 있는 자리가 있는 공고만.**
+   *
+   * 직무 · 성별 · 보건증을 한 번에 본다. 조건을 축마다 따로 두면 조합을
+   * 맞춰 보기 전까지 무엇이 걸러졌는지 알 수 없고, 대부분은 하나만 켠 채
+   * 지원할 수 없는 자리를 계속 본다. (날짜 겹침은 `excludeConflicts`가 갖는다)
+   */
   onlyMyRoles?: boolean;
+  /** 이미 확정된 근무와 날짜가 겹치는 공고를 숨긴다 */
+  excludeConflicts?: boolean;
+/**
+   * **이 날에 근무가 있는** 공고만.
+   *
+   * 기간이 아니라 하루다. 이 화면에서 하는 질문은 "다음 주 화요일이 비는데
+   * 그날 일이 있나"이지 "이 기간에 걸치는 일을 모두 보여 달라"가 아니다.
+   * 다일 행사는 그날이 근무일에 들어 있으면 걸린다.
+   */
+  workDate?: string;
+  /**
+   * 성별. **비회원만 쓴다.** 회원은 서버가 본인 성별로 거른다.
+   * (남성: 성별 무관 + 남성만 / 여성: 성별 무관 + 여성만)
+   */
+  gender?: Gender | "";
 }
 
 /**
@@ -65,10 +86,17 @@ export const useMyApplicationListQuery = () =>
     queryFn: getMyApplications,
   });
 
-export const applyToPosting = async (postingId: number) => {
-  const response = await adminAxios.post<MyApplication>("/my/applications", {
-    postingId,
-  });
+/** 지원은 **포지션 하나**에 한다. 행사당 살아 있는 지원은 하나뿐이다. */
+export interface ApplyToPostingRequest {
+  postingId: number;
+  positionId: number;
+}
+
+export const applyToPosting = async (body: ApplyToPostingRequest) => {
+  const response = await adminAxios.post<MyApplication>(
+    "/my/applications",
+    body,
+  );
 
   return response.data;
 };
@@ -100,10 +128,14 @@ export const useMyApplicationMutation = () => {
     void queryClient.invalidateQueries({ queryKey: ["get-posting-list"] });
   };
 
-  const applyMutation = useMutation<MyApplication, AppError, number>({
+  const applyMutation = useMutation<
+    MyApplication,
+    AppError,
+    ApplyToPostingRequest
+  >({
     mutationFn: applyToPosting,
     onSuccess: (application) => {
-      showAppToast("success", "지원했습니다.", {
+      showAppToast("success", `${application.positionName}에 지원했습니다.`, {
         description: `${application.eventTitle} · 담당자가 확인한 뒤 연락드립니다.`,
       });
       invalidate();

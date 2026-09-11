@@ -4,6 +4,7 @@ import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
 import type {
   MyDocumentFormValues,
+  MyHealthCertFormValues,
   MyProfile,
   MyProfileFormValues,
 } from "@/type/my";
@@ -20,10 +21,16 @@ export const updateMyDocuments = async (body: MyDocumentFormValues) => {
   return response.data;
 };
 
+export const updateMyHealthCert = async (body: MyHealthCertFormValues) => {
+  const response = await adminAxios.put<MyProfile>("/my/health-cert", body);
+
+  return response.data;
+};
+
 /**
  * 내 정보 변경.
  *
- * 인적사항은 곧바로 반영되고, 서류 · 계좌는 **승인 대기로 들어간다.**
+ * 인적사항은 곧바로 반영되고, 서류 · 계좌 · 보건증은 **승인 대기로 들어간다.**
  * 성공 토스트가 그 차이를 말해 주지 않으면 본인은 다 끝난 줄 알고 현장에 나선다.
  */
 export const useMyProfileMutation = () => {
@@ -65,5 +72,22 @@ export const useMyProfileMutation = () => {
     },
   });
 
-  return { profileMutation, documentMutation };
+  const healthCertMutation = useMutation<
+    MyProfile,
+    AppError,
+    MyHealthCertFormValues
+  >({
+    mutationFn: updateMyHealthCert,
+    onSuccess: () => {
+      showAppToast("success", "보건증을 제출했습니다.", {
+        description: "담당자가 승인하면 보건증이 필요한 자리에 지원할 수 있어요.",
+      });
+      invalidate();
+      /* 공고의 '보건증 필요' 포지션 버튼이 풀리는지가 여기에 달려 있다. */
+      void queryClient.invalidateQueries({ queryKey: ["get-my-postings"] });
+      void queryClient.invalidateQueries({ queryKey: ["get-my-posting"] });
+    },
+  });
+
+  return { profileMutation, documentMutation, healthCertMutation };
 };

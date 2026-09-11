@@ -48,7 +48,13 @@ export const staffSchema = z.object({
   accountHolder: z.string(),
   idCardImageUrl: z.string(),
   bankBookImageUrl: z.string(),
-});
+  /* 보건증은 선택이다. 사진을 올렸으면 발급일이 있어야 만료를 셀 수 있다. */
+  healthCertImageUrl: z.string(),
+  healthCertIssuedAt: z.string(),
+}).refine(
+  (values) => !values.healthCertImageUrl || Boolean(values.healthCertIssuedAt),
+  { path: ["healthCertIssuedAt"], message: "보건증 발급일을 선택해 주세요." },
+);
 
 export type StaffSchema = z.output<typeof staffSchema>;
 export type StaffSchemaInput = z.input<typeof staffSchema>;
@@ -71,6 +77,8 @@ export const EMPTY_STAFF_VALUES: StaffSchemaInput = {
   accountHolder: "",
   idCardImageUrl: "",
   bankBookImageUrl: "",
+  healthCertImageUrl: "",
+  healthCertIssuedAt: "",
 };
 
 /** 인력 메모 스키마 */

@@ -88,6 +88,25 @@ const MultiDayEventBar = ({
           event.endDayOffset,
         )}
       />
+      {/*
+        포지션마다 시각이 다르다. 대표 시각 한 줄만 보고 야간조가 있는 줄 모르면
+        그 행사는 저녁에 끝난다고 읽는다. 포지션이 둘 이상일 때만 따로 적는다.
+      */}
+      {event.positions.length > 1 && (
+        <TooltipRow
+          label="포지션"
+          value={event.positions
+            .map(
+              (position) =>
+                `${position.name} ${formatTimeRange(
+                  position.startTime,
+                  position.endTime,
+                  position.endDayOffset,
+                )}`,
+            )
+            .join(" · ")}
+        />
+      )}
       <TooltipRow label="장소" value={event.venue} />
       <TooltipRow label="담당자" value={event.managerName} />
       <TooltipRow

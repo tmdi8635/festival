@@ -9,6 +9,7 @@ import type {
 import {
   calculateBasePay,
   calculateScheduledWorkHours,
+  resolveAssignmentSchedule,
   resolveBillingRate,
 } from "@/type/event";
 import { contracts } from "../db/contract";
@@ -46,7 +47,9 @@ const buildMonthlyTrend = (): MonthlyTrendPoint[] => {
 
     if (!point || event.status === "CANCELED") return;
 
-    const workHours = calculateScheduledWorkHours(event);
+    /* 시간은 배치마다 그 포지션의 예정 시간이다. (`summarizeEventCost`와 같은 규칙) */
+    const hoursOf = (assignment: (typeof event.assignments)[number]) =>
+      calculateScheduledWorkHours(resolveAssignmentSchedule(event, assignment));
 
     point.eventCount += 1;
     point.revenue += Math.round(
@@ -55,14 +58,19 @@ const buildMonthlyTrend = (): MonthlyTrendPoint[] => {
         .reduce(
           (sum, assignment) =>
             sum +
-            workHours * resolveBillingRate(event.billingRates, assignment.role),
+            hoursOf(assignment) *
+              resolveBillingRate(event.positions, assignment.positionId),
           0,
         ),
     );
     point.laborCost += event.assignments.reduce(
       (sum, assignment) =>
         sum +
-        calculateBasePay(assignment.wageType, assignment.wage, workHours),
+        calculateBasePay(
+          assignment.wageType,
+          assignment.wage,
+          hoursOf(assignment),
+        ),
       0,
     );
   });

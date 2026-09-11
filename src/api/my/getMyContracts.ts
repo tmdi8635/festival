@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { adminAxios } from "..";
 import type { AppError } from "@/type/api";
 import type { Contract, ContractTemplate } from "@/type/contract";
-import type { MyContract } from "@/type/my";
+import type { MyContract, MyContractHistoryItem } from "@/type/my";
 
 export const getMyContracts = async () => {
   const response = await adminAxios.get<{ items: MyContract[] }>(
@@ -19,8 +19,13 @@ export const useMyContractListQuery = () =>
   });
 
 export interface MyContractPreview {
+  /** 문서를 조립하는 원문. 화면에는 `summary`를 쓴다 */
   contract: Contract;
   template: ContractTemplate;
+  /** 화면용 요약 (상태 · 수정요청 이력 포함) */
+  summary: MyContract;
+  /** 같은 행사 계약서의 차수 이력. 오래된 차수부터 */
+  history: MyContractHistoryItem[];
 }
 
 /**

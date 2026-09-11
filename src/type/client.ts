@@ -7,7 +7,8 @@
   그런데 실제 거래는 반대 방향이다 — 대행사가 직무별 인원수로 견적을 요청하면
   **에이전시가 단가를 불러 준다.** 단가 결정권자는 우리다.
   그래서 단가는 기준 설정(`JobRoleDef.billingRate`)이 갖고, 행사 등록 시
-  그 값이 초기값으로 깔린 뒤 행사별로 고쳐진다. (`EventDetail.billingRates`)
+  그 값이 포지션의 초기값으로 깔린 뒤 포지션마다 고쳐진다.
+  (`EventPosition.billingRate`)
 */
 
 export interface Client {

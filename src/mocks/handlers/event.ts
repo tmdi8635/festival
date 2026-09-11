@@ -4,23 +4,43 @@ import type {
   AssignmentCandidate,
   AssignmentStatus,
   CalendarEvent,
+  DayOffset,
   EventDetail,
   EventFormValues,
+  EventPosition,
   EventRoleSlot,
   EventStatus,
 } from "@/type/event";
-import { aggregateDayPlans, resolveEventDates } from "@/type/event";
+import {
+  aggregateDayPlans,
+  attachPositionNames,
+  buildPositionSlot,
+  findPosition,
+  resolveEventDates,
+} from "@/type/event";
 import type { EmploymentType } from "@/type/employee";
-import type { AttendanceStatus, Gender, JobRole } from "@/type/staff";
+import type {
+  AttendanceStatus,
+  Gender,
+  HealthCertFilter,
+  JobRole,
+} from "@/type/staff";
 import {
   REPUTATION_BASE_SCORE,
   canConfirmAssignment,
   documentBlockMessage,
   isDocumentApproved,
+  isJobRole,
+  matchesHealthCertFilter,
 } from "@/type/staff";
+import { ACTIVE_APPLICATION_STATUSES } from "@/type/recruit";
+import {
+  MINIMUM_HOURLY_WAGE,
+  TIME_RANGE_MESSAGE,
+  isValidTimeRange,
+} from "@/schema/event.schema";
 import { clients } from "../db/client";
 import {
-  defaultWageOf,
   events,
   resolveAssignmentWage,
   syncStaffReputationCounts,
@@ -33,7 +53,12 @@ import {
   ensurePayrollForEvent,
   syncPayrollWithAssignment,
 } from "../db/payroll";
-import { assignableStaff, findStaff } from "../db/staff";
+import { applications, recalculatePostingCounts } from "../db/recruit";
+import {
+  assignableStaff,
+  findStaff,
+  refreshHealthCertState,
+} from "../db/staff";
 import {
   BASE_URI,
   MOCK_DELAY_MS,
@@ -97,6 +122,82 @@ const calculateMatchScore = (params: {
   );
 };
 
+/** 포지션을 만들거나 고칠 때 받는 값 */
+type PositionInput = Omit<EventPosition, "positionId">;
+
+/**
+ * 포지션 한 건을 검사한다. **등록 폼 · 포지션 모달이 같은 규칙을 거친다.** (서버가 막는다)
+ *
+ * 문제가 없으면 `null`, 있으면 고칠 수 있는 문장 하나를 돌려준다.
+ */
+const validatePosition = (
+  positions: readonly EventPosition[],
+  input: PositionInput,
+  positionId?: number,
+): string | null => {
+  const name = (input.name ?? "").trim();
+
+  if (!name) return "포지션 이름을 입력해 주세요.";
+
+  /* 같은 직무는 여러 번 둘 수 있지만(A타임 · B타임), 같은 이름은 명단에서 구분되지 않는다. */
+  if (
+    positions.some(
+      (position) =>
+        position.positionId !== positionId && position.name.trim() === name,
+    )
+  ) {
+    return `'${name}' 포지션이 이미 있습니다. 이름을 다르게 지어 주세요.`;
+  }
+
+  if (!isJobRole(input.jobRole)) return "직무를 선택해 주세요.";
+
+  if (!input.startTime || !input.endTime) return "근무 시각을 입력해 주세요.";
+
+  if (!isValidTimeRange(input.startTime, input.endTime, Number(input.endDayOffset))) {
+    return TIME_RANGE_MESSAGE;
+  }
+
+  if (!(Number(input.wage) > 0)) return "금액을 입력해 주세요.";
+
+  if (input.wageType === "HOURLY" && Number(input.wage) < MINIMUM_HOURLY_WAGE) {
+    return "2026년 최저시급(10,030원) 이상이어야 합니다.";
+  }
+
+  return null;
+};
+
+/** 요청 값을 저장할 모양으로 정리한다. 폼이 문자열로 보낸 숫자도 여기서 맞춘다. */
+const normalizePosition = (
+  input: PositionInput,
+  positionId: number,
+): EventPosition => ({
+  positionId,
+  name: input.name.trim(),
+  jobRole: input.jobRole,
+  startTime: input.startTime,
+  endTime: input.endTime,
+  endDayOffset: Math.min(2, Math.max(0, Number(input.endDayOffset) || 0)) as DayOffset,
+  breakMinutes: Math.max(0, Number(input.breakMinutes) || 0),
+  wageType: input.wageType,
+  wage: Number(input.wage),
+  billingRate: Math.max(0, Number(input.billingRate) || 0),
+  genderPreference: input.genderPreference ?? "ANY",
+  requiresHealthCert: Boolean(input.requiresHealthCert),
+});
+
+/**
+ * 새 포지션 번호. **지운 번호는 다시 쓰지 않는다.**
+ *
+ * 취소된 배치는 지운 포지션 번호를 그대로 들고 남는다. 그 번호를 새 포지션에 주면
+ * 옛 배치가 엉뚱한 포지션의 시각 · 이름으로 읽힌다.
+ */
+const nextPositionId = (event: EventDetail): number =>
+  Math.max(
+    0,
+    ...event.positions.map((position) => position.positionId),
+    ...event.assignments.map((assignment) => assignment.positionId),
+  ) + 1;
+
 export const eventHandlers = [
   /**
    * 캘린더용 조회.
@@ -148,6 +249,7 @@ export const eventHandlers = [
         endDayOffset: event.endDayOffset,
         venue: event.venue,
         managerName: event.managerName,
+        positions: event.positions,
         roles: event.roles,
         days: event.days,
         totalRequired: event.totalRequired,
@@ -159,6 +261,7 @@ export const eventHandlers = [
             assignmentId: assignment.assignmentId,
             staffId: assignment.staffId,
             staffName: assignment.staffName,
+            positionId: assignment.positionId,
             role: assignment.role,
             workDate: assignment.workDate,
             status: assignment.status,
@@ -236,7 +339,22 @@ export const eventHandlers = [
 
     if (!client) return badRequest("거래처를 먼저 선택해 주세요.");
 
-    const baseRoles = body.roles.map((slot) => ({ ...slot, assignedCount: 0 }));
+    const { positions: drafts = [], ...rest } = body;
+
+    if (drafts.length === 0) {
+      return badRequest("포지션을 한 개 이상 추가해 주세요.", "POSITION_REQUIRED");
+    }
+
+    /* 포지션은 서버가 번호를 붙인다. 등록 폼의 순서가 곧 포지션 순서다. */
+    const positions: EventPosition[] = [];
+
+    for (const draft of drafts) {
+      const error = validatePosition(positions, draft);
+
+      if (error) return badRequest(error, "INVALID_POSITION");
+
+      positions.push(normalizePosition(draft, positions.length + 1));
+    }
 
     /*
       반복 규칙에서 실제 근무일을 뽑는다.
@@ -256,17 +374,21 @@ export const eventHandlers = [
       );
     }
 
+    /* 폼이 받은 인원은 '하루치 기준'이다. 모든 근무일에 같은 값을 깐다. */
     const days = dates.map((date) => ({
       date,
-      roles: baseRoles.map((slot) => ({ ...slot })),
+      roles: positions.map((position, index) =>
+        buildPositionSlot(position, Math.max(0, Number(drafts[index].requiredCount) || 0)),
+      ),
     }));
     const roles = aggregateDayPlans(days);
 
     const created: EventDetail = {
-      ...body,
+      ...rest,
       eventId: nextId(events, "eventId"),
       clientName: client.name,
       status: "RECRUITING",
+      positions,
       dates,
       dayCount: days.length,
       days,
@@ -306,7 +428,14 @@ export const eventHandlers = [
       );
     }
 
-    Object.assign(event, body, { clientName: client?.name ?? event.clientName });
+    /*
+      포지션은 수정 요청에서 받지 않는다. 행사 상세의 포지션 카드가 하나씩 고친다.
+      여기서 통째로 덮으면 배치가 걸린 포지션이 아무렇지 않게 사라진다.
+    */
+    const { positions: ignoredPositions, ...rest } = body;
+    void ignoredPositions;
+
+    Object.assign(event, rest, { clientName: client?.name ?? event.clientName });
 
     /*
       기간이 늘어나면 새 날에 기준 인원을 깔고, 줄어들면 밖으로 밀려난 배치를 정리한다.
@@ -321,7 +450,7 @@ export const eventHandlers = [
 
     syncEventDays(
       event,
-      (firstDay?.roles ?? body.roles).map((slot) => ({
+      (firstDay?.roles ?? []).map((slot) => ({
         ...slot,
         assignedCount: 0,
       })),
@@ -349,7 +478,10 @@ export const eventHandlers = [
 
       const event = findEvent(Number(params.eventId));
       const { roles } = (await request.json()) as {
-        roles: Omit<EventRoleSlot, "assignedCount">[];
+        roles: Pick<
+          EventRoleSlot,
+          "positionId" | "requiredCount" | "wageType" | "wage"
+        >[];
       };
 
       if (!event) return notFound("존재하지 않는 행사입니다.");
@@ -360,42 +492,248 @@ export const eventHandlers = [
 
       const duplicated = roles.find(
         (slot, index) =>
-          roles.findIndex((other) => other.role === slot.role) !== index,
+          roles.findIndex((other) => other.positionId === slot.positionId) !==
+          index,
       );
 
       if (duplicated) {
-        return badRequest("같은 직무를 두 번 넣을 수 없습니다.", "DUPLICATED_ROLE");
+        return badRequest(
+          "같은 포지션을 두 번 넣을 수 없습니다.",
+          "DUPLICATED_POSITION",
+        );
+      }
+
+      /* 발주는 행사에 있는 포지션으로만 받는다. 없는 번호는 명단에서 이름도 시각도 없다. */
+      if (roles.some((slot) => !findPosition(event, slot.positionId))) {
+        return badRequest(
+          "행사에 없는 포지션이 섞여 있습니다. 화면을 새로 고쳐 주세요.",
+          "UNKNOWN_POSITION",
+        );
       }
 
       /*
-        이미 배치된 사람이 있는 직무는 뺄 수 없다.
+        이미 배치된 사람이 있는 포지션은 뺄 수 없다.
         발주만 지우면 배치는 남아 "발주 0명인데 3명이 나오는 날"이 만들어지고,
         그 사람들의 계약서 · 정산은 근거 없는 문서가 된다.
       */
       const removed = day.roles.filter(
-        (slot) => !roles.some((next) => next.role === slot.role),
+        (slot) => !roles.some((next) => next.positionId === slot.positionId),
       );
       const blocked = removed.find((slot) =>
         event.assignments.some(
           (assignment) =>
             assignment.workDate === day.date &&
-            assignment.role === slot.role &&
+            assignment.positionId === slot.positionId &&
             assignment.status !== "CANCELED",
         ),
       );
 
       if (blocked) {
         return badRequest(
-          "이미 배치된 인력이 있는 직무는 뺄 수 없습니다. 배치를 먼저 해제해 주세요.",
+          "이미 배치된 인력이 있는 포지션은 뺄 수 없습니다. 배치를 먼저 해제해 주세요.",
           "ROLE_HAS_ASSIGNMENT",
         );
       }
 
-      day.roles = roles.map((slot) => ({ ...slot, assignedCount: 0 }));
+      day.roles = roles.map((slot) => ({
+        positionId: slot.positionId,
+        role: findPosition(event, slot.positionId)!.jobRole,
+        requiredCount: Math.max(0, Number(slot.requiredCount) || 0),
+        wageType: slot.wageType,
+        wage: Number(slot.wage),
+        assignedCount: 0,
+      }));
 
       // 합계 · 충원 상태는 일자별 계획이 원본이다. 여기서 다시 세어 맞춘다.
       recalculateEventCounts(event);
+      recalculatePostingCounts();
 
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(event);
+    },
+  ),
+
+  /* ------------------------------ 포지션 ------------------------------ */
+
+  /**
+   * 포지션 추가.
+   *
+   * 발주는 날마다 따로 잡으므로 여기서는 **원하면** 모든 근무일에 같은 인원을 깔아 준다.
+   * (`requiredCount` 0이면 포지션만 만들고 발주는 일별 근무자 탭에서 잡는다)
+   */
+  http.post(
+    `${BASE_URI}/admin/events/:eventId/positions`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
+      const event = findEvent(Number(params.eventId));
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const body = (await request.json()) as PositionInput & {
+        requiredCount?: number;
+      };
+      const error = validatePosition(event.positions, body);
+
+      if (error) return badRequest(error, "INVALID_POSITION");
+
+      const position = normalizePosition(body, nextPositionId(event));
+      const count = Math.max(0, Number(body.requiredCount) || 0);
+
+      event.positions.push(position);
+
+      if (count > 0) {
+        event.days.forEach((day) =>
+          day.roles.push(buildPositionSlot(position, count)),
+        );
+      }
+
+      recalculateEventCounts(event);
+      recalculatePostingCounts();
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(event, { status: 201 });
+    },
+  ),
+
+  /**
+   * 포지션 수정.
+   *
+   * **배치된 사람의 금액은 건드리지 않는다.** 이미 확정된 사람은 그 금액으로 계약서를
+   * 받았을 수 있다. 바뀐 금액은 날마다 따로 고치지 않은 발주 슬롯과 새 배치에만 간다.
+   * 배치된 사람의 금액을 바꾸려면 적용 금액 변경으로 한 사람씩 고친다.
+   *
+   * 직무는 배치가 있으면 바꿀 수 없다. 직무가 곧 계약서의 '담당 직무'라서,
+   * 서명한 문서와 명단의 직무가 달라진다.
+   */
+  http.put(
+    `${BASE_URI}/admin/events/:eventId/positions/:positionId`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
+      const event = findEvent(Number(params.eventId));
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const position = findPosition(event, Number(params.positionId));
+
+      if (!position) return notFound("존재하지 않는 포지션입니다.");
+
+      const body = (await request.json()) as PositionInput;
+      const error = validatePosition(event.positions, body, position.positionId);
+
+      if (error) return badRequest(error, "INVALID_POSITION");
+
+      const next = normalizePosition(body, position.positionId);
+      const hasAssignment = event.assignments.some(
+        (assignment) =>
+          assignment.positionId === position.positionId &&
+          assignment.status !== "CANCELED",
+      );
+
+      if (next.jobRole !== position.jobRole && hasAssignment) {
+        return badRequest(
+          "이미 배치된 인력이 있어 직무를 바꿀 수 없습니다. 직무가 다르면 포지션을 새로 만들어 주세요.",
+          "POSITION_HAS_ASSIGNMENT",
+        );
+      }
+
+      event.days.forEach((day) =>
+        day.roles.forEach((slot) => {
+          if (slot.positionId !== position.positionId) return;
+
+          /* 그날만 따로 고친 금액은 지킨다. 포지션 기본값 그대로인 날만 따라간다. */
+          if (slot.wageType === position.wageType && slot.wage === position.wage) {
+            slot.wageType = next.wageType;
+            slot.wage = next.wage;
+          }
+
+          slot.role = next.jobRole;
+        }),
+      );
+
+      Object.assign(position, next);
+
+      recalculateEventCounts(event);
+      recalculatePostingCounts();
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json(event);
+    },
+  ),
+
+  /**
+   * 포지션 삭제.
+   *
+   * 배치 · 지원이 걸린 포지션은 지울 수 없다. 지우면 그 사람들의 시각 · 금액 ·
+   * 계약서 근거가 한꺼번에 사라진다. 마지막 하나도 지울 수 없다 — 발주를 걸 곳이 없어진다.
+   */
+  http.delete(
+    `${BASE_URI}/admin/events/:eventId/positions/:positionId`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "event:write");
+
+      if (denied) return denied;
+
+      const event = findEvent(Number(params.eventId));
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const position = findPosition(event, Number(params.positionId));
+
+      if (!position) return notFound("존재하지 않는 포지션입니다.");
+
+      if (event.positions.length === 1) {
+        return badRequest(
+          "포지션이 하나뿐인 행사는 포지션을 지울 수 없습니다.",
+          "LAST_POSITION",
+        );
+      }
+
+      if (
+        event.assignments.some(
+          (assignment) =>
+            assignment.positionId === position.positionId &&
+            assignment.status !== "CANCELED",
+        )
+      ) {
+        return badRequest(
+          `'${position.name}'에 배치된 인력이 있어 지울 수 없습니다. 배치를 먼저 해제해 주세요.`,
+          "POSITION_HAS_ASSIGNMENT",
+        );
+      }
+
+      if (
+        applications.some(
+          (application) =>
+            application.eventId === event.eventId &&
+            application.positionId === position.positionId &&
+            ACTIVE_APPLICATION_STATUSES.includes(application.status),
+        )
+      ) {
+        return badRequest(
+          `'${position.name}'에 처리 중인 지원이 있어 지울 수 없습니다. 지원을 먼저 처리해 주세요.`,
+          "POSITION_HAS_APPLICATIONS",
+        );
+      }
+
+      event.positions = event.positions.filter(
+        (item) => item.positionId !== position.positionId,
+      );
+      event.days.forEach((day) => {
+        day.roles = day.roles.filter(
+          (slot) => slot.positionId !== position.positionId,
+        );
+      });
+
+      recalculateEventCounts(event);
+      /* 공고에서도 빠진다. (`recalculatePostingCounts`가 없는 포지션을 걸러 낸다) */
+      recalculatePostingCounts();
       await delay(MOCK_DELAY_MS);
 
       return HttpResponse.json(event);
@@ -463,7 +801,15 @@ export const eventHandlers = [
 
       const event = findEvent(Number(params.eventId));
       const url = new URL(request.url);
-      const role = url.searchParams.get("role") as JobRole | null;
+      /* 포지션을 넘기면 그 포지션의 직무로 거른다. 직무를 따로 넘길 필요가 없다. */
+      const position = event
+        ? findPosition(event, Number(url.searchParams.get("positionId")))
+        : undefined;
+      const role =
+        position?.jobRole ?? (url.searchParams.get("role") as JobRole | null);
+      /* 보건증 필터. 보건증이 필요한 포지션이면 화면이 '있음'을 초기값으로 건다. */
+      const healthCert = (url.searchParams.get("healthCert") ||
+        undefined) as HealthCertFilter | undefined;
       const keyword = url.searchParams.get("keyword") ?? "";
       // 비어 있으면 행사 전체 기간을 대상으로 본다.
       const dates =
@@ -501,6 +847,9 @@ export const eventHandlers = [
             : true,
         )
         .filter((staff) => (gender ? staff.gender === gender : true))
+        .filter((staff) =>
+          matchesHealthCertFilter(refreshHealthCertState(staff), healthCert),
+        )
         /* 우리 직원만 · 프리랜서만 세워 보는 자리. 비우면 전부다. */
         .filter((staff) => (employment ? staff.employment === employment : true))
         .filter((staff) =>
@@ -563,6 +912,7 @@ export const eventHandlers = [
             isFavorite: staff.isFavorite,
             isDocumentApproved: isDocumentApproved(staff),
             documentReviewState: staff.documentReviewState,
+            healthCertState: staff.healthCertState,
             isEmployee: staff.employment === "EMPLOYEE",
             position: staff.position,
             clientWorkCount,
@@ -608,11 +958,18 @@ export const eventHandlers = [
       const body = (await request.json()) as {
         staffIds: number[];
         dates?: string[];
-        role: JobRole;
+        positionId: number;
         status: AssignmentStatus;
       };
 
       if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      /* 배치는 포지션에 선다. 시각 · 기본 금액이 전부 거기서 온다. */
+      const position = findPosition(event, Number(body.positionId));
+
+      if (!position) {
+        return badRequest("배치할 포지션을 골라 주세요.", "POSITION_REQUIRED");
+      }
 
       /*
         날짜를 지정하지 않으면 행사의 모든 근무일에 넣는다.
@@ -697,9 +1054,10 @@ export const eventHandlers = [
             staffProfileImageUrl: staff.profileImageUrl,
             staffGender: staff.gender,
             isEmployee: staff.employment === "EMPLOYEE",
-            role: body.role,
+            positionId: position.positionId,
+            role: position.jobRole,
             status: body.status,
-            ...resolveAssignmentWage(event, date, body.role),
+            ...resolveAssignmentWage(event, date, position.positionId),
             attendance: "PENDING",
             lateMinutes: 0,
             /* 직원은 회사와 이미 근로계약이 되어 있어 행사마다 다시 쓰지 않는다. */
@@ -758,7 +1116,7 @@ export const eventHandlers = [
       const event = findEvent(Number(params.eventId));
       const body = (await request.json()) as {
         date: string;
-        role: JobRole;
+        positionId: number;
         requiredCount: number;
       };
 
@@ -768,20 +1126,21 @@ export const eventHandlers = [
 
       if (!day) return badRequest("행사 기간에 없는 날짜입니다.");
 
-      const slot = day.roles.find((item) => item.role === body.role);
+      const position = findPosition(event, Number(body.positionId));
+
+      if (!position) return badRequest("행사에 없는 포지션입니다.");
+
+      const slot = day.roles.find(
+        (item) => item.positionId === position.positionId,
+      );
 
       if (slot) {
         slot.requiredCount = Math.max(0, body.requiredCount);
       } else {
-        // 그날에 없던 직무를 새로 투입하는 경우다.
-        day.roles.push({
-          role: body.role,
-          requiredCount: Math.max(0, body.requiredCount),
-          assignedCount: 0,
-          ...defaultWageOf(body.role),
-          /* 급히 늘리는 자리라 조건은 없다. 필요하면 발주 수정에서 고른다. */
-          genderPreference: "ANY",
-        });
+        // 그날에 없던 포지션을 새로 투입하는 경우다. 금액은 포지션 기본값을 따른다.
+        day.roles.push(
+          buildPositionSlot(position, Math.max(0, body.requiredCount)),
+        );
       }
 
       recalculateEventCounts(event);
@@ -804,7 +1163,7 @@ export const eventHandlers = [
         Pick<
           Assignment,
           | "status"
-          | "role"
+          | "positionId"
           | "attendance"
           | "lateMinutes"
           | "reputationVerdict"
@@ -883,9 +1242,24 @@ export const eventHandlers = [
         );
       }
 
+      /*
+        포지션을 옮기면 직무도 따라간다. 직무는 포지션의 사본이라
+        한쪽만 바뀌면 명단에는 A타임인데 필터에는 다른 직무로 걸린다.
+      */
+      const nextPosition =
+        body.positionId !== undefined
+          ? findPosition(event, Number(body.positionId))
+          : undefined;
+
+      if (body.positionId !== undefined && !nextPosition) {
+        return badRequest("행사에 없는 포지션입니다.", "UNKNOWN_POSITION");
+      }
+
       const { checkInAt, checkOutAt, actualBreakMinutes, ...rest } = body;
 
       Object.assign(assignment, rest);
+
+      if (nextPosition) assignment.role = nextPosition.jobRole;
 
       // 평가를 남긴 시각. 고칠 수 없으므로 이 값도 한 번만 찍힌다.
       if (body.reputationVerdict) {
@@ -924,7 +1298,8 @@ export const eventHandlers = [
         평가를 남기면 그 사람의 평판 점수가 곧바로 따라와야 한다.
         점수를 따로 들고 있으면 목록의 점수와 상세의 평가 내역이 어긋난다.
       */
-      if (body.reputationVerdict) syncStaffReputationCounts();
+      /* 근태도 점수를 움직인다. 노쇼로 적으면 감점, 정상으로 고치면 감점이 풀린다. */
+      if (body.reputationVerdict || body.attendance) syncStaffReputationCounts();
 
       /*
         실제 근무시간이 바뀌면 지급액이 바뀐다.
@@ -1027,8 +1402,12 @@ export const eventHandlers = [
     const onlyMissingCheckTime =
       url.searchParams.get("onlyMissingCheckTime") === "true";
 
+    /*
+      행사를 가로지르는 목록이라 화면이 포지션을 다시 찾을 수 없다.
+      응답을 만들 때 이름을 붙여 내린다. (저장하지 않는다 — 포지션 이름은 바뀔 수 있다)
+    */
     const filtered = events
-      .flatMap((event) => event.assignments)
+      .flatMap((event) => attachPositionNames(event, event.assignments))
       .filter((assignment) => {
         if (role && assignment.role !== role) return false;
         if (status && assignment.status !== status) return false;

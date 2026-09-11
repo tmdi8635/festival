@@ -35,6 +35,7 @@ export const JOB_ROLE_CODES = [
   "PROMOTER",
   "SOUND",
   "SETUP",
+  "COSTUME",
 ] as const;
 
 export type JobRole = (typeof JOB_ROLE_CODES)[number];
@@ -111,6 +112,12 @@ export const JOB_ROLE_CATALOG: readonly JobRoleCatalogEntry[] = [
     order: 9,
     description: "부스 · 집기 설치와 철거를 맡습니다.",
   },
+  {
+    code: "COSTUME",
+    name: "인형탈",
+    order: 10,
+    description: "캐릭터 인형탈을 쓰고 퍼포먼스 · 포토존 응대를 맡습니다.",
+  },
 ];
 
 /**
@@ -172,6 +179,8 @@ const DEFAULT_JOB_ROLE_WAGES: Record<
   PROMOTER: { defaultWageType: "HOURLY", defaultWage: 15000, billingRate: 23000 },
   SOUND: { defaultWageType: "HOURLY", defaultWage: 20000, billingRate: 30000 },
   SETUP: { defaultWageType: "DAILY", defaultWage: 130000, billingRate: 190000 },
+  /* 탈 안은 덥고 체력 소모가 커서 스태프보다 단가가 높게 잡힌다. */
+  COSTUME: { defaultWageType: "HOURLY", defaultWage: 15000, billingRate: 23000 },
 };
 
 /** 기준 설정을 아직 한 번도 저장하지 않았을 때 깔리는 단가 */
@@ -257,15 +266,31 @@ export const sanitizeJobRoles = (
  *
  * - `ID_CARD`      신분증. 이 사람이 그 사람인가
  * - `BANK_ACCOUNT` 통장사본 + 은행 · 계좌번호 · 예금주. 이 계좌로 보내도 되는가
+ * - `HEALTH_CERT`  보건증. **필수가 아니다.** 식음료 자리에 설 수 있는가
  */
-export type DocumentLane = "ID_CARD" | "BANK_ACCOUNT";
+export type DocumentLane = "ID_CARD" | "BANK_ACCOUNT" | "HEALTH_CERT";
 
 export const DOCUMENT_LANE_LABEL: Record<DocumentLane, string> = {
   ID_CARD: "신분증",
   BANK_ACCOUNT: "통장사본 · 계좌",
+  HEALTH_CERT: "보건증",
 };
 
-export const DOCUMENT_LANES: DocumentLane[] = ["ID_CARD", "BANK_ACCOUNT"];
+/** 화면에 늘어놓는 서류 전체. 심사 · 상태 표시가 이 순서를 따른다. */
+export const DOCUMENT_LANES: DocumentLane[] = [
+  "ID_CARD",
+  "BANK_ACCOUNT",
+  "HEALTH_CERT",
+];
+
+/**
+ * **활동 여부를 가르는** 서류. 보건증은 여기에 없다.
+ *
+ * 보건증은 식음료 자리에만 필요하다. 필수 서류에 넣으면 보건증이 없는 사람이
+ * 전부 '대기중'이 되어, 식음료와 무관한 현장에도 확정 배치를 할 수 없게 된다.
+ * 필요한 자리에서만 따로 본다. (`EventPosition.requiresHealthCert`)
+ */
+export const REQUIRED_DOCUMENT_LANES: DocumentLane[] = ["ID_CARD", "BANK_ACCOUNT"];
 
 /**
  * 서류 한 갈래의 심사 상태.
@@ -324,6 +349,7 @@ export const resubmitDocumentLane = (
 export const EMPTY_DOCUMENT_REVIEWS = (): StaffDocumentReviews => ({
   ID_CARD: { state: "NONE" },
   BANK_ACCOUNT: { state: "NONE" },
+  HEALTH_CERT: { state: "NONE" },
 });
 
 /**
@@ -338,7 +364,8 @@ export const EMPTY_DOCUMENT_REVIEWS = (): StaffDocumentReviews => ({
 export const resolveDocumentReviewState = (
   reviews: StaffDocumentReviews,
 ): DocumentReviewState => {
-  const states = DOCUMENT_LANES.map((lane) => reviews[lane].state);
+  /* 필수 서류만 본다. 보건증이 반려됐다고 활동이 멈추면 안 된다. (위 주석) */
+  const states = REQUIRED_DOCUMENT_LANES.map((lane) => reviews[lane].state);
   const order: DocumentReviewState[] = [
     "REJECTED",
     "NONE",
@@ -347,6 +374,84 @@ export const resolveDocumentReviewState = (
   ];
 
   return order.find((state) => states.includes(state)) ?? "NONE";
+};
+
+/* ------------------------------------------------------------------ */
+/* 보건증                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 보건증 상태. 심사 상태에 **만료**가 하나 더 붙는다.
+ *
+ * 보건증은 발급일로부터 1년만 유효하다. 승인해 둔 뒤 1년이 지나면
+ * 파일은 그대로 있어도 현장에서는 쓸 수 없는 종이다.
+ * 만료는 저장하지 않고 **그때그때 구한다** — 저장해 두면 날짜가 지나도 아무도 갱신하지 않는다.
+ */
+export type HealthCertState = DocumentReviewState | "EXPIRED";
+
+export const HEALTH_CERT_STATE_LABEL: Record<HealthCertState, string> = {
+  NONE: "미등록",
+  SUBMITTED: "승인 대기",
+  APPROVED: "유효",
+  REJECTED: "반려",
+  EXPIRED: "만료",
+};
+
+/** 보건증 유효 기간 (발급일 기준) */
+export const HEALTH_CERT_VALID_YEARS = 1;
+
+/** 만료일. 발급일로부터 1년 뒤의 전날까지 쓸 수 있다. */
+export const healthCertExpiresAt = (issuedAt?: string): string | undefined => {
+  if (!issuedAt) return undefined;
+
+  const date = new Date(`${issuedAt}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return undefined;
+
+  date.setFullYear(date.getFullYear() + HEALTH_CERT_VALID_YEARS);
+  date.setDate(date.getDate() - 1);
+
+  /* `toISOString()`은 하루 밀린다. 로컬 날짜로 직접 만든다. */
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+/**
+ * 보건증의 지금 상태. **화면 · 목업 · 공고 필터가 같은 함수를 쓴다.**
+ *
+ * @param today `YYYY-MM-DD`. 목업에서는 오늘, 테스트에서는 원하는 날을 넣는다.
+ */
+export const resolveHealthCertState = (
+  review: DocumentReview,
+  issuedAt: string | undefined,
+  today: string,
+): HealthCertState => {
+  if (review.state !== "APPROVED") return review.state;
+
+  const expiresAt = healthCertExpiresAt(issuedAt);
+
+  return expiresAt && expiresAt < today ? "EXPIRED" : "APPROVED";
+};
+
+/** 보건증이 필요한 자리에 설 수 있는가. 승인됐고 만료 전이어야 한다. */
+export const hasValidHealthCert = (state: HealthCertState): boolean =>
+  state === "APPROVED";
+
+/** 인력 목록 · 배치 후보의 보건증 필터 값 */
+export type HealthCertFilter = "VALID" | "NONE";
+
+export const HEALTH_CERT_FILTER_LABEL: Record<HealthCertFilter, string> = {
+  VALID: "보건증 있음",
+  NONE: "보건증 없음 · 만료",
+};
+
+/** 필터 값에 맞는가. `NONE`은 '지금 쓸 수 있는 보건증이 없다'는 뜻이다. */
+export const matchesHealthCertFilter = (
+  state: HealthCertState,
+  filter: HealthCertFilter | undefined,
+): boolean => {
+  if (!filter) return true;
+
+  return filter === "VALID" ? hasValidHealthCert(state) : !hasValidHealthCert(state);
 };
 
 /**
@@ -446,6 +551,13 @@ export interface Staff {
    * (`isDocumentApproved` · `canConfirmAssignment`)
    */
   documentReviewState: DocumentReviewState;
+  /** 보건증 발급일 (`YYYY-MM-DD`). 만료 판정의 근거다. */
+  healthCertIssuedAt?: string;
+  /**
+   * 보건증의 지금 상태. **응답을 만들 때 오늘 기준으로 다시 구한다.**
+   * (`resolveHealthCertState`) 만료는 날짜가 지나면 저절로 생기는 상태라서다.
+   */
+  healthCertState: HealthCertState;
   /** 누적 근무 횟수 */
   workCount: number;
   totalWorkHours: number;
@@ -484,6 +596,8 @@ export interface StaffDetail extends Staff {
   idCardImageUrl: string;
   /** 통장 사본 이미지 */
   bankBookImageUrl: string;
+  /** 보건증 이미지. 비어 있으면 등록하지 않은 것이다. */
+  healthCertImageUrl: string;
   /**
    * 갈래별 심사 기록. 상세에만 있다.
    *
@@ -650,6 +764,13 @@ export interface StaffReputation {
   /** 평가를 남긴 사람 */
   ratedBy: string;
   /**
+   * 근태 감점 줄이면 그 종류. 사람이 남긴 평가가 아니라 **일어난 일에서 나온 줄**이다.
+   *
+   * 점수가 노쇼로 깎였는데 목록에 평가만 있으면, 총점과 목록이 서로 다른 이야기를 한다.
+   * (`resolveAttendancePenalty`)
+   */
+  penaltyType?: AttendancePenaltyType;
+  /**
    * 누가 남긴 평가인지.
    *
    * 에이전시 · 현장 팀장이 보는 모습과 **같이 일한 스태프가 겪는 모습은 다르다.**
@@ -744,6 +865,9 @@ export interface StaffFormValues {
   accountHolder: string;
   idCardImageUrl: string;
   bankBookImageUrl: string;
+  /** 보건증은 선택이다. 비워 두면 등록하지 않은 것으로 본다. */
+  healthCertImageUrl: string;
+  healthCertIssuedAt: string;
 }
 
 /** 휴대폰번호를 010-1234-5678 형태로 표시한다. */
@@ -903,6 +1027,43 @@ export const REPUTATION_BASE_SCORE = 1000;
 /** 평가 항목들을 누적 점수로 바꾼다. (기준점 + 합) */
 export const buildReputationScore = (delta: number): number =>
   REPUTATION_BASE_SCORE + delta;
+
+/**
+ * 근태 감점. **평가와 달리 사람이 고르지 않고, 일어난 일에서 곧바로 나온다.**
+ *
+ * - 무단 노쇼 −30: 연락 없이 안 나왔다. 현장은 그 자리를 비운 채 시작한다.
+ * - 24시간 이내 본인 취소 −20: 노쇼로 간주하되, 미리 알렸으니 대타를 구할 시간은 있었다.
+ *
+ * 평가 항목 하나가 2점이라 −30은 별로예요 열다섯 개 몫이다. 한 번으로 확실히
+ * 체감되어야 전날 밤 취소가 "그냥 빠지면 되는 일"이 되지 않는다.
+ * 둘 다 노쇼 횟수에 들어가 블랙리스트 후보 기준(`blacklistNoShowThreshold`)에 걸린다.
+ */
+export const NO_SHOW_PENALTY = -30;
+export const LATE_CANCEL_PENALTY = -20;
+
+export type AttendancePenaltyType = "NO_SHOW" | "LATE_CANCEL";
+
+export const ATTENDANCE_PENALTY_LABEL: Record<AttendancePenaltyType, string> = {
+  NO_SHOW: "노쇼",
+  LATE_CANCEL: "24시간 이내 취소",
+};
+
+/**
+ * 배치 한 건이 받는 근태 감점. 없으면 `undefined`.
+ *
+ * **점수에 저장하지 않고 배치에서 그때 구한다.** 관리자가 노쇼를 정상 출근으로
+ * 고쳐 놓으면 감점도 저절로 사라져야 한다. 저장해 두면 되돌릴 방법이 없다.
+ */
+export const resolveAttendancePenalty = (assignment: {
+  attendance: AttendanceStatus;
+  staffCanceledAt?: string;
+}): { type: AttendancePenaltyType; points: number } | undefined => {
+  if (assignment.attendance !== "NO_SHOW") return undefined;
+
+  return assignment.staffCanceledAt
+    ? { type: "LATE_CANCEL", points: LATE_CANCEL_PENALTY }
+    : { type: "NO_SHOW", points: NO_SHOW_PENALTY };
+};
 
 /*
   등급 이름(우수 · 양호 · 보통 · 주의 · 위험)은 두지 않는다.

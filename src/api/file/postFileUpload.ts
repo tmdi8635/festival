@@ -14,6 +14,8 @@ export type FileUploadType =
   | "STAFF_PROFILE"
   | "STAFF_ID_CARD"
   | "STAFF_BANK_BOOK"
+  /** 보건증. 건강 정보가 담긴 개인 서류라 신분증과 같은 보관 정책을 따른다. */
+  | "STAFF_HEALTH_CERT"
   | "EVENT_PHOTO"
   /** 서명받은 근로계약서. 종이를 스캔한 PDF이거나 찍은 사진이다. */
   | "CONTRACT_SIGNED";

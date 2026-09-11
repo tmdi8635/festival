@@ -12,6 +12,7 @@ import {
   WAGE_TYPE_UNIT,
   calculateBasePay,
   calculateScheduledWorkHours,
+  resolveAssignmentSchedule,
   type Assignment,
   type EventDetail,
   type WageType,
@@ -76,17 +77,17 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
   };
 
   /**
-   * 이 사람이 이 행사에서 맡은 같은 직무의 배치들.
+   * 이 사람이 이 행사에서 맡은 같은 포지션의 배치들.
    *
    * 금액을 바꾸기로 했으면 대개 그 사람의 이 행사 전체가 대상이다.
-   * 직무가 다르면 조건도 다른 일이므로 함께 묶지 않는다.
+   * 포지션이 다르면(A타임 · B타임) 시각도 금액도 다른 일이므로 함께 묶지 않는다.
    */
   const siblingAssignments = assignment
     ? event.assignments
         .filter(
           (target) =>
             target.staffId === assignment.staffId &&
-            target.role === assignment.role &&
+            target.positionId === assignment.positionId &&
             target.status !== "CANCELED",
         )
         .sort((a, b) => a.workDate.localeCompare(b.workDate))
@@ -100,7 +101,13 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
 
   const nextWage = Number(wage) || 0;
 
-  const scheduledWorkHours = calculateScheduledWorkHours(event);
+  /*
+    하루치 미리보기는 **이 배치의 포지션** 예정 시간으로 계산한다.
+    행사 시간으로 곱하면 B타임(야간 9시간)의 하루치가 A타임 시간으로 나온다.
+  */
+  const scheduledWorkHours = calculateScheduledWorkHours(
+    assignment ? resolveAssignmentSchedule(event, assignment) : event,
+  );
 
   /** 바꾼 뒤 하루치가 얼마가 되는지. 숫자만 고치게 두면 감이 오지 않는다. */
   const nextDailyPay = calculateBasePay(wageType, nextWage, scheduledWorkHours);
@@ -183,7 +190,7 @@ const WageEditModal = ({ assignment, event, onClose }: WageEditModalProps) => {
               hint={
                 wageType === "DAILY"
                   ? "시간과 무관하게 하루에 지급하는 금액입니다."
-                  : `행사 예정 ${scheduledWorkHours}시간 기준 하루 ${formatCurrency(nextDailyPay)}`
+                  : `포지션 예정 ${scheduledWorkHours}시간 기준 하루 ${formatCurrency(nextDailyPay)}`
               }
             >
               <Input

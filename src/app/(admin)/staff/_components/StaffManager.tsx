@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useStaffListQuery, type StaffSort } from "@/api/staff/getStaffList";
 import { REGION_FILTER_OPTIONS } from "@/constants/regionOptions";
 import {
+  HEALTH_CERT_FILTER_OPTIONS,
   STAFF_SORT_OPTIONS,
   STAFF_STATUS_FILTER_OPTIONS,
   STAFF_STATUS_HINT,
@@ -26,8 +27,11 @@ import { useStaffMutation } from "@/api/staff/mutateStaff";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   GENDER_LABEL,
+  HEALTH_CERT_STATE_LABEL,
   formatPhoneNumber,
   formatRegion,
+  hasValidHealthCert,
+  type HealthCertFilter,
   type JobRole,
   type Staff,
   type StaffDetail,
@@ -60,6 +64,7 @@ const STAFF_CSV_COLUMNS: CsvColumn<Staff>[] = [
   { header: "생년월일", value: (row) => row.birthDate },
   { header: "성별", value: (row) => GENDER_LABEL[row.gender] },
   { header: "상태", value: (row) => STAFF_STATUS_LABEL[row.status] },
+  { header: "보건증", value: (row) => HEALTH_CERT_STATE_LABEL[row.healthCertState] },
   {
     header: "가능 직무",
     // 기준 설정에서 정한 순서대로 적는다. 배열이 들어온 순서를 믿지 않는다.
@@ -111,6 +116,8 @@ const StaffManager = () => {
   const [status, setStatus] = useState<StaffStatus | "">("ACTIVE");
   const [role, setRole] = useState<JobRole | "">("");
   const [region, setRegion] = useState("");
+  /** 보건증 필터. 식음료 자리에 세울 사람을 추릴 때 쓴다. (만료는 '없음'에 든다) */
+  const [healthCert, setHealthCert] = useState<HealthCertFilter | "">("");
   const [onlyFavorite, setOnlyFavorite] = useState(false);
   const [sort, setSort] = useState<StaffSort>("RECENT");
 
@@ -132,6 +139,7 @@ const StaffManager = () => {
     status: status || undefined,
     role: role || undefined,
     region: region || undefined,
+    healthCert: healthCert || undefined,
     onlyFavorite: onlyFavorite || undefined,
     sort,
   });
@@ -199,6 +207,17 @@ const StaffManager = () => {
           gender={staff.gender}
           isFavorite={staff.isFavorite}
           staffId={staff.staffId}
+          /*
+            유효한 보건증이 있는 사람만 작게 표시한다. 없는 쪽에 붙이면 거의 모든 줄에
+            배지가 달려, 식음료 자리에 세울 사람을 찾는 눈이 오히려 흐려진다.
+          */
+          badge={
+            hasValidHealthCert(staff.healthCertState) ? (
+              <Badge tone="success" className="px-1.5 py-0 text-[11px]">
+                보건증
+              </Badge>
+            ) : undefined
+          }
         />
       ),
     },
@@ -388,6 +407,16 @@ const StaffManager = () => {
             value={region}
             onChange={withPageReset((event) => setRegion(event.target.value))}
             selectBoxClassName="w-32"
+          />
+
+          <Select
+            aria-label="보건증 필터"
+            options={HEALTH_CERT_FILTER_OPTIONS}
+            value={healthCert}
+            onChange={withPageReset((event) =>
+              setHealthCert(event.target.value as HealthCertFilter | ""),
+            )}
+            selectBoxClassName="w-36"
           />
         </div>
 

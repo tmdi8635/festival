@@ -2,37 +2,26 @@ import type {
   AttendanceStatus,
   DocumentReviewState,
   Gender,
+  HealthCertState,
   JobRole,
   ReputationVerdict,
 } from "./staff";
 import type { CheckTimeRule } from "./ops";
 
 /**
- * 행사 한 건의 직무별 **청구** 단가 (시급).
+ * 그 포지션의 **청구** 단가 (시급). 정하지 않았으면 0이다.
  *
- * 기준 설정에 정해 둔 단가(`JobRoleDef.billingRate`)가 행사 등록 시
- * 초기값으로 깔리고, 현장 사정에 따라 여기서 고쳐진다.
- *
- * **없어도 된다.** 정하지 않은 직무는 아예 목록에 넣지 않는다.
- * 그 상태에서는 마진이 계산되지 않을 뿐 나머지는 전부 그대로 굴러간다.
- * (0을 넣으면 '0원에 청구하기로 했다'가 되어 버려 미설정과 구분되지 않는다)
+ * 예전에는 행사가 직무별 청구 단가 배열(`billingRates`)을 따로 들고 있었다.
+ * 그런데 같은 스태프라도 A타임 · B타임(야간)은 청구도 지급도 다르다.
+ * 단가가 붙는 단위가 직무가 아니라 **포지션**이 되었으므로 포지션이 들고 있는다.
+ * (기준 설정의 `JobRoleDef.billingRate`는 포지션을 만들 때 깔리는 초기값이다)
  */
-export interface BillingRate {
-  role: JobRole;
-  /** 대행사에 청구하는 시급 */
-  rate: number;
-}
-
-/** 그 직무의 청구 단가. 정하지 않았으면 0이다. */
 export const resolveBillingRate = (
-  billingRates: readonly BillingRate[],
-  role: JobRole,
-): number => billingRates.find((item) => item.role === role)?.rate ?? 0;
-
-/** 정하지 않은 단가(0)는 저장하지 않는다. 0원 청구와 미설정을 갈라 둔다. */
-export const compactBillingRates = (
-  billingRates: readonly BillingRate[],
-): BillingRate[] => billingRates.filter((item) => item.rate > 0);
+  positions: readonly Pick<EventPosition, "positionId" | "billingRate">[],
+  positionId: number | undefined,
+): number =>
+  positions.find((position) => position.positionId === positionId)
+    ?.billingRate ?? 0;
 
 /**
  * 행사 · 인력 배치 도메인 타입.
@@ -285,15 +274,27 @@ export const WAGE_TYPE_UNIT: Record<WageType, string> = {
  * 보통은 무관이지만, 조건이 있는 날 그것을 모르고 사람을 넣으면
  * 현장에서 되돌려야 한다. 그래서 발주에 미리 적어 둔다.
  *
- * **이 값은 아무것도 막지 않는다.** 현장은 유동적이라 '남성만'으로 받은 자리에
+ * **관리자의 배치는 막지 않는다.** 현장은 유동적이라 '남성만'으로 받은 자리에
  * 여성을 넣는 일도, 그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는
  * 조건을 아예 안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
- * 반드시 지켜야 하는 조건이라면 **내부 메모로 따로** 남긴다.
  *
- * 지금은 화면에 표시하고 배치 후보 필터의 초기값으로만 쓴다.
- * 나중에 공고를 띄우게 되면 그때 공고문에 실린다.
+ * 다만 **공고에서 본인이 지원하는 길은 막는다.** 조건이 맞지 않는 자리에 지원이
+ * 쌓이면 담당자가 하나하나 반려해야 하고, 지원한 사람은 이유도 모른 채 떨어진다.
+ * 그래서 공고 목록부터 걸러 보여 준다. (`matchesGenderPreference`)
  */
 export type GenderPreference = "ANY" | "MALE" | "FEMALE";
+
+/**
+ * 이 사람이 그 성별 조건의 자리에 들어갈 수 있는가.
+ *
+ * **성별을 모르면 전부 통과다.** 로그인하지 않은 방문자는 성별이 없는데,
+ * 그 사람에게 조건 있는 공고를 감추면 어떤 일이 있는지조차 알 수 없다.
+ * 지원하는 순간 로그인을 요구하므로 그때 가려진다.
+ */
+export const matchesGenderPreference = (
+  preference: GenderPreference,
+  gender?: Gender,
+): boolean => !gender || preference === "ANY" || preference === gender;
 
 export const GENDER_PREFERENCE_LABEL: Record<GenderPreference, string> = {
   ANY: "성별 무관",
@@ -308,22 +309,160 @@ export const GENDER_PREFERENCE_BADGE: Record<GenderPreference, string> = {
   FEMALE: "여성",
 };
 
-/** 직무별 발주 · 확정 현황 */
+/* ------------------------------------------------------------------ */
+/* 포지션                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 행사 안의 **포지션**. 발주 · 배치 · 공고 · 계약 · 정산이 모두 이 단위로 붙는다.
+ *
+ * 예전에는 발주의 키가 직무(`JobRole`)였다. 그래서
+ * "A타임 09:00~18:00 시급 11,000원 / B타임 21:00~06:00 시급 14,000원"처럼
+ * **같은 스태프인데 시간대 · 단가가 다른 자리**를 한 행사에 담을 수 없었다.
+ * 담당자는 행사를 두 개로 쪼개 등록했고, 그 순간 거래처 하나의 일이 캘린더에
+ * 두 줄로 흩어지고 계약서 · 정산도 둘로 갈렸다. 현장에서는 이런 발주가 비일비재하다.
+ *
+ * 그래서 **행사는 하나로 두고, 그 안에 포지션을 여럿** 둔다.
+ *
+ * - `name`은 자유다. "A타임", "B타임(야간)", "인형탈"처럼 현장에서 부르는 말을 쓴다.
+ * - `jobRole`은 카탈로그 직무 하나를 고른다. 이름은 우리끼리 부르는 말이지만,
+ *   **대행사와 견적을 주고받는 말은 여전히 직무다.** 필터 · 정렬 · 인력의 가능 직무 ·
+ *   계약서 템플릿이 모두 직무를 본다. (`JOB_ROLE_CATALOG`)
+ * - 시각 · 휴게 · 지급 기준 · 금액 · 청구 단가 · 성별 · 보건증은 **포지션이** 갖는다.
+ *   행사의 `startTime/endTime`은 새 포지션을 만들 때 깔리는 "기본 근무시간"일 뿐이다.
+ */
+export interface EventPosition {
+  /** 행사 안에서 유일하다. 삭제한 번호는 다시 쓰지 않는다. */
+  positionId: number;
+  name: string;
+  jobRole: JobRole;
+  startTime: string;
+  endTime: string;
+  /** 종료가 며칠 뒤인지. `21:00~06:00`은 반드시 1이어야 한다. (스키마 · 서버가 막는다) */
+  endDayOffset: DayOffset;
+  breakMinutes: number;
+  /** 이 포지션의 기본 지급. 일자 발주와 배치로 **복사된다.** (배치마다 고칠 수 있다) */
+  wageType: WageType;
+  wage: number;
+  /** 대행사에 청구하는 시급. 0이면 미설정이고 마진 계산에서 빠진다. */
+  billingRate: number;
+  genderPreference: GenderPreference;
+  /**
+   * 보건증이 있어야 하는 자리인가.
+   *
+   * 식음료를 다루는 부스는 보건증이 없으면 현장에 설 수 없다.
+   * 이 값이 켜진 포지션에는 **유효한 보건증이 있는 사람만 지원할 수 있다.**
+   */
+  requiresHealthCert: boolean;
+}
+
+/** 포지션 한 건을 사람이 읽는 한 줄로. `A타임 (스태프)` */
+export const formatPositionLabel = (
+  position: Pick<EventPosition, "name" | "jobRole">,
+  jobRoleLabel: (role: JobRole) => string,
+): string => {
+  const roleName = jobRoleLabel(position.jobRole);
+
+  /* 이름을 직무 그대로 둔 포지션에 괄호를 붙이면 `스태프 (스태프)`가 된다. */
+  return position.name === roleName ? roleName : `${position.name} (${roleName})`;
+};
+
+/** 포지션 한 건. 못 찾으면 `undefined`다. */
+export const findPosition = (
+  event: { positions: readonly EventPosition[] },
+  positionId: number | undefined,
+): EventPosition | undefined =>
+  event.positions.find((position) => position.positionId === positionId);
+
+/**
+ * 포지션의 예정 근무 시간대.
+ *
+ * **예정 시각이 필요한 모든 곳이 이 함수(또는 `resolveAssignmentSchedule`)를 거친다.**
+ * 예전에는 행사 자체를 예정 시간으로 넘겼다(`EventDetail`이 `ScheduledTime`과 모양이 같다).
+ * 그 습관이 남아 있으면 B타임 근무자의 출근 창 · 지각 · 야간수당이 A타임 기준으로 계산된다.
+ *
+ * 포지션을 못 찾으면 행사의 기본 근무시간으로 떨어진다. (예전 데이터 · 발주에 없던 배치)
+ */
+export const resolvePositionSchedule = (
+  event: ScheduledTime & { positions: readonly EventPosition[] },
+  positionId: number | undefined,
+): ScheduledTime => {
+  const position = findPosition(event, positionId);
+
+  if (!position) {
+    return {
+      startTime: event.startTime,
+      endTime: event.endTime,
+      breakMinutes: event.breakMinutes,
+      endDayOffset: event.endDayOffset,
+    };
+  }
+
+  return {
+    startTime: position.startTime,
+    endTime: position.endTime,
+    breakMinutes: position.breakMinutes,
+    endDayOffset: position.endDayOffset,
+  };
+};
+
+/**
+ * 배치 목록에 포지션 이름을 붙인다.
+ *
+ * CSV 열(`ASSIGNMENT_WHO_COLUMNS`)은 모듈 스코프라 행사를 모른다.
+ * 행사 상세의 탭이 내려받기 전에 이 함수로 이름을 붙여 넘기면,
+ * 행사를 가로지르는 목록(서버가 채워 준 이름)과 같은 열을 쓸 수 있다.
+ */
+export const attachPositionNames = <T extends { positionId: number }>(
+  event: { positions: readonly EventPosition[] },
+  items: readonly T[],
+): (T & { positionName: string })[] =>
+  items.map((item) => ({
+    ...item,
+    positionName: findPosition(event, item.positionId)?.name ?? "",
+  }));
+
+/** 배치 한 건의 예정 근무 시간대. 배치가 가리키는 포지션을 따른다. */
+export const resolveAssignmentSchedule = (
+  event: ScheduledTime & { positions: readonly EventPosition[] },
+  assignment: { positionId?: number },
+): ScheduledTime => resolvePositionSchedule(event, assignment.positionId);
+
+/**
+ * 포지션 하나의 하루치 발주 슬롯을 만든다.
+ *
+ * 금액은 포지션에서 **복사해 온다.** 슬롯은 "그날 그 자리의 조건"이라
+ * 특정 날만 단가를 올리는 일이 생기면 슬롯만 고친다.
+ */
+export const buildPositionSlot = (
+  position: EventPosition,
+  requiredCount: number,
+): EventRoleSlot => ({
+  positionId: position.positionId,
+  role: position.jobRole,
+  requiredCount,
+  assignedCount: 0,
+  wageType: position.wageType,
+  wage: position.wage,
+});
+
+/**
+ * 포지션별 발주 · 확정 현황. (이름은 예전 그대로 `RoleSlot`이다)
+ *
+ * **키는 `positionId`다.** `role`은 포지션 직무의 사본으로, 직무 기준 필터 ·
+ * 정렬 · 라벨이 포지션을 다시 찾지 않고도 돌게 하려고 함께 둔다.
+ */
 export interface EventRoleSlot {
+  positionId: number;
   role: JobRole;
   /** 거래처에서 발주받은 인원 */
   requiredCount: number;
   /** 실제로 확정(픽스)된 인원. 대기 인원은 포함하지 않는다. */
   assignedCount: number;
-  /** 이 직무를 시급으로 줄지, 하루 통으로 줄지 */
+  /** 이 자리를 시급으로 줄지, 하루 통으로 줄지 */
   wageType: WageType;
-  /**
-   * 이 직무의 기본 금액.
-   * 시급이면 시간당, 일급이면 하루치다. 등급 가산액은 시급일 때만 더해진다.
-   */
+  /** 이 자리의 기본 금액. 시급이면 시간당, 일급이면 하루치다. */
   wage: number;
-  /** 성별 조건. 표시 · 추천용이고 **배치를 막지 않는다.** */
-  genderPreference: GenderPreference;
 }
 
 /**
@@ -399,7 +538,9 @@ export interface EventSummary {
     캘린더 곳곳에 '지정 전'만 남았고, 그 빈칸이 무엇을 뜻하는지 아무도 몰랐다.
     현장에서 누구에게 연락하는지는 직무(팀장)와 담당 매니저로 충분하다.
   */
-  /** 전체 일자를 합산한 직무별 현황 */
+  /** 이 행사의 포지션. 발주 · 배치가 `positionId`로 가리킨다. */
+  positions: EventPosition[];
+  /** 전체 일자를 합산한 포지션별 현황 */
   roles: EventRoleSlot[];
   totalRequired: number;
   totalAssigned: number;
@@ -408,27 +549,26 @@ export interface EventSummary {
 export interface EventDetail extends EventSummary {
   /** 일자별 인원 계획. 하루짜리 행사도 길이 1의 배열로 갖는다. */
   days: EventDayPlan[];
+  /**
+   * 업체가 자유롭게 적는 **공고 안내 문구.** 인력에게 보인다.
+   *
+   * 모집 공고문(`JobPosting.content`)과 포털 공고 상세의 '안내'에 그대로 실린다.
+   * 집합 · 복장 · 준비물처럼 칸이 정해진 것 말고 그 현장에만 해당하는 당부가
+   * 늘 하나씩 있고, 받을 칸이 없으면 담당자는 그것을 집합 장소 칸에 이어 붙인다.
+   * **내부 메모는 `memo`다.** 이 칸에 적은 것은 지원자가 읽는다.
+   */
   description: string;
   /** 집합 장소 · 시간 안내 (공지 문구에 그대로 들어간다) */
   meetingPoint: string;
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  /**
-   * 거래처에 청구하는 **직무별** 시급. 인건비와 비교해 마진을 계산한다.
-   *
-   * 예전에는 행사 하나에 시급 하나였다. 그런데 팀장 · 스태프 · 설치는
-   * 지급도 청구도 단가가 다르다. 하나로 묶어 두면 팀장이 많은 행사의 매출이
-   * 통째로 낮게 잡히고, 그 숫자를 보고 다음 발주 단가를 정하게 된다.
-   *
-   * 기준 설정에 정해 둔 단가를 기본으로 가져오되(`JobRoleDef.billingRate`)
-   * 행사마다 자유롭게 고친다. 발주는 늘 그때그때 다르게 들어온다.
-   * 비어 있어도 된다 — 그 직무가 마진 계산에서 빠질 뿐이다.
-   *
-   * 거래처가 아니라 기준 설정에서 가져오는 이유: 단가를 부르는 쪽이
-   * 에이전시라서다. 대행사가 직무별 인원수로 견적을 요청하면 우리가 답한다.
-   */
-  billingRates: BillingRate[];
+  /*
+    청구 단가는 행사가 아니라 **포지션**이 갖는다. (`EventPosition.billingRate`)
+    같은 스태프라도 주간 · 야간은 청구도 지급도 다르기 때문이다.
+    거래처가 아니라 기준 설정에서 초기값을 가져오는 이유는 그대로다 —
+    단가를 부르는 쪽이 에이전시라서다.
+  */
   memo: string;
   assignments: Assignment[];
   createdAt: string;
@@ -496,9 +636,22 @@ export interface Assignment {
    * 여기 값이 없으면 직원에게도 계약서를 받으라고 하고 시급을 계산해 버린다.
    */
   isEmployee: boolean;
+  /**
+   * 이 배치가 선 포지션. **예정 시각 · 기본 금액의 출처다.**
+   * (`resolveAssignmentSchedule`)
+   */
+  positionId: number;
+  /**
+   * 포지션 이름. **행사를 가로지르는 목록 응답에만** 채워진다. (`/admin/assignments`)
+   *
+   * 배치 현황처럼 여러 행사가 섞인 표는 행사마다 포지션을 다시 찾을 수 없다.
+   * 행사 상세처럼 포지션을 이미 들고 있는 화면은 `attachPositionNames`로 붙인다.
+   */
+  positionName?: string;
+  /** 포지션 직무의 사본. 직무 기준 필터 · 묶기가 포지션을 다시 찾지 않게 한다. */
   role: JobRole;
   status: AssignmentStatus;
-  /** 이 배치에 적용된 지급 기준 (행사 직무에서 그대로 내려온다) */
+  /** 이 배치에 적용된 지급 기준 (포지션에서 그대로 내려온다) */
   wageType: WageType;
   /** 실제 적용 금액. 시급이면 시간당(등급 가산액 반영), 일급이면 하루치다. */
   wage: number;
@@ -548,6 +701,15 @@ export interface Assignment {
    */
   isContractSigned: boolean;
   isPaid: boolean;
+  /**
+   * 본인이 포털에서 취소한 시각과 사유.
+   *
+   * 24시간 전 취소는 배치가 `CANCELED`가 되고, 그 이후 취소는 노쇼로 남는다
+   * (`resolveStaffCancelPolicy`). 어느 쪽이든 **본인이 먼저 알렸다**는 근거라
+   * 무단 노쇼보다 감점이 작다. (`resolveAttendancePenalty`)
+   */
+  staffCanceledAt?: string;
+  staffCancelReason?: string;
   createdAt: string;
 }
 
@@ -660,6 +822,13 @@ export interface AssignmentCandidate {
   /** 서류 심사가 지금 어디까지 왔는지. 왜 막혔는지를 설명하는 데 쓴다. */
   documentReviewState: DocumentReviewState;
   /**
+   * 보건증 상태. 보건증이 필요한 포지션에 사람을 넣을 때 본다.
+   *
+   * 관리자의 배치는 막지 않는다(발급을 기다리는 중인 사람을 먼저 잡아 두는 일이 있다).
+   * 대신 후보 목록에서 걸러 볼 수 있고, 없는 사람은 표시가 붙는다.
+   */
+  healthCertState: HealthCertState;
+  /**
    * 우리 직원인가.
    *
    * 직원은 **직무 조건에 걸리지 않고** 후보로 올라온다. 대행사가 주는 자리에 따라
@@ -686,12 +855,26 @@ export interface AssignmentCandidate {
 }
 
 /**
+ * 행사 등록 폼에서 받는 포지션 한 건.
+ *
+ * `requiredCount`는 **모든 근무일에 깔 초기 인원**이다. 저장되는 포지션에는 없고,
+ * 일자별 발주(`days[].roles`)로 복사된 뒤에는 일별 근무자 탭에서만 고친다.
+ */
+export interface EventPositionDraft extends Omit<EventPosition, "positionId"> {
+  requiredCount: number;
+}
+
+/**
  * 행사 생성 · 수정 폼 값.
  *
  * 폼에서는 "하루치 기준 인원"만 입력받는다.
  * 여러 날짜 행사는 이 값을 모든 근무일에 복사해 깔고,
  * 날마다 다른 인원은 행사 상세의 일자별 계획에서 조정한다.
  * (등록 시점에는 날짜별 편차를 모르는 경우가 대부분이다)
+ *
+ * 포지션은 **등록할 때만** 받는다. 이미 만든 행사의 포지션은 행사 상세의
+ * 포지션 카드에서 하나씩 고친다 — 수정 폼에서 통째로 다시 받으면
+ * 배치가 걸린 포지션을 지우는 요청이 아무렇지 않게 만들어진다.
  */
 export interface EventFormValues {
   title: string;
@@ -714,9 +897,9 @@ export interface EventFormValues {
   dressCode: string;
   belongings: string;
   breakMinutes: number;
-  billingRates: BillingRate[];
   memo: string;
-  roles: EventRoleSlot[];
+  /** 등록 시에만 쓴다. 수정 요청에서는 무시된다. */
+  positions: EventPositionDraft[];
 }
 
 /**
@@ -740,7 +923,9 @@ export interface CalendarEvent {
   endDayOffset: DayOffset;
   venue: string;
   managerName: string;
-  /** 전체 근무일을 합산한 직무별 현황 */
+  /** 칩에 포지션 이름을 적으려면 필요하다. */
+  positions: EventPosition[];
+  /** 전체 근무일을 합산한 포지션별 현황 */
   roles: EventRoleSlot[];
   /**
    * 일자별 인원 계획.
@@ -761,6 +946,7 @@ export interface CalendarAssignedStaff {
   assignmentId: number;
   staffId: number;
   staffName: string;
+  positionId: number;
   role: JobRole;
   workDate: string;
   status: AssignmentStatus;
@@ -932,40 +1118,51 @@ export const groupConsecutiveDates = (
 };
 
 /**
- * 일자별 계획을 합쳐 행사 전체의 직무별 현황을 만든다.
+ * 일자별 계획을 합쳐 행사 전체의 포지션별 현황을 만든다.
  *
  * 캘린더 · 목록에는 합계만 보이고, 조정은 일자별로 한다.
  * 두 값이 어긋나지 않도록 합산은 항상 이 함수를 거친다.
+ *
+ * **키는 포지션이다.** 직무로 합치면 A타임 · B타임 스태프가 한 줄로 뭉쳐,
+ * 야간 자리가 비어 있는데도 '스태프 10/10'으로 읽힌다.
  */
 export const aggregateDayPlans = (days: EventDayPlan[]): EventRoleSlot[] => {
-  const merged = new Map<JobRole, EventRoleSlot>();
+  const merged = new Map<number, EventRoleSlot>();
 
   days.forEach((day) => {
     day.roles.forEach((slot) => {
-      const current = merged.get(slot.role);
+      const current = merged.get(slot.positionId);
 
       if (!current) {
-        merged.set(slot.role, { ...slot });
+        merged.set(slot.positionId, { ...slot });
         return;
       }
 
       current.requiredCount += slot.requiredCount;
       current.assignedCount += slot.assignedCount;
-      // 같은 직무의 시급은 날마다 같다고 보고 첫 값을 유지한다.
-
-      /*
-        성별 조건이 날마다 다르면 합계에는 '무관'으로 적는다.
-        (설치는 첫날만 남성, 나머지 날은 무관인 식)
-        한쪽 값을 대표로 세우면 행사 요약이 실제 발주보다 좁게 읽혀,
-        조건이 없는 날까지 못 넣는 자리처럼 보인다.
-      */
-      if (current.genderPreference !== slot.genderPreference) {
-        current.genderPreference = "ANY";
-      }
+      // 같은 포지션의 금액은 날마다 같다고 보고 첫 값을 유지한다.
     });
   });
 
   return [...merged.values()];
+};
+
+/**
+ * 슬롯 · 배치를 포지션 순서대로 세운다.
+ *
+ * 포지션은 사람이 만든 순서(= 등록한 순서)가 곧 읽는 순서다. A타임 다음에 B타임.
+ * 없는 포지션(예전 데이터)은 맨 뒤로 보낸다.
+ */
+export const comparePositionOrder = (
+  positions: readonly EventPosition[],
+) => {
+  const order = new Map(
+    positions.map((position, index) => [position.positionId, index]),
+  );
+
+  return (a: { positionId: number }, b: { positionId: number }): number =>
+    (order.get(a.positionId) ?? Number.MAX_SAFE_INTEGER) -
+    (order.get(b.positionId) ?? Number.MAX_SAFE_INTEGER);
 };
 
 /* ------------------------------------------------------------------ */
@@ -1178,6 +1375,40 @@ export const toCheckDateTime = (
   if (dayOffset) base.setDate(base.getDate() + dayOffset);
 
   return base.toISOString();
+};
+
+/**
+ * 본인 취소가 불이익 없이 되는 마지막 시각은 **근무 시작 24시간 전**이다.
+ *
+ * 일정은 바뀔 수 있으니 확정된 근무도 무를 수 있어야 한다. 다만 하루 안쪽이면
+ * 담당자가 대타를 구할 시간이 사실상 없어서, 그때부터는 노쇼로 본다.
+ */
+export const STAFF_CANCEL_DEADLINE_HOURS = 24;
+
+/**
+ * 본인 취소 판정. **서버와 화면이 같은 함수를 쓴다.**
+ *
+ * 기준은 행사가 아니라 **포지션의 예정 시작 시각**이다(`resolveAssignmentSchedule`).
+ * 행사 시각으로 재면 21시에 시작하는 B타임 근무자의 마감이 아침 9시로 앞당겨진다.
+ *
+ * - `isLate`     마감을 넘겼다 → 취소하면 노쇼로 남는다
+ * - `hasStarted` 이미 시작했다 → 취소가 아니라 결근이다. 담당자가 처리한다
+ */
+export const resolveStaffCancelPolicy = (
+  workDate: string,
+  scheduled: Pick<ScheduledTime, "startTime">,
+  now: Date = new Date(),
+): { deadline: Date; isLate: boolean; hasStarted: boolean } => {
+  const start = new Date(toCheckDateTime(workDate, scheduled.startTime) ?? now);
+  const deadline = new Date(
+    start.getTime() - STAFF_CANCEL_DEADLINE_HOURS * 60 * 60 * 1000,
+  );
+
+  return {
+    deadline,
+    isLate: now > deadline,
+    hasStarted: now >= start,
+  };
 };
 
 /* ------------------------------------------------------------------ */
@@ -1456,35 +1687,42 @@ export const calculateWorkHoursFromTimes = (
  * 여러 날 하는 행사에서 하루치로만 계산하면 마진이 실제의 몇 분의 일로 나온다.
  */
 export const summarizeEventCost = (event: EventDetail) => {
+  /* 대표 하루치 시간. 포지션마다 시간이 다르므로 계산이 아니라 표시에만 쓴다. */
   const dailyWorkHours = calculateScheduledWorkHours(event);
-
-  const laborCost = event.assignments
-    .filter((assignment) => assignment.status === "CONFIRMED")
-    .reduce(
-      (sum, assignment) =>
-        sum +
-        calculateBasePay(assignment.wageType, assignment.wage, dailyWorkHours),
-      0,
-    );
+  const confirmed = event.assignments.filter(
+    (assignment) => assignment.status === "CONFIRMED",
+  );
 
   /*
-    매출은 **직무마다** 다르게 잡힌다.
+    시간은 **배치마다** 그 포지션의 예정 시간으로 잡는다.
+    행사 시간 하나로 곱하면 B타임(야간 9시간) 인건비가 A타임 시간으로 계산된다.
+  */
+  const hoursOf = (assignment: Assignment) =>
+    calculateScheduledWorkHours(resolveAssignmentSchedule(event, assignment));
+
+  const laborCost = confirmed.reduce(
+    (sum, assignment) =>
+      sum +
+      calculateBasePay(assignment.wageType, assignment.wage, hoursOf(assignment)),
+    0,
+  );
+
+  /*
+    매출은 **포지션마다** 다르게 잡힌다.
 
     예전에는 `확정 인원 × 시간 × 시급 하나`였는데, 팀장과 스태프의 청구
     단가가 다른 것이 현실이라 팀장이 많은 행사의 매출이 통째로 낮게 잡혔다.
-    단가를 안 정한 직무는 0으로 빠진다. (마진이 실제보다 작게 보일 뿐,
+    단가를 안 정한 포지션은 0으로 빠진다. (마진이 실제보다 작게 보일 뿐,
     없는 매출을 지어내지는 않는다)
   */
   const revenue = Math.round(
-    event.assignments
-      .filter((assignment) => assignment.status === "CONFIRMED")
-      .reduce(
-        (sum, assignment) =>
-          sum +
-          dailyWorkHours *
-            resolveBillingRate(event.billingRates, assignment.role),
-        0,
-      ),
+    confirmed.reduce(
+      (sum, assignment) =>
+        sum +
+        hoursOf(assignment) *
+          resolveBillingRate(event.positions, assignment.positionId),
+      0,
+    ),
   );
 
   return { dailyWorkHours, laborCost, revenue, margin: revenue - laborCost };

@@ -25,6 +25,7 @@ import { useJobRoleLabel } from "@/store/useOrgStore";
 import {
   WAGE_TYPE_LABEL,
   formatTimeRange,
+  resolveAssignmentSchedule,
   type Assignment,
   type EventDetail,
   type EventSummary,
@@ -150,17 +151,30 @@ const MessageComposer = ({ fixedEvent }: MessageComposerProps) => {
     selectedIds.includes(assignment.staffId),
   );
 
+  /*
+    근무시간은 **받는 사람의 포지션** 시각이다. 행사 시각을 넣으면
+    야간조에게 주간 출근 시각이 적힌 문자가 나간다. (밖으로 나가는 글이라 더 위험하다)
+  */
+  const scheduleOf = (assignment: Assignment) =>
+    event && "positions" in event
+      ? resolveAssignmentSchedule(event, assignment)
+      : event;
+
   const buildValues = (assignment?: Assignment): Record<string, string> =>
     event && assignment
       ? {
           이름: assignment.staffName,
           행사명: event.title,
           근무일: formatKoreanDate(assignment.workDate),
-          근무시간: formatTimeRange(
-            event.startTime,
-            event.endTime,
-            event.endDayOffset,
-          ),
+          근무시간: (() => {
+            const schedule = scheduleOf(assignment) ?? event;
+
+            return formatTimeRange(
+              schedule.startTime,
+              schedule.endTime,
+              schedule.endDayOffset,
+            );
+          })(),
           집합장소: event.meetingPoint,
           복장: event.dressCode,
           준비물: event.belongings,

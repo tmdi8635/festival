@@ -4,7 +4,11 @@ import { UserCheck } from "@/icons";
 import { formatDate } from "@/lib/dayjs";
 import { useJobRoleLabel } from "@/store/useOrgStore";
 import {
+  calculateScheduledWorkHours,
+  comparePositionOrder,
+  findPosition,
   formatTimeRange,
+  resolveAssignmentSchedule,
   resolveWorkHours,
   type Assignment,
   type EventDetail,
@@ -30,8 +34,6 @@ interface AttendanceRosterGroupProps {
   assignments: Assignment[];
   event: EventDetail;
   groupMode: GroupMode;
-  /** 행사 예정 실근무시간. 날짜별 머리에서 그날의 기준으로 보여 준다. */
-  scheduledWorkHours: number;
   isGroupSelected: boolean;
   isSelected: (assignmentId: number) => boolean;
   onToggleGroup: (assignmentIds: number[]) => void;
@@ -56,7 +58,6 @@ const AttendanceRosterGroup = ({
   assignments,
   event,
   groupMode,
-  scheduledWorkHours,
   isGroupSelected,
   isSelected,
   onToggleGroup,
@@ -74,14 +75,56 @@ const AttendanceRosterGroup = ({
   const [first] = assignments;
   const ids = assignments.map((item) => item.assignmentId);
 
-  /** 이 묶음의 실근무시간 합계. 사람별에서는 곧 지급 근거가 된다. */
+  /**
+   * 이 묶음의 실근무시간 합계. 사람별에서는 곧 지급 근거가 된다.
+   * 예정 시간은 배치마다 그 포지션의 시간이다. (A타임 · B타임을 섞어 선 사람이 있다)
+   */
   const totalWorkHours =
     Math.round(
       assignments.reduce(
-        (sum, item) => sum + resolveWorkHours(item, event).workHours,
+        (sum, item) =>
+          sum +
+          resolveWorkHours(item, resolveAssignmentSchedule(event, item))
+            .workHours,
         0,
       ) * 10,
     ) / 10;
+
+  /*
+    날짜별 머리에 적을 그날의 포지션 시각.
+    포지션마다 오는 시각이 달라 대표 시각 하나를 적으면 야간조까지 그 시각에 오는 줄 안다.
+    그날 실제로 선 포지션만, 포지션 순서대로 적는다.
+  */
+  const dayPositions = [
+    ...new Map(
+      assignments.map((item) => [item.positionId, item] as const),
+    ).values(),
+  ]
+    .sort(comparePositionOrder(event.positions))
+    .map((item) => {
+      const schedule = resolveAssignmentSchedule(event, item);
+
+      return {
+        positionId: item.positionId,
+        name: findPosition(event, item.positionId)?.name ?? roleLabel(item.role),
+        range: formatTimeRange(
+          schedule.startTime,
+          schedule.endTime,
+          schedule.endDayOffset,
+        ),
+        hours: calculateScheduledWorkHours(schedule),
+      };
+    });
+
+  /* 사람별 머리의 배지. 한 사람이 날마다 다른 포지션에 서면 이름을 모두 적는다. */
+  const staffPositionNames = [
+    ...new Set(
+      assignments.map(
+        (item) =>
+          findPosition(event, item.positionId)?.name ?? roleLabel(item.role),
+      ),
+    ),
+  ].join(" · ");
   const missingCount = assignments.filter(
     (item) => !item.checkInAt || !item.checkOutAt,
   ).length;
@@ -108,7 +151,7 @@ const AttendanceRosterGroup = ({
               phoneNumber={first.staffPhone}
               profileImageUrl={first.staffProfileImageUrl}
               gender={first.staffGender}
-              badge={<Badge tone="neutral">{roleLabel(first.role)}</Badge>}
+              badge={<Badge tone="neutral">{staffPositionNames}</Badge>}
             />
           </button>
         ) : (
@@ -116,13 +159,12 @@ const AttendanceRosterGroup = ({
             <p className="text-[14px] font-medium text-font-1 tabular-nums">
               {formatDate(groupKey)}
             </p>
-            <p className="text-[12px] text-font-2">
-              {formatTimeRange(
-                event.startTime,
-                event.endTime,
-                event.endDayOffset,
-              )}{" "}
-              · 예정 {scheduledWorkHours}시간
+            <p className="text-[12px] text-font-2 tabular-nums">
+              {dayPositions.length === 1
+                ? `${dayPositions[0].range} · 예정 ${dayPositions[0].hours}시간`
+                : dayPositions
+                    .map((item) => `${item.name} ${item.range}`)
+                    .join(" · ")}
             </p>
           </div>
         )}

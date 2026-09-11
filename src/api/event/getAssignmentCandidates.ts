@@ -2,11 +2,20 @@ import { adminAxios } from "..";
 import { usePermittedQuery } from "../usePermittedQuery";
 import type { EmploymentType } from "@/type/employee";
 import type { AssignmentCandidate } from "@/type/event";
-import type { Gender, JobRole } from "@/type/staff";
+import type { Gender, HealthCertFilter, JobRole } from "@/type/staff";
 
 export interface AssignmentCandidateParams {
   eventId: number;
+  /** 배치할 포지션. 넘기면 서버가 그 포지션의 직무로 거른다. */
+  positionId?: number;
   role?: JobRole;
+  /**
+   * 보건증 유무로 좁히기.
+   *
+   * 보건증이 필요한 포지션이면 화면이 '있음'을 초기값으로 건다.
+   * 발급을 기다리는 사람을 먼저 잡아 두는 일도 있어서 담당자가 언제든 풀 수 있다.
+   */
+  healthCert?: HealthCertFilter;
   keyword?: string;
   /** 같은 날 다른 행사에 이미 확정된 인력도 함께 볼지 */
   includeUnavailable?: boolean;

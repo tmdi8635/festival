@@ -86,7 +86,7 @@ const MyHome = () => {
         <h2 className="text-[13px] font-medium text-font-2">다음 근무</h2>
 
         {nextWork ? (
-          <MyWorkCard work={nextWork} isUpcoming />
+          <MyWorkCard work={nextWork} />
         ) : (
           <Card>
             <EmptyState

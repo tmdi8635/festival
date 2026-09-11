@@ -4,14 +4,20 @@ import { useState } from "react";
 import Image from "next/image";
 import { useStaffDetailQuery } from "@/api/staff/getStaffDetail";
 import { useStaffDocumentReviewMutation } from "@/api/staff/mutateStaffDocumentReview";
-import { DOCUMENT_REVIEW_STATE_TONE } from "@/constants/staffOptions";
+import {
+  DOCUMENT_REVIEW_STATE_TONE,
+  HEALTH_CERT_STATE_TONE,
+} from "@/constants/staffOptions";
 import { Eye, EyeOff } from "@/icons";
-import { formatDateTime } from "@/lib/dayjs";
+import { formatDate, formatDateTime } from "@/lib/dayjs";
+import { cn } from "@/lib/utils";
 import {
   DOCUMENT_LANES,
   DOCUMENT_LANE_LABEL,
   DOCUMENT_REVIEW_STATE_LABEL,
+  HEALTH_CERT_STATE_LABEL,
   formatPhoneNumber,
+  healthCertExpiresAt,
   type DocumentLane,
 } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
@@ -47,8 +53,23 @@ const StaffDocumentReviewModal = ({
   const [rejectingLane, setRejectingLane] = useState<DocumentLane | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  const imageOf = (lane: DocumentLane) =>
-    lane === "ID_CARD" ? staff?.idCardImageUrl : staff?.bankBookImageUrl;
+  /*
+    갈래별 사본. 삼항식 두 갈래로 두면 갈래가 늘 때 새 갈래가 조용히 통장사본을 보여 준다.
+    (보건증 칸에 통장사본이 뜨는 사고가 실제로 그렇게 난다) 갈래마다 명시한다.
+  */
+  const imageOf = (lane: DocumentLane): string | undefined => {
+    if (!staff) return undefined;
+
+    const images: Record<DocumentLane, string> = {
+      ID_CARD: staff.idCardImageUrl,
+      BANK_ACCOUNT: staff.bankBookImageUrl,
+      HEALTH_CERT: staff.healthCertImageUrl,
+    };
+
+    return images[lane] || undefined;
+  };
+
+  const healthCertExpiry = healthCertExpiresAt(staff?.healthCertIssuedAt);
 
   const handleReject = (lane: DocumentLane) => {
     if (!staffId) return;
@@ -87,7 +108,8 @@ const StaffDocumentReviewModal = ({
         <div className="flex flex-col gap-5">
           <Alert tone="info" title="승인하면 곧바로 배치할 수 있게 됩니다.">
             신분증 · 통장사본이 모두 승인되어야 확정 배치가 열립니다. 사본의
-            이름과 계좌 예금주가 같은지 확인해 주세요.
+            이름과 계좌 예금주가 같은지 확인해 주세요. 보건증은 선택 서류라 활동
+            여부에 영향이 없고, 보건증이 필요한 포지션에 지원할 때만 봅니다.
           </Alert>
 
           {DOCUMENT_LANES.map((lane) => {
@@ -105,9 +127,22 @@ const StaffDocumentReviewModal = ({
                     <h3 className="text-[15px] font-semibold text-font-1">
                       {DOCUMENT_LANE_LABEL[lane]}
                     </h3>
-                    <Badge tone={DOCUMENT_REVIEW_STATE_TONE[review.state]}>
-                      {DOCUMENT_REVIEW_STATE_LABEL[review.state]}
-                    </Badge>
+                    {/*
+                      보건증은 승인 뒤에도 **만료**가 있다. 심사 상태만 적으면
+                      1년 지난 보건증이 '승인 완료'로 보여 식음료 자리에 선다.
+                    */}
+                    {lane === "HEALTH_CERT" ? (
+                      <Badge tone={HEALTH_CERT_STATE_TONE[staff.healthCertState]}>
+                        {HEALTH_CERT_STATE_LABEL[staff.healthCertState]}
+                      </Badge>
+                    ) : (
+                      <Badge tone={DOCUMENT_REVIEW_STATE_TONE[review.state]}>
+                        {DOCUMENT_REVIEW_STATE_LABEL[review.state]}
+                      </Badge>
+                    )}
+                    {lane === "HEALTH_CERT" && (
+                      <span className="text-[12px] text-font-2">선택</span>
+                    )}
                   </div>
 
                   {review.reviewedAt && (
@@ -134,6 +169,33 @@ const StaffDocumentReviewModal = ({
                       <dt className="text-[12px] text-font-2">예금주</dt>
                       <dd className="text-font-1">
                         {staff.accountHolder || "-"}
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+
+                {/* 보건증은 발급일이 판단의 절반이다. 사본의 날짜와 적힌 날짜가 같은지 본다. */}
+                {lane === "HEALTH_CERT" && (
+                  <dl className="grid grid-cols-2 gap-2 rounded-field bg-subtle px-3 py-2 text-[13px]">
+                    <div>
+                      <dt className="text-[12px] text-font-2">발급일</dt>
+                      <dd className="text-font-1 tabular-nums">
+                        {staff.healthCertIssuedAt
+                          ? formatDate(staff.healthCertIssuedAt)
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[12px] text-font-2">만료일</dt>
+                      <dd
+                        className={cn(
+                          "tabular-nums",
+                          staff.healthCertState === "EXPIRED"
+                            ? "text-danger"
+                            : "text-font-1",
+                        )}
+                      >
+                        {healthCertExpiry ? formatDate(healthCertExpiry) : "-"}
                       </dd>
                     </div>
                   </dl>

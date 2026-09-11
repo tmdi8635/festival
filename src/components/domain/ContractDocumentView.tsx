@@ -96,46 +96,64 @@ const ContractDocumentView = ({
       <div className="contract-clause mt-8 border-t border-border-main pt-5">
         <p className="text-[13px] leading-relaxed">{document.agreementNote}</p>
 
-        <div className="mt-6 flex items-end justify-between gap-8">
-          <div className="flex-1">
-            <p className="text-[12px] text-font-2">사업주 (갑)</p>
-            <p className="mt-1.5 text-[13px]">{document.companyName}</p>
+        {/*
+          갑 · 을을 **줄 단위로** 맞춘다. (칸 제목 / 상호·서명칸 / 대표자·성명)
+
+          두 칸을 따로 쌓아 아래 끝으로 맞추면, 서명칸이 높은 을 쪽이 위로 솟아
+          '사업주 (갑)'과 '근로자 (을)'이 다른 높이에 적힌다. 서명이 들어오면
+          을 쪽에 서명 시각 · 문서검증 줄이 더 붙어 어긋남이 더 커진다.
+          격자로 같은 줄에 세우면 대표자 (인)과 성명 (서명)이 한 선 위에 놓인다.
+        */}
+        <div className="mt-6 grid grid-cols-2 gap-x-8">
+          <p className="text-[12px] text-font-2">사업주 (갑)</p>
+          <p className="text-[12px] text-font-2">근로자 (을)</p>
+
+          <div className="mt-1.5">
+            <p className="text-[13px]">{document.companyName}</p>
             <p className="text-[12px] text-font-2">
               {document.companyAddress}
             </p>
-            <p className="mt-2 text-[13px]">
-              대표자 {document.companyRepresentative}{" "}
-              <span className="text-font-2">(인)</span>
-            </p>
           </div>
 
-          <div className="flex-1">
-            <p className="text-[12px] text-font-2">근로자 (을)</p>
+          {/*
+            전자서명으로 받은 건에서만 서명이 박힌다.
 
-            {/*
-              전자서명으로 받은 건에서만 서명이 박힌다.
+            비어 있는 서명란은 틀린 그림이 아니다. **종이로 배부해 손으로 받는 경로**
+            에서는 그 칸이 비어 있는 것이 맞고(그 위에 사람이 직접 쓴다),
+            서명본은 등록한 파일 그대로 보는 것이 맞다.
+            두 경로가 나란히 서 있으므로 `signature` 유무 하나로만 가른다.
+          */}
+          <div className="relative mt-1.5 h-16 w-44 border-b border-border-strong">
+            {document.signature && (
+              <Image
+                src={document.signature.imageDataUrl}
+                alt="근로자 서명"
+                fill
+                sizes="176px"
+                className="object-contain object-left-bottom"
+                unoptimized
+              />
+            )}
+          </div>
 
-              비어 있는 서명란은 틀린 그림이 아니다. **종이로 배부해 손으로 받는 경로**
-              에서는 그 칸이 비어 있는 것이 맞고(그 위에 사람이 직접 쓴다),
-              서명본은 등록한 파일 그대로 보는 것이 맞다.
-              두 경로가 나란히 서 있으므로 `signature` 유무 하나로만 가른다.
-            */}
-            {document.signature ? (
+          <p className="mt-2 text-[13px]">
+            대표자 {document.companyRepresentative}{" "}
+            <span className="text-font-2">(인)</span>
+          </p>
+          {document.signature ? (
+            <p className="mt-2 text-[13px]">
+              성명 {document.signature.signedName}
+            </p>
+          ) : (
+            <p className="mt-2 text-[13px] text-font-2">
+              성명 __________ (서명)
+            </p>
+          )}
+
+          {/* 을 쪽에만 붙는 줄. 갑 쪽 칸은 비워 둔다. */}
+          <div className="col-start-2">
+            {document.signature && (
               <>
-                <div className="relative mt-1.5 h-16 w-44 border-b border-border-strong">
-                  <Image
-                    src={document.signature.imageDataUrl}
-                    alt="근로자 서명"
-                    fill
-                    sizes="176px"
-                    className="object-contain object-left-bottom"
-                    unoptimized
-                  />
-                </div>
-
-                <p className="mt-2 text-[13px]">
-                  성명 {document.signature.signedName}
-                </p>
                 <p className="mt-0.5 text-[11px] text-font-2 tabular-nums">
                   전자서명 {formatDateTime(document.signature.signedAt)}
                 </p>
@@ -145,13 +163,6 @@ const ContractDocumentView = ({
                 */}
                 <p className="text-[11px] text-font-disabled tabular-nums">
                   문서검증 {document.signature.documentHash}
-                </p>
-              </>
-            ) : (
-              <>
-                <div className="mt-1.5 h-16 w-44 border-b border-border-strong" />
-                <p className="mt-2 text-[13px] text-font-2">
-                  성명 __________ (서명)
                 </p>
               </>
             )}

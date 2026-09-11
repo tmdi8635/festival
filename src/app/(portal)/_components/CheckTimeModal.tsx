@@ -113,7 +113,7 @@ const CheckTimeModal = ({ work, side, onClose }: CheckTimeModalProps) => {
       isOpen
       onClose={onClose}
       title={`${label} 기록`}
-      description={work.eventTitle}
+      description={`${work.eventTitle} · ${work.positionName}`}
       size="sm"
       footer={
         /*

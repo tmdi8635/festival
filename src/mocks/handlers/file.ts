@@ -36,7 +36,8 @@ export const fileHandlers = [
       */
       const isStaffDocument =
         params.fileType === "STAFF_ID_CARD" ||
-        params.fileType === "STAFF_BANK_BOOK";
+        params.fileType === "STAFF_BANK_BOOK" ||
+        params.fileType === "STAFF_HEALTH_CERT";
 
       // 서명받은 계약서는 계약서를 다룰 수 있는 사람만 올린다.
       const isContract = params.fileType === "CONTRACT_SIGNED";

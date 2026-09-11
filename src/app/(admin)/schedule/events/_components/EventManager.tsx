@@ -19,6 +19,7 @@ import { openConfirm } from "@/store/useConfirmStore";
 import { jobRoleLabel } from "@/store/useOrgStore";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
+  findPosition,
   formatTimeRange,
   EVENT_STATUS_LABEL,
   type EventStatus,
@@ -55,12 +56,13 @@ const EVENT_CSV_COLUMNS: CsvColumn<EventSummary>[] = [
   { header: "발주 인원", value: (row) => row.totalRequired },
   { header: "확정 인원", value: (row) => row.totalAssigned },
   {
-    header: "직무별 현황",
+    /* 화면의 칩과 같은 이름을 쓴다. A타임 · B타임이 '스태프' 둘로 뭉치면 파일에서 구분되지 않는다. */
+    header: "포지션별 현황",
     value: (row) =>
       row.roles
         .map(
           (slot) =>
-            `${jobRoleLabel(slot.role)} ${slot.assignedCount}/${slot.requiredCount}`,
+            `${findPosition(row, slot.positionId)?.name ?? jobRoleLabel(slot.role)} ${slot.assignedCount}/${slot.requiredCount}`,
         )
         .join(" · "),
   },
@@ -224,7 +226,13 @@ const EventManager = () => {
     {
       key: "roles",
       header: "직무별 충원",
-      render: (event) => <RoleSlotChips roles={event.roles} isCompact />,
+      render: (event) => (
+        <RoleSlotChips
+          roles={event.roles}
+          positions={event.positions}
+          isCompact
+        />
+      ),
     },
     {
       key: "progress",

@@ -1,8 +1,13 @@
 import {
   WAGE_TYPE_LABEL,
+  calculateBasePay,
+  calculateScheduledWorkHours,
+  findPosition,
   formatTimeRange,
   nextDateKey,
+  resolveAssignmentSchedule,
   type DayOffset,
+  type EventPosition,
   type WageType,
 } from "./event";
 import type { JobRole } from "./staff";
@@ -51,9 +56,14 @@ import { formatPhoneNumber } from "./staff";
  * 다시 필요해졌다. 보내는 순간 계약번호가 붙는다 — 번호 없는 문서를 근로자가 열면
  * 그것이 정식 문서인지 알 방법이 없다.
  *
- * `REJECTED`는 **본인이 내용이 다르다고 되돌려 보낸** 것이다. 사유가 함께 있다.
+ * `REJECTED`는 **본인이 수정요청을 보낸** 것이다. 사유가 함께 있다.
+ * 발급된 계약서의 업무 · 임금이 실제와 다르게 적혔다는 뜻이다.
  * 반려를 받을 자리가 없으면 근로자는 서명을 안 하고 버티는 것 말고 할 수 있는 일이 없고,
  * 담당자는 왜 서명이 안 들어오는지 알 수 없다.
+ *
+ * **반려된 문서에는 서명할 수 없다.** 본인이 틀렸다고 한 문서에 서명을 받으면
+ * 그 서명은 무엇에 동의한 것인지 설명할 수 없다. 업체가 확인하고 **재발급**하면
+ * 다음 차수가 `SENT`로 새로 서고, 반려된 차수는 `SUPERSEDED`로 이력에 남는다.
  *
  * 기한만료는 만들지 않는다. 링크가 아니라 로그인이라 만료될 것이 없다.
  */
@@ -77,10 +87,16 @@ export type AmendReasonType =
   | "WORK_DAY_ADDED"
   | "WAGE_CHANGE"
   | "CONDITION_CHANGE"
+  | "REVISION_REQUEST"
   | "OTHER";
 
 export const AMEND_REASON_LABEL: Record<AmendReasonType, string> = {
   EARLY_END: "중도 종료",
+  /*
+    본인의 수정요청을 받아 다시 낸 차수.
+    다른 재작성과 갈라 두어야 "근로자가 문제를 제기해서 고친 문서"를 모아 볼 수 있다.
+  */
+  REVISION_REQUEST: "수정요청 반영",
   /*
     근무일이 **늘어난** 재작성.
 
@@ -124,11 +140,41 @@ export const AMEND_REASON_PRESETS: Record<AmendReasonType, string[]> = {
     "근무 장소 변경",
     "담당 업무 범위 변경",
   ],
+  REVISION_REQUEST: [
+    "근로자 수정요청에 따른 임금 정정",
+    "근로자 수정요청에 따른 근무일 정정",
+    "근로자 수정요청에 따른 근무시간 정정",
+    "근로자 수정요청에 따른 직무 정정",
+  ],
   OTHER: [
     "계약서 기재 사항 정정",
     "표준 계약서 양식 변경에 따른 재발급",
   ],
 };
+
+/**
+ * 본인이 보낸 수정요청 한 건.
+ *
+ * **덮어쓰지 않고 쌓는다.** 예전에는 `rejectedReason` 한 칸에 적어서, 두 번째 요청이
+ * 오면 첫 번째 요청이 사라지고 재발송하면 그마저 지워졌다. 그러면 "무엇을 고쳐 달라고
+ * 했고 그게 반영됐는가"를 본인도 담당자도 확인할 수 없다.
+ */
+export interface ContractRevisionRequest {
+  reason: string;
+  requestedAt: string;
+  /** 업체가 재발급으로 답한 시각. 비어 있으면 아직 답을 기다린다 */
+  resolvedAt?: string;
+  /** 답으로 나간 차수 */
+  resolvedRevision?: number;
+}
+
+/** 본인이 수정요청을 고를 때 쓰는 빠른 선택. 문장을 짓게 하면 대부분 비워 둔다. */
+export const REVISION_REQUEST_PRESETS: { label: string; text: string }[] = [
+  { label: "임금이 달라요", text: "계약서의 임금이 안내받은 금액과 다릅니다." },
+  { label: "근무일이 달라요", text: "계약서의 근무일이 실제 근무일과 다릅니다." },
+  { label: "근무시간이 달라요", text: "계약서의 근무시간이 실제 근무시간과 다릅니다." },
+  { label: "직무가 달라요", text: "계약서의 직무가 실제로 맡는 업무와 다릅니다." },
+];
 
 export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
   DRAFT: "등록 대기",
@@ -212,6 +258,32 @@ export interface ContractTemplate {
   updatedAt: string;
   createdAt: string;
 }
+
+/**
+ * **이 사람 계약서에만** 적용하는 문서 내용. (문서 제목 · 조항 · 서명 확인 문구)
+ *
+ * 수정요청은 대개 템플릿으로 답할 수 없는 것이다. "중식 제공을 적어 달라",
+ * "철수 작업은 빼 달라"를 템플릿에 넣으면 그 템플릿을 쓰는 모든 사람의 문서가 바뀐다.
+ * 그렇다고 한 사람을 위해 템플릿을 하나씩 늘리면 목록이 쓸 수 없게 된다.
+ * 그래서 템플릿은 출발점으로만 두고, 고친 내용은 계약서 자신이 들고 있는다.
+ *
+ * 사업주(갑) 정보는 넣지 않는다. 사람마다 달라질 이유가 없는 값이고,
+ * 한 사람 문서만 대표자가 다르면 그건 수정이 아니라 사고다.
+ */
+export interface ContractCustomTerms {
+  documentTitle: string;
+  clauses: ContractClause[];
+  agreementNote: string;
+}
+
+/** 템플릿에서 이 사람 몫의 내용을 떠 온다. 개별 수정은 여기서 출발한다. */
+export const buildCustomTermsFrom = (
+  source: Pick<ContractTemplate, "documentTitle" | "clauses" | "agreementNote">,
+): ContractCustomTerms => ({
+  documentTitle: source.documentTitle,
+  clauses: source.clauses.map((clause) => ({ ...clause })),
+  agreementNote: source.agreementNote,
+});
 
 export interface ContractTemplateFormValues {
   name: string;
@@ -302,12 +374,58 @@ export interface ContractSignedFile {
  * 첫날만 설치를 도와 일급을 받고 이후는 시급으로 서는 일이 실제로 있고,
  * 같은 직무라도 경력자에게만 시급을 더 얹어 주기로 하는 일이 흔하다.
  * 계약서가 대표 금액 하나만 들고 있으면 그런 건의 총 지급액을 설명할 수 없다.
+ *
+ * **시각도 날마다 따로 든다.** 1일차는 A타임(09~18), 2일차는 B타임(21~06)으로
+ * 서는 사람이 있다. 계약서가 시간대 하나만 적으면 둘째 날의 근무시간 · 금액이
+ * 문서와 맞지 않는다.
  */
 export interface ContractWorkDay {
   workDate: string;
   wageType: WageType;
   wage: number;
+  positionId: number;
+  positionName: string;
+  startTime: string;
+  endTime: string;
+  endDayOffset: DayOffset;
+  breakMinutes: number;
+  /** 그날의 예정 실근무시간 (휴게 제외) */
+  workHours: number;
 }
+
+/**
+ * 배치 한 건을 계약서의 근무일 한 줄로 바꾼다.
+ *
+ * 계약서를 만드는 자리(명단 · 발송 · 재작성 · 시드)가 전부 이 함수를 쓴다.
+ * 한 곳이라도 행사 시각을 그대로 적으면 그 경로로 만든 계약서만 시간이 틀린다.
+ */
+export const buildContractWorkDay = (
+  event: {
+    startTime: string;
+    endTime: string;
+    endDayOffset: DayOffset;
+    breakMinutes: number;
+    positions: readonly EventPosition[];
+  },
+  assignment: {
+    workDate: string;
+    wageType: WageType;
+    wage: number;
+    positionId: number;
+  },
+): ContractWorkDay => {
+  const schedule = resolveAssignmentSchedule(event, assignment);
+
+  return {
+    workDate: assignment.workDate,
+    wageType: assignment.wageType,
+    wage: assignment.wage,
+    positionId: assignment.positionId,
+    positionName: findPosition(event, assignment.positionId)?.name ?? "",
+    ...schedule,
+    workHours: calculateScheduledWorkHours(schedule),
+  };
+};
 
 export interface Contract {
   contractId: number;
@@ -327,6 +445,14 @@ export interface Contract {
   templateId: number;
   templateName: string;
   /**
+   * 이 계약서만 고쳐 쓴 내용. 있으면 **템플릿의 조항 대신** 이것으로 문서를 조립한다.
+   *
+   * 비어 있으면 템플릿 그대로다. 템플릿을 고쳐도 이 값이 있는 계약서는 따라가지 않는다 —
+   * 한 사람에게 따로 약속한 문구가 템플릿 수정 한 번에 사라지면 안 되기 때문이다.
+   * 금액 · 근무일은 여기 없다. 그 원본은 여전히 배치다.
+   */
+  customTerms?: ContractCustomTerms;
+  /**
    * 계약 대상 근무일.
    *
    * 여러 날 진행하는 행사는 근무일이 여러 개다. 하루치만 적으면
@@ -342,10 +468,19 @@ export interface Contract {
   /** 종료 시각이 근무일로부터 며칠 뒤인지. 24시간을 넘기는 근무를 표현한다. */
   endDayOffset: DayOffset;
   breakMinutes: number;
-  /** 하루 실근무시간 */
+  /** 하루 실근무시간 (첫 근무일 기준) */
   workHours: number;
   /** 전체 근무일을 합친 실근무시간 */
   totalWorkHours: number;
+  /**
+   * 근무일마다 시간대가 다른지. (A타임 · B타임을 섞어 서는 경우)
+   *
+   * 켜져 있으면 근무시간 칸에 대표 시각 하나를 적으면 안 된다.
+   * `hasMixedWage`와 같은 이유다.
+   */
+  hasMixedSchedule: boolean;
+  /** 이 계약이 덮는 포지션 이름들 (중복 없이, 근무일 순) */
+  positionNames: string[];
   /** 대표 지급 기준 (첫 근무일 기준) */
   wageType: WageType;
   /** 대표 적용 금액. 시급이면 시간당, 일급이면 하루치다. */
@@ -384,8 +519,10 @@ export interface Contract {
   sentAt?: string;
   /** 서명이 끝난 시각. 전자서명·종이 등록 어느 쪽이든 채워진다 */
   signedAt?: string;
-  /** 본인이 되돌려 보낸 사유. `REJECTED`면 반드시 있다 */
+  /** 가장 최근 수정요청의 사유. `REJECTED`면 반드시 있다 (`revisionRequests`의 마지막) */
   rejectedReason?: string;
+  /** 이 차수에 대해 본인이 보낸 수정요청 전부. 비어 있으면 요청이 없었다 */
+  revisionRequests?: ContractRevisionRequest[];
 
   /* ---------------------------- 재작성(개정) 이력 --------------------------- */
 
@@ -459,6 +596,8 @@ export interface ContractRosterRow {
   /** 하루 실근무시간 */
   workHours: number;
   totalWorkHours: number;
+  hasMixedSchedule: boolean;
+  positionNames: string[];
   wageType: WageType;
   wage: number;
   hasMixedWage: boolean;
@@ -498,6 +637,9 @@ export interface ContractRosterEvent {
   startTime: string;
   endTime: string;
   endDayOffset: DayOffset;
+  breakMinutes: number;
+  /** 배치의 시각 · 포지션 이름을 찾는 데 쓴다 */
+  positions: EventPosition[];
 }
 
 /**
@@ -517,6 +659,7 @@ export const buildContractRoster = (
     staffId: number;
     staffName: string;
     staffPhone: string;
+    positionId: number;
     role: JobRole;
     status: string;
     workDate: string;
@@ -526,8 +669,6 @@ export const buildContractRoster = (
     isEmployee?: boolean;
   }[],
   contracts: readonly Contract[],
-  /** 하루 실근무시간. 행사에서 한 번만 구해 넘긴다. */
-  dailyWorkHours: number,
 ): ContractRosterRow[] => {
   const byStaff = new Map<number, typeof assignments>();
 
@@ -554,12 +695,7 @@ export const buildContractRoster = (
     const [first] = own;
 
     const work = summarizeContractWork(
-      own.map((item) => ({
-        workDate: item.workDate,
-        wageType: item.wageType,
-        wage: item.wage,
-      })),
-      dailyWorkHours,
+      own.map((item) => buildContractWorkDay(event, item)),
     );
 
     /*
@@ -587,11 +723,13 @@ export const buildContractRoster = (
       roles: [...new Set(own.map((item) => item.role))],
       workDates: work.workDates,
       workDate: work.workDate,
-      startTime: event.startTime,
-      endTime: event.endTime,
-      endDayOffset: event.endDayOffset,
-      workHours: dailyWorkHours,
+      startTime: work.startTime,
+      endTime: work.endTime,
+      endDayOffset: work.endDayOffset,
+      workHours: work.workHours,
       totalWorkHours: work.totalWorkHours,
+      hasMixedSchedule: work.hasMixedSchedule,
+      positionNames: work.positionNames,
       wageType: work.wageType,
       wage: work.wage,
       hasMixedWage: work.hasMixedWage,
@@ -772,11 +910,7 @@ export const parseContractFileName = (
  * 정산(`calculatePayroll`)이 날짜별로 더한 값과 몇 원씩 어긋나, 계약서에 적힌
  * 금액과 실제 이체액이 달라진다.
  */
-export const summarizeContractWork = (
-  workDays: ContractWorkDay[],
-  /** 하루 실근무시간 (행사 예정 시간 기준) */
-  dailyWorkHours: number,
-) => {
+export const summarizeContractWork = (workDays: ContractWorkDay[]) => {
   const sorted = [...workDays].sort((a, b) =>
     a.workDate.localeCompare(b.workDate),
   );
@@ -786,18 +920,32 @@ export const summarizeContractWork = (
     workDays: sorted,
     workDates: sorted.map((day) => day.workDate),
     workDate: sorted[0]?.workDate ?? "",
-    totalWorkHours: Math.round(dailyWorkHours * sorted.length * 10) / 10,
+    /* 대표 시간대 = 첫 근무일. 날마다 다르면 `hasMixedSchedule`이 켜진다. */
+    startTime: first?.startTime ?? "",
+    endTime: first?.endTime ?? "",
+    endDayOffset: (first?.endDayOffset ?? 0) as DayOffset,
+    breakMinutes: first?.breakMinutes ?? 0,
+    workHours: first?.workHours ?? 0,
+    /* 시간은 날마다 그 포지션의 값을 더한다. 하루치 × 일수로 곱하면 B타임 날이 틀린다. */
+    totalWorkHours:
+      Math.round(sorted.reduce((sum, day) => sum + day.workHours, 0) * 10) / 10,
+    hasMixedSchedule: sorted.some(
+      (day) =>
+        day.startTime !== first?.startTime ||
+        day.endTime !== first?.endTime ||
+        day.endDayOffset !== first?.endDayOffset ||
+        day.breakMinutes !== first?.breakMinutes,
+    ),
+    positionNames: [
+      ...new Set(sorted.map((day) => day.positionName).filter(Boolean)),
+    ],
     wageType: first?.wageType ?? "HOURLY",
     wage: first?.wage ?? 0,
     hasMixedWage: sorted.some(
       (day) => day.wageType !== first?.wageType || day.wage !== first?.wage,
     ),
     totalWage: sorted.reduce(
-      (sum, day) =>
-        sum +
-        (day.wageType === "DAILY"
-          ? day.wage
-          : Math.round(day.wage * dailyWorkHours)),
+      (sum, day) => sum + calculateBasePay(day.wageType, day.wage, day.workHours),
       0,
     ),
   };
@@ -822,9 +970,15 @@ export const CONTRACT_VARIABLES: {
   { token: "{{근무기간}}", description: "첫 근무일 ~ 마지막 근무일", group: "근로" },
   { token: "{{근무일수}}", description: "총 근무 일수", group: "근로" },
   { token: "{{근무시간}}", description: "시작~종료 시각", group: "근로" },
+  {
+    token: "{{근무일별시간}}",
+    description: "날마다 시간대가 다를 때 근무일별로 적은 목록",
+    group: "근로",
+  },
   { token: "{{휴게시간}}", description: "휴게 시간(분)", group: "근로" },
   { token: "{{근무장소}}", description: "행사 장소", group: "근로" },
   { token: "{{직무}}", description: "배치된 직무", group: "근로" },
+  { token: "{{포지션}}", description: "배치된 포지션 (A타임 등)", group: "근로" },
   { token: "{{임금}}", description: "지급 기준 + 금액 (예: 일급 150,000원)", group: "임금" },
   { token: "{{임금액}}", description: "금액만 (예: 150,000원)", group: "임금" },
   { token: "{{지급기준}}", description: "시급 또는 일급", group: "임금" },
@@ -928,6 +1082,36 @@ export const formatWorkDayWages = (workDays: ContractWorkDay[]): string =>
     .join(" / ");
 
 /**
+ * 근무일별 시간대를 한 줄로 적는다. (`05.03 A타임 09:00~18:00 / 05.04 B타임 21:00~06:00 (+1)`)
+ *
+ * 날짜를 넘기는 표기(`(+1)`)가 빠지면 새벽에 끝나는 근무가 당일 오전 근무로 읽힌다.
+ */
+export const formatWorkDaySchedules = (workDays: ContractWorkDay[]): string =>
+  workDays
+    .map((day) =>
+      [
+        day.workDate.slice(5).replace("-", "."),
+        day.positionName,
+        formatTimeRange(day.startTime, day.endTime, day.endDayOffset),
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .join(" / ");
+
+/** 계약서의 직무 문구. 포지션 이름이 직무와 다르면 함께 적는다. (`스태프 · A타임, B타임`) */
+export const describeContractRole = (
+  contract: Pick<Contract, "positionNames">,
+  jobRoleName: string,
+): string => {
+  const names = (contract.positionNames ?? []).filter(
+    (name) => name && name !== jobRoleName,
+  );
+
+  return names.length > 0 ? `${jobRoleName} · ${names.join(", ")}` : jobRoleName;
+};
+
+/**
  * 계약서에 적는 대표 임금 문구.
  * 날마다 다른 건은 대표 금액을 적으면 안 되므로 그 사실을 그대로 적는다.
  */
@@ -993,14 +1177,14 @@ export const buildContractValues = (
       ? `${contract.workDates[0]} ~ ${contract.workDates[contract.workDates.length - 1]}`
       : contract.workDates[0] ?? "-",
   근무일수: `${contract.workDates.length}일`,
-  근무시간: formatTimeRange(
-    contract.startTime,
-    contract.endTime,
-    contract.endDayOffset,
-  ),
+  근무시간: contract.hasMixedSchedule
+    ? "근무일별 상이 (아래 근무일별 시간 참조)"
+    : formatTimeRange(contract.startTime, contract.endTime, contract.endDayOffset),
+  근무일별시간: formatWorkDaySchedules(contract.workDays),
   휴게시간: String(contract.breakMinutes),
   근무장소: contract.venue || "-",
-  직무: jobRoleName,
+  직무: describeContractRole(contract, jobRoleName),
+  포지션: (contract.positionNames ?? []).join(", ") || jobRoleName,
   지급기준: contract.hasMixedWage
     ? "근무일별 상이"
     : WAGE_TYPE_LABEL[contract.wageType],
@@ -1050,18 +1234,32 @@ const buildAutoFields = (
       return [
         { label: "행사명", value: contract.eventTitle },
         { label: "근무 장소", value: contract.venue || "-" },
-        { label: "담당 직무", value: jobRoleName },
+        { label: "담당 직무", value: describeContractRole(contract, jobRoleName) },
         { label: "근무일", value: formatWorkDates(contract.workDates) },
         { label: "총 근무일수", value: `${contract.workDates.length}일` },
-        {
-          label: "근무 시간",
-          value: `${formatTimeRange(
-            contract.startTime,
-            contract.endTime,
-            contract.endDayOffset,
-          )} (휴게 ${contract.breakMinutes}분)`,
-        },
-        { label: "일 실근무시간", value: `${contract.workHours}시간` },
+        /*
+          시간대가 날마다 다르면 대표 시각 하나를 적지 않는다.
+          A타임 날짜와 B타임 날짜를 한 줄에 펼쳐, 각 날의 시각과 날짜 넘김이 문서에 남게 한다.
+        */
+        ...(contract.hasMixedSchedule
+          ? [
+              { label: "근무 시간", value: "근무일별 상이" },
+              {
+                label: "근무일별 시간",
+                value: formatWorkDaySchedules(contract.workDays),
+              },
+            ]
+          : [
+              {
+                label: "근무 시간",
+                value: `${formatTimeRange(
+                  contract.startTime,
+                  contract.endTime,
+                  contract.endDayOffset,
+                )} (휴게 ${contract.breakMinutes}분)`,
+              },
+              { label: "일 실근무시간", value: `${contract.workHours}시간` },
+            ]),
         /*
           재작성본은 그 사실이 문서 안에 남아야 한다.
           "며칠이 왜 빠졌는가 · 며칠이 왜 늘었는가"가 적혀 있지 않으면,
@@ -1165,8 +1363,10 @@ export const buildContractDocument = (
   jobRoleName: string,
 ): ContractDocument => {
   const values = buildContractValues(contract, template, jobRoleName);
+  /* 개별로 고친 계약서는 그 내용이 원본이다. 사업주 정보만 템플릿에서 읽는다. */
+  const terms = contract.customTerms ?? template;
 
-  const sections: ContractDocumentSection[] = template.clauses.map((clause) => ({
+  const sections: ContractDocumentSection[] = terms.clauses.map((clause) => ({
     clauseId: clause.clauseId,
     title: clause.title,
     kind: clause.kind,
@@ -1176,7 +1376,7 @@ export const buildContractDocument = (
   }));
 
   const plainText = [
-    template.documentTitle,
+    terms.documentTitle,
     `계약번호: ${contract.contractNumber || UNISSUED_CONTRACT_NUMBER}`,
     ...sections.map((section) =>
       [
@@ -1187,11 +1387,11 @@ export const buildContractDocument = (
         .filter(Boolean)
         .join("\n"),
     ),
-    template.agreementNote,
+    terms.agreementNote,
   ].join("\n\n");
 
   return {
-    documentTitle: template.documentTitle,
+    documentTitle: terms.documentTitle,
     contractNumber: contract.contractNumber || UNISSUED_CONTRACT_NUMBER,
     companyName: template.companyName,
     companyRepresentative: template.companyRepresentative,
@@ -1199,7 +1399,7 @@ export const buildContractDocument = (
     companyAddress: template.companyAddress,
     companyPhone: template.companyPhone,
     sections,
-    agreementNote: template.agreementNote,
+    agreementNote: terms.agreementNote,
     requiresGuardianSignature: template.requiresGuardianSignature,
     issuedAt: contract.createdAt,
     plainText,
@@ -1259,11 +1459,18 @@ export const buildSampleContract = (): Contract => ({
   templateId: 0,
   templateName: "미리보기",
   workDates: ["2025-05-03", "2025-05-04", "2025-05-05"],
-  workDays: [
-    { workDate: "2025-05-03", wageType: "HOURLY", wage: 12000 },
-    { workDate: "2025-05-04", wageType: "HOURLY", wage: 12000 },
-    { workDate: "2025-05-05", wageType: "HOURLY", wage: 12000 },
-  ],
+  workDays: ["2025-05-03", "2025-05-04", "2025-05-05"].map((workDate) => ({
+    workDate,
+    wageType: "HOURLY" as const,
+    wage: 12000,
+    positionId: 1,
+    positionName: "A타임",
+    startTime: "09:00",
+    endTime: "18:00",
+    endDayOffset: 0 as const,
+    breakMinutes: 60,
+    workHours: 8,
+  })),
   workDate: "2025-05-03",
   startTime: "09:00",
   endTime: "18:00",
@@ -1271,6 +1478,8 @@ export const buildSampleContract = (): Contract => ({
   breakMinutes: 60,
   workHours: 8,
   totalWorkHours: 24,
+  hasMixedSchedule: false,
+  positionNames: ["A타임"],
   wageType: "HOURLY",
   wage: 12000,
   hasMixedWage: false,

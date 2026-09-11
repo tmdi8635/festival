@@ -77,5 +77,49 @@ export const useMyAttendanceMutation = () => {
     },
   });
 
-  return { checkInMutation, checkOutMutation };
+  const cancelMutation = useMutation<MyWork, AppError, CancelWorkRequest>({
+    mutationFn: cancelWork,
+    onSuccess: (work) => {
+      /*
+        노쇼로 남았으면 **그 사실을 토스트에서 한 번 더 말한다.** 시트에서 경고했어도
+        누르고 나면 잊는다. 점수가 깎인 줄 모르고 넘어가면 나중에 이유를 묻게 된다.
+      */
+      if (work.stage === "NO_SHOW") {
+        showAppToast("warning", "노쇼로 처리되었습니다.", {
+          description: `${work.eventTitle} · 24시간 이내 취소`,
+        });
+      } else {
+        showAppToast("success", "근무를 취소했습니다.", {
+          description: work.eventTitle,
+        });
+      }
+
+      invalidate();
+      /* 취소하면 지원 · 평판 점수도 달라진다. */
+      void queryClient.invalidateQueries({ queryKey: ["get-my-applications"] });
+      void queryClient.invalidateQueries({ queryKey: ["get-my-profile"] });
+      void queryClient.invalidateQueries({ queryKey: ["get-application-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["get-staff-reputations"] });
+    },
+  });
+
+  return { checkInMutation, checkOutMutation, cancelMutation };
+};
+
+export interface CancelWorkRequest {
+  assignmentId: number;
+  reason: string;
+}
+
+/**
+ * 확정된 근무를 본인이 취소한다. 시작 24시간 이내면 노쇼로 남는다.
+ * (`resolveStaffCancelPolicy`)
+ */
+export const cancelWork = async ({ assignmentId, reason }: CancelWorkRequest) => {
+  const response = await adminAxios.post<MyWork>(
+    `/my/assignments/${assignmentId}/cancel`,
+    { reason },
+  );
+
+  return response.data;
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMyProfileMutation } from "@/api/my/mutateMyProfile";
 import { GENDER_OPTIONS } from "@/constants/staffOptions";
@@ -23,6 +23,9 @@ import Select from "@/components/ui/Select";
 
 interface MyProfileFormProps {
   profile: MyProfile;
+  /** 저장이 끝나면 부른다. 읽기 화면으로 돌려보낸다 */
+  onSaved: () => void;
+  onCancel: () => void;
 }
 
 /**
@@ -30,9 +33,12 @@ interface MyProfileFormProps {
  *
  * **저장하면 곧바로 반영된다.** 담당자 승인을 거치지 않는다.
  * 이름 한 글자를 고치는 데도 기다려야 하면 아무도 고치지 않고, 결국 틀린 연락처로
- * 현장 안내가 나간다. 검증이 필요한 것은 돈이 나가는 근거뿐이고 그쪽은 아래 카드다.
+ * 현장 안내가 나간다. 검증이 필요한 것은 돈이 나가는 근거뿐이고 그쪽은 서류 화면이다.
+ *
+ * 저장 버튼은 폼 **맨 아래**에 둔다. 제목 줄 오른쪽에 두면 폰에서 입력칸을 다 채우고
+ * 다시 맨 위로 올라가야 누를 수 있다.
  */
-const MyProfileForm = ({ profile }: MyProfileFormProps) => {
+const MyProfileForm = ({ profile, onSaved, onCancel }: MyProfileFormProps) => {
   const jobRoleOptions = useJobRoleOptions();
   const { profileMutation } = useMyProfileMutation();
 
@@ -40,7 +46,6 @@ const MyProfileForm = ({ profile }: MyProfileFormProps) => {
     register,
     control,
     handleSubmit,
-    watch,
     setValue,
     formState: { errors, isDirty },
   } = useForm<MyProfileSchemaInput, unknown, MyProfileSchema>({
@@ -62,30 +67,17 @@ const MyProfileForm = ({ profile }: MyProfileFormProps) => {
   });
 
   // 시/도를 바꾸면 그 아래 구 목록이 통째로 달라진다.
-  const region = watch("region");
-  const roles = watch("roles") ?? [];
+  const region = useWatch({ control, name: "region" });
+  const watchedRoles = useWatch({ control, name: "roles" });
+  const roles = watchedRoles ?? [];
 
-  const onSubmit = handleSubmit((values) => profileMutation.mutate(values));
+  const onSubmit = handleSubmit((values) =>
+    profileMutation.mutate(values, { onSuccess: onSaved }),
+  );
 
   return (
-    <Card
-      title="인적사항"
-      description="저장하면 곧바로 반영됩니다."
-      action={
-        <Button
-          form="my-profile-form"
-          type="submit"
-          disabled={!isDirty || profileMutation.isPending}
-        >
-          저장
-        </Button>
-      }
-    >
-      <form
-        id="my-profile-form"
-        onSubmit={onSubmit}
-        className="flex flex-col gap-4"
-      >
+    <Card title="인적사항 수정" description="저장하면 곧바로 반영됩니다.">
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <FormField label="프로필 사진">
           <Controller
             control={control}
@@ -227,7 +219,7 @@ const MyProfileForm = ({ profile }: MyProfileFormProps) => {
         <div className="grid grid-cols-2 gap-4">
           <FormField
             label="키(cm)"
-            hint="의전 · 모델 배치 참고용"
+            hint="의전 · 모델 참고"
             error={errors.height?.message}
           >
             <Input type="number" {...register("height")} />
@@ -236,6 +228,22 @@ const MyProfileForm = ({ profile }: MyProfileFormProps) => {
           <FormField label="의상 사이즈" error={errors.clothingSize?.message}>
             <Input {...register("clothingSize")} placeholder="예) M" />
           </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 border-t border-border-main pt-4">
+          <Button variant="ghost" size="lg" fullWidth onClick={onCancel}>
+            취소
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            fullWidth
+            disabled={!isDirty || profileMutation.isPending}
+            isLoading={profileMutation.isPending}
+          >
+            저장
+          </Button>
         </div>
       </form>
     </Card>

@@ -74,3 +74,25 @@ export const myDocumentSchema = z.object({
 
 export type MyDocumentSchema = z.output<typeof myDocumentSchema>;
 export type MyDocumentSchemaInput = z.input<typeof myDocumentSchema>;
+
+/**
+ * 본인이 내는 보건증. 필수 서류와 **따로 낸다.** (`MyHealthCertFormValues`)
+ *
+ * 발급일을 함께 받는 이유: 보건증은 1년만 유효하다. 파일만 받으면
+ * 만료를 사람이 사진을 열어 날짜를 읽어야 알 수 있다.
+ * 미래 날짜는 막는다 — 오타로 2년 뒤를 적으면 3년짜리 보건증이 된다.
+ */
+export const myHealthCertSchema = z.object({
+  healthCertImageUrl: z.string().min(1, "보건증 사진을 올려 주세요."),
+  healthCertIssuedAt: z
+    .string()
+    .min(1, "발급일을 선택해 주세요.")
+    .refine((value) => {
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+      return value <= todayKey;
+    }, "발급일은 오늘 이전이어야 합니다."),
+});
+
+export type MyHealthCertSchema = z.output<typeof myHealthCertSchema>;

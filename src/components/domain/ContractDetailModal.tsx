@@ -34,6 +34,7 @@ import Skeleton from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import ContractAmendModal from "./ContractAmendModal";
 import ContractFilePreview from "./ContractFilePreview";
+import ContractReissueModal from "./ContractReissueModal";
 import ContractSheetView from "./ContractSheetView";
 import ContractUploadZone from "./ContractUploadZone";
 import CopyButton from "./CopyButton";
@@ -83,6 +84,8 @@ const ContractDetailModal = ({
   onClose,
 }: ContractDetailModalProps) => {
   const [amendTarget, setAmendTarget] = useState<Contract | null>(null);
+  /** 수정요청에 답할 대상. 재발급은 반려된 차수에서만 연다. */
+  const [reissueTarget, setReissueTarget] = useState<Contract | null>(null);
   /* PDF는 지면을 이미지로 굽는 과정이 있어 잠깐 걸린다. 눌린 것이 보여야 한다. */
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   /** 보고 있는 차수. 비우면 지금 유효한 차수를 본다. */
@@ -240,19 +243,17 @@ const ContractDetailModal = ({
    * 근로자에게 보낸다.
    *
    * 보내는 순간 계약번호가 붙고 그 사람의 포털에 서명할 문서가 뜬다.
-   * 반려된 건을 다시 보낼 때는 **지금 배치 기준으로 내용을 다시 조립**하므로,
-   * 금액이나 근무일을 고친 뒤 그대로 누르면 된다.
+   *
+   * **반려된 건은 이 길로 가지 않는다.** 같은 문서를 그대로 다시 밀어 넣으면
+   * 본인은 무엇이 달라졌는지 알 수 없고 요청은 답 없이 사라진다.
+   * 서버도 그래서 반려 건의 재발송을 거부한다. 그쪽은 재발급(`handleReissue`)이다.
    */
   const handleSend = () => {
     if (!target) return;
 
     openConfirm({
-      title: viewing?.status === "REJECTED" ? "다시 보낼까요?" : "전자서명을 요청할까요?",
+      title: "전자서명을 요청할까요?",
       description: `${contract?.staffName ?? ""}님의 내 페이지에 계약서가 뜨고, 화면에서 직접 서명하게 됩니다.`,
-      warning:
-        viewing?.status === "REJECTED"
-          ? "지금 배치에 적힌 근무일 · 금액으로 문서를 다시 만들어 보냅니다. 반려 사유대로 고쳤는지 먼저 확인해 주세요."
-          : undefined,
       confirmText: "보내기",
       onConfirm: () =>
         sendMutation.mutateAsync({
@@ -314,6 +315,9 @@ const ContractDetailModal = ({
                 <Badge tone="info">{viewing.revision}차</Badge>
               )}
 
+              {/* 템플릿과 문구가 다른 문서. 템플릿을 고쳐도 이 문서는 따라가지 않는다. */}
+              {viewing?.customTerms && <Badge tone="neutral">개별 조항</Badge>}
+
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 <CopyButton
                   value={document.plainText}
@@ -352,19 +356,33 @@ const ContractDetailModal = ({
                   화면을 못 쓰는 사람은 늘 있고, 그때는 내려받아 종이로 받는 것이 맞다.
                   이미 서명이 끝난 건에는 뜨지 않는다.
                 */}
-                {canSend && isViewingCurrent !== false && viewing?.status !== "SIGNED" && (
-                  <Button
-                    variant="primary"
-                    leftIcon={<Send size={15} />}
-                    isLoading={sendMutation.isPending}
-                    onClick={handleSend}
-                    title="근로자의 내 페이지로 보냅니다."
-                  >
-                    {viewing?.status === "REJECTED"
-                      ? "고쳐서 다시 보내기"
-                      : "전자서명 요청"}
-                  </Button>
-                )}
+                {canSend &&
+                  isViewingCurrent !== false &&
+                  viewing?.status !== "SIGNED" &&
+                  (viewing?.status === "REJECTED" ? (
+                    /*
+                      반려된 차수는 **다시 보낼 수 없다.** 새 차수를 발급해야
+                      본인 화면에 "무엇을 고쳐서 다시 왔는지"가 남는다.
+                    */
+                    <Button
+                      variant="primary"
+                      leftIcon={<Refresh size={15} />}
+                      onClick={() => setReissueTarget(viewing)}
+                      title="수정요청에 답해 새 차수를 발급합니다."
+                    >
+                      재발급
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      leftIcon={<Send size={15} />}
+                      isLoading={sendMutation.isPending}
+                      onClick={handleSend}
+                      title="근로자의 내 페이지로 보냅니다."
+                    >
+                      전자서명 요청
+                    </Button>
+                  ))}
               </div>
             </div>
           )
@@ -414,10 +432,31 @@ const ContractDetailModal = ({
                 title={`${current.staffName}님이 내용을 확인해 달라고 했습니다.`}
                 className="contract-print-hidden"
               >
-                {current.rejectedReason}
-                <br />
-                행사에서 근무일 · 금액을 고친 뒤 <b>다시 보내기</b>를 누르면
-                지금 배치 기준으로 문서를 새로 만들어 보냅니다.
+                {/*
+                  요청은 **쌓아서 전부 보여 준다.**
+                  최신 한 건만 띄우면 두 번 요청한 사람의 첫 번째 요청이 사라지고,
+                  담당자는 이미 고쳐 준 것을 또 고치거나 빠뜨린다.
+                */}
+                <ul className="mb-2 flex flex-col gap-1">
+                  {(current.revisionRequests?.length
+                    ? current.revisionRequests
+                    : [
+                        { reason: current.rejectedReason ?? "", requestedAt: "" },
+                      ]
+                  ).map((request, index) => (
+                    <li key={`${request.requestedAt}-${index}`}>
+                      {request.reason}
+                      {request.requestedAt && (
+                        <span className="ml-1.5 text-[12px] opacity-70">
+                          {formatDateTime(request.requestedAt)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                행사에서 근무일 · 금액 · 포지션을 고친 뒤 <b>재발급</b>을 누르면
+                지금 배치 기준으로 새 차수를 만들어 보냅니다. 이 차수는
+                재작성됨으로 남습니다.
               </Alert>
             )}
 
@@ -632,6 +671,11 @@ const ContractDetailModal = ({
       <ContractAmendModal
         contract={amendTarget}
         onClose={() => setAmendTarget(null)}
+      />
+
+      <ContractReissueModal
+        contract={reissueTarget}
+        onClose={() => setReissueTarget(null)}
       />
     </>
   );

@@ -17,6 +17,7 @@ import {
 import {
   AMEND_REASON_LABEL,
   AMEND_REASON_PRESETS,
+  buildContractWorkDay,
   summarizeContractWork,
   type AmendReasonType,
   type Contract,
@@ -165,14 +166,13 @@ const ContractAmendModal = ({
       candidateDates.flatMap((date) => {
         const assignment = assignmentByDate.get(date);
 
-        if (assignment) {
-          return [
-            {
-              workDate: date,
-              wageType: assignment.wageType,
-              wage: assignment.wage,
-            },
-          ];
+        /*
+          시각 · 포지션 이름은 `buildContractWorkDay`가 채운다.
+          여기서 행사 시각을 그대로 적으면 B타임으로 선 날의 근무시간 · 금액이
+          미리보기에서만 틀린다. (서버가 만드는 계약서와 갈린다)
+        */
+        if (assignment && event) {
+          return [buildContractWorkDay(event, assignment)];
         }
 
         const contracted = contract?.workDays.find(
@@ -181,12 +181,30 @@ const ContractAmendModal = ({
 
         if (contracted) return [contracted];
 
-        const slot = event?.days
-          .find((day) => day.date === date)
-          ?.roles.find((item) => item.role === contract?.role);
+        if (!event) return [];
+
+        /*
+          아직 배치가 없는 날은 그날 발주에서 **이 사람이 서던 포지션**을 찾는다.
+          없으면 같은 직무의 첫 포지션으로 떨어진다. (서버가 배치를 만들 때와 같은 순서)
+        */
+        const ownPositionIds = new Set(
+          (contract?.workDays ?? []).map((day) => day.positionId),
+        );
+        const daySlots =
+          event.days.find((day) => day.date === date)?.roles ?? [];
+        const slot =
+          daySlots.find((item) => ownPositionIds.has(item.positionId)) ??
+          daySlots.find((item) => item.role === contract?.role);
 
         return slot
-          ? [{ workDate: date, wageType: slot.wageType, wage: slot.wage }]
+          ? [
+              buildContractWorkDay(event, {
+                workDate: date,
+                wageType: slot.wageType,
+                wage: slot.wage,
+                positionId: slot.positionId,
+              }),
+            ]
           : [];
       }),
     [candidateDates, assignmentByDate, contract, event],
@@ -229,10 +247,9 @@ const ContractAmendModal = ({
     (date) => !(contract?.workDates ?? []).includes(date),
   );
 
-  const dailyWorkHours = contract?.workHours ?? 0;
+  /* 근무시간은 날마다 그 포지션의 값을 쓴다. 대표 하루치 × 일수로 곱하지 않는다. */
   const nextWork = summarizeContractWork(
     currentWorkDays.filter((day) => keptDates.includes(day.workDate)),
-    dailyWorkHours,
   );
   const difference = nextWork.totalWage - (contract?.totalWage ?? 0);
 

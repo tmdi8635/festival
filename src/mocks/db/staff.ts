@@ -8,6 +8,7 @@ import type {
 import {
   REPUTATION_BASE_SCORE,
   resolveDocumentReviewState,
+  resolveHealthCertState,
   resolveStaffStatus,
   resubmitDocumentLane,
 } from "@/type/staff";
@@ -83,8 +84,80 @@ const resolveRoles = (workCount: number, seed: number): JobRole[] => {
   if (seed % 5 === 0) roles.push("MODEL");
   if (seed % 6 === 0) roles.push("SOUND");
   if (seed % 4 === 0) roles.push("SETUP");
+  /*
+    의전 · 경호 · 프로모터 · 인형탈도 몇 명씩은 할 수 있어야 한다.
+    아무도 없으면 그 포지션이 걸린 공고에 '내 직무만'을 켠 순간 전부 사라지고,
+    배치 후보도 늘 비어 있어 화면이 고장난 것처럼 보인다.
+  */
+  if (seed % 10 === 3) roles.push("PROTOCOL");
+  if (seed % 9 === 0) roles.push("SECURITY");
+  if (seed % 8 === 2) roles.push("PROMOTER");
+  if (seed % 12 === 5) roles.push("COSTUME");
 
   return roles;
+};
+
+/**
+ * 보건증 시드. **상태가 다섯 가지 모두 나오도록** 뿌린다.
+ *
+ * 유효한 사람만 있으면 '만료' · '반려'가 화면에서 한 번도 확인되지 않고,
+ * 아무도 없으면 보건증이 필요한 포지션에 아무도 들어가지 못한다.
+ */
+const buildHealthCert = (
+  seed: number,
+): { imageUrl: string; issuedAt?: string; review: DocumentReview } => {
+  const imageUrl = `https://picsum.photos/seed/healthcert-${seed}/600/380`;
+
+  if (seed % 4 === 0 || seed % 6 === 1) {
+    return {
+      imageUrl,
+      issuedAt: dateFromToday(-randomInt(seed * 191, 20, 300)),
+      review: {
+        state: "APPROVED",
+        submittedAt: daysAgo(randomInt(seed * 193, 10, 20)),
+        reviewedAt: daysAgo(randomInt(seed * 197, 1, 9)),
+        reviewerName: "김도윤",
+      },
+    };
+  }
+
+  /* 승인은 됐지만 1년이 지난 보건증. 파일이 있어도 쓸 수 없다. */
+  if (seed % 7 === 2) {
+    return {
+      imageUrl,
+      issuedAt: dateFromToday(-randomInt(seed * 199, 380, 500)),
+      review: {
+        state: "APPROVED",
+        submittedAt: daysAgo(390),
+        reviewedAt: daysAgo(388),
+        reviewerName: "김도윤",
+      },
+    };
+  }
+
+  if (seed % 10 === 5) {
+    return {
+      imageUrl,
+      issuedAt: dateFromToday(-randomInt(seed * 211, 5, 60)),
+      review: { state: "SUBMITTED", submittedAt: daysAgo(randomInt(seed, 1, 4)) },
+    };
+  }
+
+  if (seed % 13 === 0) {
+    return {
+      imageUrl,
+      issuedAt: dateFromToday(-randomInt(seed * 223, 5, 60)),
+      review: {
+        state: "REJECTED",
+        submittedAt: daysAgo(8),
+        reviewedAt: daysAgo(6),
+        reviewerName: "김도윤",
+        rejectReason: "발급일이 보이지 않습니다. 발급일이 나오게 다시 찍어 주세요.",
+      },
+    };
+  }
+
+  return { imageUrl: "", review: { state: "NONE" } };
 };
 
 /** 메모 ID는 전체 인력에서 하나의 시퀀스를 쓴다. */
@@ -212,9 +285,12 @@ export const staffList: StaffDetail[] = Array.from(
       };
     };
 
+    const healthCert = buildHealthCert(seed);
+
     const reviews: StaffDocumentReviews = {
       ID_CARD: laneReview(hasIdCard, seed * 5),
       BANK_ACCOUNT: laneReview(hasBankBook, seed * 11),
+      HEALTH_CERT: healthCert.review,
     };
 
     const documentReviewState = resolveDocumentReviewState(reviews);
@@ -284,6 +360,13 @@ export const staffList: StaffDetail[] = Array.from(
       district,
       isDocumentComplete: hasIdCard && hasBankBook,
       documentReviewState,
+      healthCertIssuedAt: healthCert.issuedAt,
+      /* 이 파일의 `TODAY`는 아래에서 선언된다. 여기서는 직접 구한다. */
+      healthCertState: resolveHealthCertState(
+        healthCert.review,
+        healthCert.issuedAt,
+        dateFromToday(0),
+      ),
       workCount,
       totalWorkHours: workCount * randomInt(seed * 67, 6, 10),
       noShowCount,
@@ -315,6 +398,7 @@ export const staffList: StaffDetail[] = Array.from(
       bankBookImageUrl: hasBankBook
         ? `https://picsum.photos/seed/bankbook-${staffId}/600/380`
         : "",
+      healthCertImageUrl: healthCert.imageUrl,
       reviews,
       address: `${region} ${district} ${randomInt(seed * 101, 1, 90)}길 ${randomInt(seed * 103, 1, 40)}`,
       emergencyContact: `010${String(randomInt(seed * 107, 2000, 9999))}${String(randomInt(seed * 109, 1000, 9999))}`,
@@ -534,6 +618,8 @@ const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
     */
     isDocumentComplete: true,
     documentReviewState: "APPROVED",
+    /* 직원의 보건증은 인력풀에서 관리하지 않는다. 필요한 현장이면 회사가 따로 챙긴다. */
+    healthCertState: "NONE",
     workCount: randomInt(seed * 11, 20, 90),
     totalWorkHours: randomInt(seed * 13, 400, 2200),
     noShowCount: 0,
@@ -550,9 +636,11 @@ const employees: StaffDetail[] = EMPLOYEE_SEED.map((employee, index) => {
     accountHolder: employee.name,
     idCardImageUrl: `https://picsum.photos/seed/idcard-${staffId}/600/380`,
     bankBookImageUrl: `https://picsum.photos/seed/bankbook-${staffId}/600/380`,
+    healthCertImageUrl: "",
     reviews: {
       ID_CARD: { state: "APPROVED", reviewedAt: daysAgo(200) },
       BANK_ACCOUNT: { state: "APPROVED", reviewedAt: daysAgo(200) },
+      HEALTH_CERT: { state: "NONE" },
     } satisfies StaffDocumentReviews,
     address: `${region} ${district} ${randomInt(seed * 101, 1, 90)}길 ${randomInt(seed * 103, 1, 40)}`,
     emergencyContact: `010${String(randomInt(seed * 107, 2000, 9999))}${String(randomInt(seed * 109, 1000, 9999))}`,
@@ -645,15 +733,22 @@ export const TODAY = dateFromToday(0);
  */
 export const syncStaffDocuments = (
   staff: StaffDetail,
-  before: {
-    idCardImageUrl: string;
-    bankBookImageUrl: string;
-    bankName: string;
-    accountNumber: string;
-    accountHolder: string;
-  },
+  before: ReturnType<typeof snapshotStaffDocuments>,
 ) => {
   const now = new Date().toISOString();
+
+  /* 보건증은 사진이나 발급일 어느 쪽이 바뀌어도 다시 본다. 발급일이 곧 만료일이다. */
+  if (
+    staff.healthCertImageUrl !== before.healthCertImageUrl ||
+    staff.healthCertIssuedAt !== before.healthCertIssuedAt
+  ) {
+    staff.reviews.HEALTH_CERT = resubmitDocumentLane(
+      Boolean(staff.healthCertImageUrl),
+      now,
+    );
+  }
+
+  refreshHealthCertState(staff);
 
   if (staff.idCardImageUrl !== before.idCardImageUrl) {
     staff.reviews.ID_CARD = resubmitDocumentLane(
@@ -684,13 +779,33 @@ export const syncStaffDocuments = (
 };
 
 /** 서류 · 계좌의 '고치기 전' 값을 떠 둔다. `syncStaffDocuments`와 짝이다. */
-export const snapshotStaffDocuments = (staff: StaffDetail) => ({
-  idCardImageUrl: staff.idCardImageUrl,
-  bankBookImageUrl: staff.bankBookImageUrl,
-  bankName: staff.bankName,
-  accountNumber: staff.accountNumber,
-  accountHolder: staff.accountHolder,
-});
+export function snapshotStaffDocuments(staff: StaffDetail) {
+  return {
+    idCardImageUrl: staff.idCardImageUrl,
+    bankBookImageUrl: staff.bankBookImageUrl,
+    bankName: staff.bankName,
+    accountNumber: staff.accountNumber,
+    accountHolder: staff.accountHolder,
+    healthCertImageUrl: staff.healthCertImageUrl,
+    healthCertIssuedAt: staff.healthCertIssuedAt,
+  };
+}
+
+/**
+ * 보건증 상태를 **오늘 기준으로** 다시 구한다.
+ *
+ * 만료는 저장된 값이 바뀌지 않아도 날짜가 지나면 생긴다. 응답을 만들 때마다
+ * 이 함수를 거쳐야 어제 유효했던 보건증이 오늘 만료로 보인다.
+ */
+export function refreshHealthCertState(staff: StaffDetail) {
+  staff.healthCertState = resolveHealthCertState(
+    staff.reviews.HEALTH_CERT,
+    staff.healthCertIssuedAt,
+    dateFromToday(0),
+  );
+
+  return staff.healthCertState;
+}
 
 /* --------------------------- 데모 보정 --------------------------- */
 
@@ -729,7 +844,15 @@ if (demoStaff) {
       reviewedAt: daysAgo(58),
       reviewerName: "김도윤",
     },
+    /*
+      보건증은 **비워 둔다.** 포털에서 보건증이 필요한 포지션에 막히는 것,
+      직접 올려 승인 대기가 되는 것까지 이어서 확인할 수 있어야 한다.
+    */
+    HEALTH_CERT: { state: "NONE" },
   };
+  demoStaff.healthCertImageUrl = "";
+  demoStaff.healthCertIssuedAt = undefined;
+  demoStaff.healthCertState = "NONE";
   demoStaff.documentReviewState = "APPROVED";
   demoStaff.status = resolveStaffStatus({
     documentReviewState: "APPROVED",

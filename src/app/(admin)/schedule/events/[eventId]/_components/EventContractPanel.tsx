@@ -42,7 +42,7 @@ import {
   type ContractRosterRow,
   type ContractRosterState,
 } from "@/type/contract";
-import { calculateScheduledWorkHours, type EventDetail } from "@/type/event";
+import type { EventDetail } from "@/type/event";
 import { formatPhoneNumber, type JobRole } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
@@ -161,12 +161,11 @@ const EventContractPanel = ({ event }: EventContractPanelProps) => {
     계약서 관리 화면과 **같은 함수**를 쓴다. 두 곳에서 따로 세면
     "행사에서는 6명인데 전체에서는 4명"이 되고, 어느 쪽이 맞는지 알 수 없다.
   */
-  const roster = buildContractRoster(
-    event,
-    event.assignments,
-    contracts,
-    calculateScheduledWorkHours(event),
-  ).map((row) => ({ ...row, roles: [...row.roles].sort(compareRoles) }));
+  /*
+    시간은 배치마다 그 포지션의 예정 시간으로 센다. (`buildContractWorkDay`)
+    행사 시간 하나로 곱하면 B타임(야간)으로 선 날의 금액이 A타임 기준으로 적힌다.
+  */
+  const roster = buildContractRoster(event, event.assignments, contracts).map((row) => ({ ...row, roles: [...row.roles].sort(compareRoles) }));
 
   const rows = roster
     .filter((row) => {

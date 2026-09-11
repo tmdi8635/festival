@@ -4,15 +4,20 @@ import type {
   DayOffset,
   EventDayPlan,
   EventDetail,
+  EventPosition,
   EventRecurrence,
   EventRoleSlot,
   EventStatus,
+  GenderPreference,
   WageType,
 } from "@/type/event";
 import {
   aggregateDayPlans,
+  buildPositionSlot,
   calculateWorkHours,
-  compactBillingRates,
+  comparePositionOrder,
+  findPosition,
+  matchesGenderPreference,
   resolveEventDates,
   toCheckDateTime,
   SINGLE_RECURRENCE,
@@ -25,6 +30,9 @@ import type {
 import {
   buildReputationScore,
   calculateReputationDelta,
+  resolveAttendancePenalty,
+  findJobRoleCatalogEntry,
+  hasValidHealthCert,
   reputationTagsOf,
   resolveTagVerdict,
 } from "@/type/staff";
@@ -178,29 +186,83 @@ export const defaultWageOf = (
     : { wageType: "HOURLY", wage: 12000 };
 };
 
+/** 직무의 기본 청구 단가. 꺼 둔 직무는 청구하지 않는 것으로 본다(0). */
+export const defaultBillingRateOf = (role: JobRole): number => {
+  const jobRole = operationSettings.jobRoles.find(
+    (item) => item.code === role,
+  );
+
+  return jobRole?.isActive ? jobRole.billingRate : 0;
+};
+
 /**
  * 배치 한 건에 적용할 지급 기준과 금액을 정한다.
  *
- * 그날 그 직무의 발주 조건을 그대로 물려받고, 없으면 직무 기본값으로 떨어진다.
+ * 그날 그 포지션의 발주 조건을 그대로 물려받고, 없으면 포지션 기본값,
+ * 그것도 없으면 직무 기본값으로 떨어진다.
  * 사람마다 · 날마다 다르게 주기로 한 금액은 배치를 만든 뒤 언제든 고칠 수 있으므로
  * (적용 금액 변경) 여기서는 기준값만 정한다.
  *
- * 배치를 만드는 자리가 둘(인력 배치 · 계약서 재작성)이라 여기 한 곳에 둔다.
- * 두 벌이면 같은 날 같은 직무인데 금액이 다른 배치가 생긴다.
+ * 배치를 만드는 자리가 셋(인력 배치 · 지원 확정 · 계약서 재작성)이라 여기 한 곳에 둔다.
+ * 여러 벌이면 같은 날 같은 포지션인데 금액이 다른 배치가 생긴다.
  */
 export const resolveAssignmentWage = (
   event: EventDetail,
   date: string,
-  role: JobRole,
+  positionId: number,
 ): { wageType: WageType; wage: number } => {
   const slot = event.days
     .find((day) => day.date === date)
-    ?.roles.find((item) => item.role === role);
+    ?.roles.find((item) => item.positionId === positionId);
 
-  return slot
-    ? { wageType: slot.wageType, wage: slot.wage }
-    : defaultWageOf(role);
+  if (slot) return { wageType: slot.wageType, wage: slot.wage };
+
+  const position = findPosition(event, positionId);
+
+  return position
+    ? { wageType: position.wageType, wage: position.wage }
+    : defaultWageOf("STAFF");
 };
+
+/**
+ * 시드용 포지션을 만든다. 직무 하나당 포지션 하나, 이름은 직무 이름 그대로다.
+ *
+ * 기존 시드는 "직무별 발주"로 만들어져 있어서, 이렇게 옮기면 화면이 예전과 똑같이 읽힌다.
+ * 시간대 · 단가가 갈리는 포지션은 따로 만든 행사(`buildNightMarketEvent`)에서 확인한다.
+ */
+const buildSeedPositions = (
+  roles: JobRole[],
+  time: {
+    startTime: string;
+    endTime: string;
+    breakMinutes: number;
+    endDayOffset: number;
+  },
+  seed: number,
+  title: string,
+): EventPosition[] =>
+  roles.map((role, index) => {
+    const { wageType, wage } = defaultWageOf(role);
+
+    return {
+      positionId: index + 1,
+      name: findJobRoleCatalogEntry(role)?.name ?? role,
+      jobRole: role,
+      startTime: time.startTime,
+      endTime: time.endTime,
+      endDayOffset: time.endDayOffset as DayOffset,
+      breakMinutes: time.breakMinutes,
+      wageType,
+      wage,
+      billingRate: defaultBillingRateOf(role),
+      genderPreference: resolveSeedGenderPreference(role, seed),
+      /*
+        식음료 시음 행사의 스태프는 음식을 다룬다. 보건증이 있어야 한다.
+        이 한 줄이 없으면 보건증 조건이 붙은 공고가 목업에 하나도 없다.
+      */
+      requiresHealthCert: title.startsWith("F&B") && role === "STAFF",
+    };
+  });
 
 /**
  * 발주에 걸린 성별 조건. **대부분은 무관이다.**
@@ -212,15 +274,15 @@ export const resolveAssignmentWage = (
  *
  * 이 값은 표시일 뿐 배치를 막지 않는다.
  */
-const resolveSeedGenderPreference = (
+function resolveSeedGenderPreference(
   role: JobRole,
   seed: number,
-): "ANY" | "MALE" | "FEMALE" => {
+): GenderPreference {
   if (role === "SETUP" && seed % 3 !== 0) return "MALE";
   if (role === "MODEL" && seed % 3 !== 1) return "FEMALE";
 
   return "ANY";
-};
+}
 
 /**
  * 행사 반복 패턴 목업.
@@ -510,6 +572,12 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
   const dates = resolveEventDates(startDate, endDate, recurrence);
 
   const assignments: Assignment[] = [];
+  const positions = buildSeedPositions(
+    preset.map((item) => item.role),
+    time,
+    seed,
+    title,
+  );
 
   /**
    * 일자별 인원 계획.
@@ -535,8 +603,9 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     const fillRatio =
       status === "CANCELED" ? 0 : resolveFillRatio(dayOffset, seed + dayIndex);
 
-    const roles: EventRoleSlot[] = preset.map(({ role, requiredCount }) => {
-      const { wageType, wage } = defaultWageOf(role);
+    const roles: EventRoleSlot[] = preset.map(({ role, requiredCount }, presetIndex) => {
+      const position = positions[presetIndex];
+      const { wageType, wage } = position;
 
       // 설치/철거 직무는 첫날과 마지막 날에만 필요하다.
       const dayRequiredCount =
@@ -606,6 +675,7 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
           staffProfileImageUrl: candidate.profileImageUrl,
           staffGender: candidate.gender,
           isEmployee: candidate.employment === "EMPLOYEE",
+          positionId: position.positionId,
           role,
           status: assignmentStatus,
           wageType,
@@ -659,21 +729,18 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
         });
       }
 
+      /*
+        성별 조건은 슬롯이 아니라 포지션이 갖는다. (`buildSeedPositions`)
+        몸을 쓰는 설치 · 철거에 남성만, 모델 자리에 여성만을 적어 둔 발주가
+        실제로 들어오므로 그 표시가 화면에서 어떻게 보이는지 확인할 수 있게 섞어 둔다.
+      */
       return {
+        positionId: position.positionId,
         role,
         requiredCount: dayRequiredCount,
         assignedCount,
         wageType,
         wage,
-        /*
-          성별 조건.
-
-          대부분은 무관이다. 몸을 쓰는 설치 · 철거에 남성만, 안내 · 응대가
-          중심인 모델 자리에 여성만을 적어 둔 발주가 실제로 들어오므로
-          화면에서 그 표시가 어떻게 보이는지 확인할 수 있게 섞어 둔다.
-          어디까지나 **표시**이고 배치를 막지 않는다.
-        */
-        genderPreference: resolveSeedGenderPreference(role, seed),
       };
     });
 
@@ -683,17 +750,6 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
   const roles = aggregateDayPlans(days);
   const totalRequired = roles.reduce((sum, slot) => sum + slot.requiredCount, 0);
   const totalAssigned = roles.reduce((sum, slot) => sum + slot.assignedCount, 0);
-
-  /*
-    행사는 **기준 설정의 청구 단가**를 물려받고, 이후 행사마다 따로 고친다.
-    (거래처가 아니다 — 단가를 부르는 쪽은 에이전시다)
-    안 정한 직무(0원)는 담지 않는다. 0원 청구와 미설정은 다르다.
-  */
-  const billingRates = compactBillingRates(
-    operationSettings.jobRoles
-      .filter((role) => role.isActive)
-      .map((role) => ({ role: role.code, rate: role.billingRate })),
-  );
 
   return {
     eventId,
@@ -715,6 +771,7 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     longitude: place.longitude,
     managerName: MANAGERS[index % MANAGERS.length].name,
     managerPhone: MANAGERS[index % MANAGERS.length].phoneNumber,
+    positions,
     days,
     roles,
     totalRequired,
@@ -724,7 +781,6 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
     dressCode: DRESS_CODES[index % DRESS_CODES.length],
     belongings: BELONGINGS[index % BELONGINGS.length],
     breakMinutes: time.breakMinutes,
-    billingRates,
     memo:
       seed % 4 === 0
         ? "거래처에서 지난 행사와 동일한 슈퍼바이저를 요청했습니다."
@@ -737,6 +793,29 @@ export const events: EventDetail[] = Array.from({ length: 38 }, (_, index) => {
 
 export const findEvent = (eventId: number) =>
   events.find((event) => event.eventId === eventId);
+
+/**
+ * 그 포지션이 **실제로 서는 날**. 발주가 있는 날만이다.
+ *
+ * 설치 포지션은 첫날과 마지막 날에만 발주가 있다. 행사 근무일 전체로 배치하면
+ * 가운데 날에 발주 없는 설치 인원이 생긴다.
+ *
+ * 발주가 하루도 없으면 **빈 배열이다.** 예전에는 행사 근무일 전체로 떨어뜨렸는데,
+ * 그러면 담당자가 일별 발주를 0으로 내린 뒤 남은 지원을 확정하는 순간
+ * 발주 0인 자리에 전일 배치가 깔린다. 부르지 않은 사람이 모든 날에 서는 것보다
+ * "설 자리가 없다"고 거절하는 편이 옳다.
+ */
+export const positionWorkDates = (
+  event: EventDetail,
+  positionId: number,
+): string[] =>
+  event.days
+    .filter((day) =>
+      day.roles.some(
+        (slot) => slot.positionId === positionId && slot.requiredCount > 0,
+      ),
+    )
+    .map((day) => day.date);
 
 /**
  * 배치 목록을 근거로 일자별 · 전체 확정 인원을 다시 센다.
@@ -752,47 +831,51 @@ export const recalculateEventCounts = (event: EventDetail) => {
     );
 
     /*
-      발주에 없던 직무로 배치한 경우에도 자리를 만들어 준다.
+      발주에 없던 포지션으로 배치한 경우에도 자리를 만들어 준다.
 
       "이 날만 팀장 한 명 더"처럼 발주 없이 사람을 넣는 일이 실제로 흔한데,
-      발주 슬롯이 있는 직무만 그리면 그 사람이 화면 어디에도 나타나지 않는다.
+      발주 슬롯이 있는 포지션만 그리면 그 사람이 화면 어디에도 나타나지 않는다.
       배치는 됐는데 칩도 없고 합계에도 안 잡혀서, 담당자는 넣은 게 맞는지
       명단을 열어 확인해야 한다.
 
       발주 0명 · 배치 1명(`1/0`)으로 세워 두면 "발주에 없던 인원"이라는 사실이
       그 자리에서 드러난다. 발주가 0이라 필요 인원 합계는 달라지지 않는다.
     */
-    const extraRoles = [
-      ...new Set(confirmed.map((assignment) => assignment.role)),
-    ].filter((role) => !day.roles.some((slot) => slot.role === role));
+    const extraPositionIds = [
+      ...new Set(confirmed.map((assignment) => assignment.positionId)),
+    ].filter(
+      (positionId) => !day.roles.some((slot) => slot.positionId === positionId),
+    );
 
-    const slots = [
+    const slots: EventRoleSlot[] = [
       ...day.roles,
-      ...extraRoles.map((role) => {
+      ...extraPositionIds.map((positionId) => {
         const [sample] = confirmed.filter(
-          (assignment) => assignment.role === role,
+          (assignment) => assignment.positionId === positionId,
         );
 
         return {
-          role,
+          positionId,
+          role: sample.role,
           requiredCount: 0,
           assignedCount: 0,
           wageType: sample.wageType,
           wage: sample.wage,
-          /* 발주에 없던 직무라 조건도 없다. */
-          genderPreference: "ANY" as const,
         };
       }),
     ];
 
     return {
       ...day,
-      roles: slots.map((slot) => ({
-        ...slot,
-        assignedCount: confirmed.filter(
-          (assignment) => assignment.role === slot.role,
-        ).length,
-      })),
+      roles: slots
+        .map((slot) => ({
+          ...slot,
+          assignedCount: confirmed.filter(
+            (assignment) => assignment.positionId === slot.positionId,
+          ).length,
+        }))
+        /* 포지션을 등록한 순서대로. 발주 없이 끼운 자리가 맨 앞에 서지 않게 한다. */
+        .sort(comparePositionOrder(event.positions)),
     };
   });
 
@@ -891,13 +974,25 @@ export const syncStaffReputationCounts = () => {
 
   events.forEach((event) =>
     event.assignments.forEach((assignment) => {
-      if (!assignment.reputationVerdict) return;
-
       const current = counts.get(assignment.staffId) ?? {
         good: 0,
         bad: 0,
         delta: 0,
       };
+
+      /*
+        근태 감점은 평가와 따로 붙는다. 노쇼한 날에는 평가를 남기지 않는 일이
+        대부분이라, 평가가 있을 때만 세면 노쇼가 점수에 한 번도 닿지 않는다.
+        저장하지 않고 여기서 매번 구하므로, 노쇼를 정상으로 고치면 감점도 사라진다.
+      */
+      const penalty = resolveAttendancePenalty(assignment);
+
+      if (penalty) {
+        current.delta += penalty.points;
+        counts.set(assignment.staffId, current);
+      }
+
+      if (!assignment.reputationVerdict) return;
 
       const tags = assignment.reputationTags ?? [];
 
@@ -940,6 +1035,192 @@ export const syncStaffReputationCounts = () => {
 
 syncStaffReputationCounts();
 
+/* --------------------------- 포지션 행사 --------------------------- */
+
+/** 시간대 · 단가가 갈리는 포지션을 담은 행사. 공고 · 계약서 시드가 이 이름으로 찾는다. */
+export const NIGHT_MARKET_EVENT_TITLE = "한강 여름 야시장 운영";
+
+/**
+ * **포지션이 여럿인 행사**를 하나 만든다.
+ *
+ * 위의 시드는 직무 하나당 포지션 하나라 예전 화면과 똑같이 읽힌다. 그것만 있으면
+ * 이 기능의 핵심 — 같은 스태프인데 A타임 · B타임(야간)의 시간과 시급이 다른 자리,
+ * 성별 · 보건증 조건이 붙은 자리 — 을 목업에서 한 번도 확인할 수 없다.
+ *
+ * 한 사람은 **1일차 A타임 · 2~3일차 B타임**으로 세운다. 그 사람의 계약서가
+ * "근무일별 상이"로 나오는지, 정산의 야간수당이 둘째 날부터 붙는지를 여기서 본다.
+ */
+const buildNightMarketEvent = () => {
+  const offset = 9;
+  const startDate = dateFromToday(offset);
+  const endDate = dateFromToday(offset + 2);
+  const recurrence: EventRecurrence = {
+    type: "CONSECUTIVE",
+    weekdays: [],
+    intervalWeeks: 1,
+    dates: [],
+    excludeDates: [],
+  };
+  const dates = resolveEventDates(startDate, endDate, recurrence);
+  const client = clients[2 % clients.length];
+  const manager = EVENT_MANAGER_POOL[1];
+  const eventId = Math.max(...events.map((event) => event.eventId)) + 1;
+
+  const base = {
+    breakMinutes: 60,
+    endDayOffset: 0 as DayOffset,
+    genderPreference: "ANY" as GenderPreference,
+    requiresHealthCert: false,
+  };
+
+  const positions: EventPosition[] = [
+    { ...base, positionId: 1, name: "A타임", jobRole: "STAFF", startTime: "09:00", endTime: "18:00", wageType: "HOURLY", wage: 11000, billingRate: 17000 },
+    { ...base, positionId: 2, name: "B타임(야간)", jobRole: "STAFF", startTime: "21:00", endTime: "06:00", endDayOffset: 1, wageType: "HOURLY", wage: 14000, billingRate: 21000 },
+    { ...base, positionId: 3, name: "인형탈", jobRole: "COSTUME", startTime: "12:00", endTime: "18:00", wageType: "HOURLY", wage: 15000, billingRate: 23000 },
+    { ...base, positionId: 4, name: "푸드 부스", jobRole: "PROMOTER", startTime: "17:00", endTime: "23:00", breakMinutes: 30, wageType: "HOURLY", wage: 13000, billingRate: 20000, requiresHealthCert: true },
+    { ...base, positionId: 5, name: "야간 경호", jobRole: "SECURITY", startTime: "20:00", endTime: "04:00", endDayOffset: 1, wageType: "HOURLY", wage: 17000, billingRate: 25000, genderPreference: "MALE" },
+    { ...base, positionId: 6, name: "VIP 의전", jobRole: "PROTOCOL", startTime: "10:00", endTime: "16:00", wageType: "DAILY", wage: 110000, billingRate: 26000, genderPreference: "FEMALE" },
+  ];
+
+  /* 포지션별 [하루 발주, 하루 확정]. 전부 덜 차 있어야 공고가 선다. */
+  const plan: Record<number, [number, number]> = {
+    1: [4, 2],
+    2: [3, 1],
+    3: [2, 0],
+    4: [3, 1],
+    5: [2, 1],
+    6: [2, 0],
+  };
+
+  const assignments: Assignment[] = [];
+
+  const push = (
+    staff: (typeof staffList)[number],
+    position: EventPosition,
+    date: string,
+  ) => {
+    takeAssignedSet(date).add(staff.staffId);
+    assignments.push({
+      assignmentId: (assignmentSequence += 1),
+      eventId,
+      eventTitle: NIGHT_MARKET_EVENT_TITLE,
+      workDate: date,
+      staffId: staff.staffId,
+      staffName: staff.name,
+      staffPhone: staff.phoneNumber,
+      staffProfileImageUrl: staff.profileImageUrl,
+      staffGender: staff.gender,
+      isEmployee: false,
+      positionId: position.positionId,
+      role: position.jobRole,
+      status: "CONFIRMED",
+      wageType: position.wageType,
+      wage: position.wage,
+      attendance: "PENDING",
+      lateMinutes: 0,
+      isContractSigned: false,
+      isPaid: false,
+      createdAt: toIsoDateTime(dateFromToday(-2), "10:00"),
+    });
+  };
+
+  /*
+    포털 기본 접속자는 넣지 않는다. 이 공고에 직접 지원해 보는 자리로 남긴다.
+    서류가 승인된 사람만 쓴다 — 확정 배치는 서류 승인이 조건이다. (`canConfirmAssignment`)
+  */
+  const pool = assignableStaff().filter(
+    (staff) =>
+      staff.employment === "FREELANCER" &&
+      staff.staffId !== DEMO_STAFF_ID &&
+      staff.status === "ACTIVE",
+  );
+  const isFree = (staffId: number, list: string[]) =>
+    list.every((date) => !takeAssignedSet(date).has(staffId));
+
+  const mixed = pool.find(
+    (staff) => staff.roles.includes("STAFF") && isFree(staff.staffId, dates),
+  );
+
+  if (mixed) {
+    push(mixed, positions[0], dates[0]);
+    dates.slice(1).forEach((date) => push(mixed, positions[1], date));
+  }
+
+  positions.forEach((position) => {
+    const [, target] = plan[position.positionId];
+
+    dates.forEach((date) => {
+      let count = assignments.filter(
+        (item) =>
+          item.workDate === date && item.positionId === position.positionId,
+      ).length;
+
+      for (const staff of pool) {
+        if (count >= target) break;
+        if (!staff.roles.includes(position.jobRole)) continue;
+        if (takeAssignedSet(date).has(staff.staffId)) continue;
+        if (!matchesGenderPreference(position.genderPreference, staff.gender)) continue;
+        if (
+          position.requiresHealthCert &&
+          !hasValidHealthCert(staff.healthCertState)
+        ) {
+          continue;
+        }
+
+        push(staff, position, date);
+        count += 1;
+      }
+    });
+  });
+
+  const event: EventDetail = {
+    eventId,
+    title: NIGHT_MARKET_EVENT_TITLE,
+    clientId: client.clientId,
+    clientName: client.name,
+    status: "RECRUITING",
+    startDate,
+    endDate,
+    recurrence,
+    dates,
+    dayCount: dates.length,
+    /* 행사의 기본 근무시간. 실제 시각은 포지션마다 다르다. */
+    startTime: "09:00",
+    endTime: "18:00",
+    endDayOffset: 0,
+    venue: "여의도 한강공원 물빛광장",
+    address: "서울 영등포구 여의동로 330",
+    latitude: 37.5284,
+    longitude: 126.9327,
+    managerName: manager.name,
+    managerPhone: manager.phoneNumber,
+    positions,
+    days: dates.map((date) => ({
+      date,
+      roles: positions.map((position) =>
+        buildPositionSlot(position, plan[position.positionId][0]),
+      ),
+    })),
+    roles: [],
+    totalRequired: 0,
+    totalAssigned: 0,
+    description: `${client.name} 발주 건입니다. 주간 · 야간 교대로 운영하며 포지션마다 근무시간과 시급이 다릅니다.`,
+    meetingPoint: "물빛광장 운영 본부 텐트 / 근무 시작 30분 전 집합",
+    dressCode: "지급 티셔츠 · 검정 하의 · 운동화",
+    belongings: "신분증, 보조배터리, (푸드 부스) 보건증",
+    breakMinutes: 60,
+    memo: "야간 B타임은 06시 철수 후 교통비 별도 지급 여부 확인 필요.",
+    assignments,
+    createdAt: toIsoDateTime(dateFromToday(-5), "10:00"),
+    updatedAt: toIsoDateTime(dateFromToday(-1), "18:00"),
+  };
+
+  recalculateEventCounts(event);
+  events.push(event);
+};
+
+buildNightMarketEvent();
+
 /* --------------------------- 데모 보정 --------------------------- */
 
 /**
@@ -958,6 +1239,9 @@ syncStaffReputationCounts();
  */
 /** 데모 근무의 행사 이름. 계약서 시드가 이 이름으로 찾아 쓴다. */
 export const DEMO_EVENT_TITLE = "주말 야외 페스티벌 운영";
+
+/** 연일 근무 데모 행사. 캘린더에서 여러 날에 걸친 근무를 확인하는 자리다. */
+export const DEMO_CONSECUTIVE_EVENT_TITLE = "브랜드 전시회 부스 운영";
 
 const buildDemoWork = () => {
   const demoStaff = staffList.find((staff) => staff.staffId === DEMO_STAFF_ID);
@@ -1018,6 +1302,20 @@ const buildDemoWork = () => {
     breakMinutes,
     endDayOffset,
   );
+  const position: EventPosition = {
+    positionId: 1,
+    name: "무대 운영",
+    jobRole: "STAFF",
+    startTime,
+    endTime,
+    endDayOffset,
+    breakMinutes,
+    wageType,
+    wage,
+    billingRate: defaultBillingRateOf("STAFF"),
+    genderPreference: "ANY",
+    requiresHealthCert: false,
+  };
 
   const assignment: Assignment = {
     assignmentId: (assignmentSequence += 1),
@@ -1030,6 +1328,7 @@ const buildDemoWork = () => {
     staffProfileImageUrl: demoStaff.profileImageUrl,
     staffGender: demoStaff.gender,
     isEmployee: false,
+    positionId: position.positionId,
     role: "STAFF",
     status: "CONFIRMED",
     wageType,
@@ -1043,14 +1342,7 @@ const buildDemoWork = () => {
   };
 
   const roles: EventRoleSlot[] = [
-    {
-      role: "STAFF",
-      requiredCount: 4,
-      assignedCount: 1,
-      wageType,
-      wage,
-      genderPreference: "ANY",
-    },
+    { ...buildPositionSlot(position, 4), assignedCount: 1 },
   ];
 
   events.push({
@@ -1072,6 +1364,7 @@ const buildDemoWork = () => {
     /* 좌표를 일부러 비운다. (위 주석) */
     managerName: manager.name,
     managerPhone: manager.phoneNumber,
+    positions: [position],
     days: [{ date: today, roles }],
     roles,
     totalRequired: 4,
@@ -1081,11 +1374,6 @@ const buildDemoWork = () => {
     dressCode: "검정 상하의 · 운동화",
     belongings: "신분증, 보조배터리",
     breakMinutes,
-    billingRates: compactBillingRates(
-      operationSettings.jobRoles
-        .filter((role) => role.isActive)
-        .map((role) => ({ role: role.code, rate: role.billingRate })),
-    ),
     memo: "",
     assignments: [assignment],
     createdAt: toIsoDateTime(dateFromToday(-10), "10:00"),
@@ -1094,3 +1382,148 @@ const buildDemoWork = () => {
 };
 
 buildDemoWork();
+
+/**
+ * 포털 접속자의 **연일 근무 한 건.**
+ *
+ * 캘린더에서 여러 날에 걸친 근무가 어떻게 보이는지는 하루짜리 근무만으로는
+ * 확인할 수 없다. 난수 시드가 연달아 붙여 주기를 기다리면 어떤 날은 나오고
+ * 어떤 날은 안 나와서, 캘린더를 고칠 때마다 확인할 수 있을지가 운에 달린다.
+ *
+ * 나흘로 둔다. 이틀은 연속인지 두 건이 우연히 붙은 것인지 구분되지 않고,
+ * 나흘이면 시작 요일에 따라 주 경계에서 끊기는 경우도 종종 걸린다.
+ */
+const buildDemoConsecutiveWork = () => {
+  const demoStaff = staffList.find((staff) => staff.staffId === DEMO_STAFF_ID);
+
+  if (!demoStaff) return;
+
+  const SPAN = 4;
+
+  /* 이 사람이 이미 선 날은 피한다. 같은 날 두 곳에 확정될 수 없다. */
+  const taken = new Set<string>();
+
+  events.forEach((event) =>
+    event.assignments.forEach((assignment) => {
+      if (
+        assignment.staffId === DEMO_STAFF_ID &&
+        assignment.status !== "CANCELED"
+      ) {
+        taken.add(assignment.workDate);
+      }
+    }),
+  );
+
+  /* 오늘 이후에서 비어 있는 나흘을 찾는다. 못 찾으면 만들지 않는다. */
+  let offset = -1;
+
+  for (let start = 2; start <= 40; start += 1) {
+    const window = Array.from({ length: SPAN }, (_, index) =>
+      dateFromToday(start + index),
+    );
+
+    if (window.every((date) => !taken.has(date))) {
+      offset = start;
+      break;
+    }
+  }
+
+  if (offset < 0) return;
+
+  const startDate = dateFromToday(offset);
+  const endDate = dateFromToday(offset + SPAN - 1);
+  const recurrence: EventRecurrence = {
+    type: "CONSECUTIVE",
+    weekdays: [],
+    intervalWeeks: 1,
+    dates: [],
+    excludeDates: [],
+  };
+  const dates = resolveEventDates(startDate, endDate, recurrence);
+  const client = clients[1 % clients.length];
+  const manager = EVENT_MANAGER_POOL[2 % EVENT_MANAGER_POOL.length];
+  const eventId = Math.max(...events.map((event) => event.eventId)) + 1;
+  const { wageType, wage } = defaultWageOf("STAFF");
+
+  const position: EventPosition = {
+    positionId: 1,
+    name: "부스 운영",
+    jobRole: "STAFF",
+    startTime: "10:00",
+    endTime: "19:00",
+    endDayOffset: 0,
+    breakMinutes: 60,
+    wageType,
+    wage,
+    billingRate: defaultBillingRateOf("STAFF"),
+    genderPreference: "ANY",
+    requiresHealthCert: false,
+  };
+
+  const assignments: Assignment[] = dates.map((date) => ({
+    assignmentId: (assignmentSequence += 1),
+    eventId,
+    eventTitle: DEMO_CONSECUTIVE_EVENT_TITLE,
+    workDate: date,
+    staffId: demoStaff.staffId,
+    staffName: demoStaff.name,
+    staffPhone: demoStaff.phoneNumber,
+    staffProfileImageUrl: demoStaff.profileImageUrl,
+    staffGender: demoStaff.gender,
+    isEmployee: false,
+    positionId: position.positionId,
+    role: "STAFF",
+    status: "CONFIRMED",
+    wageType,
+    wage,
+    attendance: "PENDING",
+    lateMinutes: 0,
+    isContractSigned: false,
+    isPaid: false,
+    createdAt: toIsoDateTime(dateFromToday(-2), "11:00"),
+  }));
+
+  const roles: EventRoleSlot[] = [
+    { ...buildPositionSlot(position, 6), assignedCount: 1 },
+  ];
+
+  events.push({
+    eventId,
+    title: DEMO_CONSECUTIVE_EVENT_TITLE,
+    clientId: client.clientId,
+    clientName: client.name,
+    status: "CONFIRMED",
+    startDate,
+    endDate,
+    recurrence,
+    dates,
+    dayCount: dates.length,
+    startTime: position.startTime,
+    endTime: position.endTime,
+    endDayOffset: position.endDayOffset,
+    venue: "코엑스 C홀 브랜드 부스",
+    address: "서울 강남구 영동대로 513",
+    managerName: manager.name,
+    managerPhone: manager.phoneNumber,
+    positions: [position],
+    days: dates.map((date) => ({
+      date,
+      roles: roles.map((slot) => ({ ...slot })),
+    })),
+    roles,
+    totalRequired: 6 * dates.length,
+    totalAssigned: dates.length,
+    description:
+      "나흘 내내 같은 부스를 맡습니다. 마지막 날은 철수까지 함께 진행하니 종료 시각이 한 시간 정도 늦어질 수 있습니다.",
+    meetingPoint: "코엑스 C홀 3번 게이트 앞 / 시작 30분 전 집합",
+    dressCode: "흰 상의 · 검정 하의",
+    belongings: "신분증, 편한 신발",
+    breakMinutes: position.breakMinutes,
+    memo: "",
+    assignments,
+    createdAt: toIsoDateTime(dateFromToday(-12), "10:00"),
+    updatedAt: toIsoDateTime(dateFromToday(-2), "11:00"),
+  });
+};
+
+buildDemoConsecutiveWork();

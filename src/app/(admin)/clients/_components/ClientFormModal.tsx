@@ -35,8 +35,8 @@ interface ClientFormModalProps {
  * "저쪽이 정해 준 값"처럼 읽히고, 같은 직무의 우리 단가가 거래처 수만큼
  * 흩어져 어느 것이 우리 기준인지 알 수 없어진다.
  *
- * 단가는 '운영 > 기준 설정'이 원본이고, 행사 등록 시 그 값이 깔린 뒤
- * 행사별로 고쳐진다. (`EventDetail.billingRates`)
+ * 단가는 '운영 > 기준 설정'이 원본이고, 행사 등록 시 그 값이 포지션의
+ * 초기값으로 깔린 뒤 포지션마다 고쳐진다. (`EventPosition.billingRate`)
  */
 const ClientFormModal = ({ isOpen, client, onClose }: ClientFormModalProps) => {
   const { createMutation, updateMutation } = useClientMutation();

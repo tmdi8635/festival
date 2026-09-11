@@ -11,6 +11,7 @@ import {
 import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Edit, Eye, Plus } from "@/icons";
 import { formatDate, formatDday } from "@/lib/dayjs";
+import { cn } from "@/lib/utils";
 import { useHasPermission } from "@/store/useAdminStore";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleFilterOptions, useJobRoleLabel } from "@/store/useOrgStore";
@@ -125,32 +126,53 @@ const PostingManager = () => {
           }
           secondary={
             <span className="tabular-nums">
-              {formatTimeRange(
-                posting.startTime,
-                posting.endTime,
-                posting.endDayOffset,
-              )}{" "}
-              ·{" "}
-              {formatDday(posting.workDate)}
+              {posting.workDates.length > 1
+                ? `근무일 ${posting.workDates.length}일`
+                : "하루"}{" "}
+              · {formatDday(posting.workDate)}
             </span>
           }
         />
       ),
     },
     {
-      key: "role",
-      header: "직무",
+      /*
+        공고 하나가 행사 하나를 덮고, 그 안에 포지션이 여럿이다.
+        포지션마다 시각 · 금액 · 충원이 달라서 한 칸에 대표값 하나를 적으면
+        야간조가 비었는지 알 수 없다. 포지션마다 한 줄씩 적는다.
+      */
+      key: "positions",
+      header: "포지션",
       render: (posting) => (
-        <Badge tone="neutral">{jobRoleLabel(posting.role)}</Badge>
-      ),
-    },
-    {
-      key: "wage",
-      header: "임금",
-      align: "right",
-      numeric: true,
-      render: (posting) => (
-        <WageText wageType={posting.wageType} wage={posting.wage} />
+        <ul className="flex min-w-56 flex-col gap-1">
+          {posting.positions.map((position) => (
+            <li
+              key={position.positionId}
+              className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px]"
+              title={`${jobRoleLabel(position.jobRole)} · 모집 ${position.requiredCount}명 · 지원 ${position.applicantCount}명`}
+            >
+              <span className="font-medium text-font-1">{position.name}</span>
+              <span className="text-[12px] text-font-2 tabular-nums">
+                {formatTimeRange(
+                  position.startTime,
+                  position.endTime,
+                  position.endDayOffset,
+                )}
+              </span>
+              <WageText wageType={position.wageType} wage={position.wage} />
+              <span
+                className={cn(
+                  "text-[12px] tabular-nums",
+                  position.confirmedCount < position.requiredCount
+                    ? "text-warning"
+                    : "text-success",
+                )}
+              >
+                {position.confirmedCount}/{position.requiredCount}
+              </span>
+            </li>
+          ))}
+        </ul>
       ),
     },
     {

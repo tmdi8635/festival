@@ -14,9 +14,9 @@ import {
 } from "@/schema/my.schema";
 import type { MyProfile } from "@/type/my";
 import {
-  DOCUMENT_LANES,
   DOCUMENT_LANE_LABEL,
   DOCUMENT_REVIEW_STATE_LABEL,
+  REQUIRED_DOCUMENT_LANES,
 } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
@@ -29,16 +29,20 @@ import Select from "@/components/ui/Select";
 
 interface MyDocumentFormProps {
   profile: MyProfile;
+  onSaved: () => void;
 }
 
 /**
- * 서류 · 계좌 제출.
+ * 신분증 · 통장사본 · 계좌 제출. **활동에 꼭 필요한 서류만** 여기 있다.
  *
  * 인적사항과 **한 폼에 두지 않는다.** 저장했을 때 벌어지는 일이 다르기 때문이다.
  * 이쪽은 내면 승인 대기로 들어가고 그동안 근무를 확정할 수 없다.
  * 한 버튼에 묶으면 이름만 고친 사람의 서류 승인이 이유 없이 풀린다.
+ *
+ * 보건증도 여기에 섞지 않는다. (`MyHealthCertForm`) 보건증이 없는 사람이
+ * 계좌를 고칠 때마다 비어 있는 보건증 칸에 걸려 저장을 못 하게 된다.
  */
-const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
+const MyDocumentForm = ({ profile, onSaved }: MyDocumentFormProps) => {
   const { documentMutation } = useMyProfileMutation();
 
   const {
@@ -58,34 +62,20 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
     },
   });
 
-  const onSubmit = handleSubmit((values) => documentMutation.mutate(values));
+  const onSubmit = handleSubmit((values) =>
+    documentMutation.mutate(values, { onSuccess: onSaved }),
+  );
 
-  const rejected = DOCUMENT_LANES.filter(
+  const hasRejected = REQUIRED_DOCUMENT_LANES.some(
     (lane) => profile.reviews[lane].state === "REJECTED",
   );
 
   return (
-    <Card
-      title="서류 · 계좌"
-      description="담당자 승인 후 근무를 확정할 수 있습니다."
-      action={
-        <Button
-          form="my-document-form"
-          type="submit"
-          disabled={!isDirty || documentMutation.isPending}
-        >
-          제출
-        </Button>
-      }
-    >
-      <form
-        id="my-document-form"
-        onSubmit={onSubmit}
-        className="flex flex-col gap-4"
-      >
+    <Card title="신분증 · 계좌" description="담당자 승인 후 근무를 확정할 수 있습니다.">
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {/* 갈래별 심사 상태. 반려 사유가 없으면 같은 사진을 다시 올리게 된다. */}
         <div className="flex flex-col gap-2 rounded-field bg-subtle p-3">
-          {DOCUMENT_LANES.map((lane) => {
+          {REQUIRED_DOCUMENT_LANES.map((lane) => {
             const review = profile.reviews[lane];
 
             return (
@@ -109,7 +99,7 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
           })}
         </div>
 
-        {rejected.length > 0 && (
+        {hasRejected && (
           <Alert tone="danger" title="반려된 서류가 있습니다.">
             사유를 확인하고 다시 올려 주세요. 다시 내면 담당자가 확인합니다.
           </Alert>
@@ -119,7 +109,11 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
           신분증 사본은 주민등록번호 뒷자리를 가린 채로 올려 주세요.
         </Alert>
 
-        <FormField label="신분증 사본" required>
+        <FormField
+          label="신분증 사본"
+          required
+          error={errors.idCardImageUrl?.message}
+        >
           <Controller
             control={control}
             name="idCardImageUrl"
@@ -129,12 +123,17 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
                 onChange={field.onChange}
                 fileType="STAFF_ID_CARD"
                 aspectRatio="16 / 10"
+                hasError={Boolean(errors.idCardImageUrl)}
               />
             )}
           />
         </FormField>
 
-        <FormField label="통장 사본" required>
+        <FormField
+          label="통장 사본"
+          required
+          error={errors.bankBookImageUrl?.message}
+        >
           <Controller
             control={control}
             name="bankBookImageUrl"
@@ -144,6 +143,7 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
                 onChange={field.onChange}
                 fileType="STAFF_BANK_BOOK"
                 aspectRatio="16 / 10"
+                hasError={Boolean(errors.bankBookImageUrl)}
               />
             )}
           />
@@ -184,6 +184,17 @@ const MyDocumentForm = ({ profile }: MyDocumentFormProps) => {
         >
           <Input {...register("accountHolder")} />
         </FormField>
+
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={!isDirty || documentMutation.isPending}
+          isLoading={documentMutation.isPending}
+        >
+          서류 제출
+        </Button>
       </form>
     </Card>
   );

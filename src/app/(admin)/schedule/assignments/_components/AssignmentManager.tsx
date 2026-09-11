@@ -240,10 +240,23 @@ const AssignmentManager = () => {
       ),
     },
     {
+      /*
+        포지션과 직무를 함께 적는다. 행사를 가로지르는 표라 'A타임'만 적으면
+        어느 직무인지 모르고, 직무만 적으면 같은 행사의 주간 · 야간이 구분되지 않는다.
+        이름은 서버가 응답에 붙여 준다.
+      */
       key: "role",
-      header: "직무",
+      header: "포지션",
       render: (assignment) => (
-        <Badge tone="neutral">{roleLabel(assignment.role)}</Badge>
+        <TableCellStack
+          primary={assignment.positionName || roleLabel(assignment.role)}
+          secondary={
+            assignment.positionName &&
+            assignment.positionName !== roleLabel(assignment.role)
+              ? roleLabel(assignment.role)
+              : undefined
+          }
+        />
       ),
     },
     {

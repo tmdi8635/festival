@@ -1,6 +1,7 @@
 import { HttpResponse, delay, http } from "msw";
 import type {
   Contract,
+  ContractCustomTerms,
   ContractRosterState,
   ContractStatus,
   ContractTemplate,
@@ -9,14 +10,11 @@ import type {
 import {
   CONTRACT_ROSTER_STATE_ORDER,
   buildContractRoster,
+  buildContractWorkDay,
   summarizeContractWork,
   type AmendReasonType,
 } from "@/type/contract";
-import {
-  calculateScheduledWorkHours,
-  type Assignment,
-  type EventDetail,
-} from "@/type/event";
+import type { Assignment, EventDetail } from "@/type/event";
 import {
   buildContractNumber,
   contractTemplates,
@@ -64,7 +62,6 @@ const buildContractFrom = (
 ): Contract => {
   const [first] = assignments;
   const staff = findStaff(first.staffId);
-  const workHours = calculateScheduledWorkHours(event);
 
   /*
     금액은 배치가 날짜별로 들고 있는 값을 그대로 옮긴다.
@@ -72,12 +69,7 @@ const buildContractFrom = (
     대표 금액 하나에 일수를 곱하면 총액이 실제와 어긋난다.
   */
   const work = summarizeContractWork(
-    assignments.map((item) => ({
-      workDate: item.workDate,
-      wageType: item.wageType,
-      wage: item.wage,
-    })),
-    workHours,
+    assignments.map((item) => buildContractWorkDay(event, item)),
   );
 
   return {
@@ -95,11 +87,7 @@ const buildContractFrom = (
     role: first.role,
     templateId: template.templateId,
     templateName: template.name,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    endDayOffset: event.endDayOffset,
-    breakMinutes: event.breakMinutes,
-    workHours,
+    /* 근무일 · 시간대(포지션별) · 총 시간 · 총액은 한 곳에서만 계산한다. */
     ...work,
     status: "DRAFT",
     revision: 1,
@@ -238,12 +226,7 @@ export const contractHandlers = [
     const rows = events
       .filter((event) => event.status !== "DRAFT" && event.status !== "CANCELED")
       .flatMap((event) =>
-        buildContractRoster(
-          event,
-          event.assignments,
-          contracts,
-          calculateScheduledWorkHours(event),
-        ),
+        buildContractRoster(event, event.assignments, contracts),
       );
 
     /* 상태별 인원은 **거른 뒤가 아니라 전체 기준**이다. 상단 지표로 쓴다. */
@@ -402,11 +385,148 @@ export const contractHandlers = [
    * 정식 문서인지 알 방법이 없다. 종이 등록(`register`)도 같은 규칙으로 번호를 붙이고,
    * 순번은 양쪽 다 계약서 ID에서 딴다 — 그래야 두 길로 만들어도 번호가 겹치지 않는다.
    *
-   * **반려된 건은 다시 보낼 수 있다.** 차수를 올리지 않는다.
-   * 차수(`revision`)는 서명이 끝난 문서를 대체할 때 올리는 값이고, 서명 전에 고친 것은
-   * 같은 문서의 수정이다. 여기서 차수를 올리면 아무도 서명한 적 없는 1차가
-   * 이력에 남아 "왜 두 장인가"를 설명해야 한다.
+   * **반려(수정요청)된 건은 여기서 다시 보내지 않는다.** 재발급(`/reissue`)으로 새 차수를 낸다.
+   * 같은 문서를 고쳐 다시 보내면 본인이 무엇을 고쳐 달라고 했고 무엇이 바뀌었는지가
+   * 이력에서 사라진다. 본인은 "고쳐 달라고 했는데 같은 문서가 또 왔다"로 읽는다.
    */
+  /**
+   * **재발급** — 본인의 수정요청(반려)에 대한 답.
+   *
+   * 반려된 문서를 고쳐 같은 차수로 다시 보내지 않는다. 새 차수를 `SENT`로 내고,
+   * 반려된 차수는 `SUPERSEDED`로 남긴다. 그래야 본인과 담당자 모두
+   * "무엇을 고쳐 달라고 했고, 몇 차에서 무엇이 바뀌었는가"를 이력에서 확인할 수 있다.
+   *
+   * 내용은 **지금 배치에서 다시 조립한다.** 담당자는 먼저 행사에서 금액 · 근무일 ·
+   * 포지션을 고치고, 여기서는 그것을 문서로 다시 뽑는다. 사유는 본인에게 그대로 보이므로
+   * 무엇을 고쳤는지 한 줄 적게 한다.
+   */
+  http.post(
+    `${BASE_URI}/admin/contracts/:contractId/reissue`,
+    async ({ params, request }) => {
+      const denied = requirePermission(request, "contract:send");
+
+      if (denied) return denied;
+
+      const previous = findContract(Number(params.contractId));
+
+      if (!previous) return notFound("존재하지 않는 계약서입니다.");
+
+      if (previous.status !== "REJECTED") {
+        return badRequest(
+          "수정요청(반려)이 온 계약서만 재발급할 수 있습니다.",
+          "NOT_REJECTED",
+        );
+      }
+
+      const body = (await request.json()) as {
+        reason: string;
+        templateId?: number;
+        terms?: ContractCustomTerms | null;
+      };
+      const reason = (body.reason ?? "").trim();
+
+      if (reason.length < 2) {
+        return badRequest(
+          "무엇을 고쳤는지 적어 주세요. 근로자에게 그대로 보입니다.",
+          "REASON_REQUIRED",
+        );
+      }
+
+      /*
+        개별 조항은 화면이 걸러 보내도 여기서 다시 본다. 제목 없는 조항이나
+        빈 문서가 서명 대기로 나가면 본인은 무엇에 서명하는지 알 수 없다.
+      */
+      const terms =
+        body.terms === undefined ? previous.customTerms : (body.terms ?? undefined);
+
+      if (terms) {
+        if (!terms.documentTitle?.trim()) {
+          return badRequest("문서 제목을 입력해 주세요.", "INVALID_TERMS");
+        }
+
+        if (terms.clauses.length === 0) {
+          return badRequest("조항을 한 개 이상 넣어 주세요.", "INVALID_TERMS");
+        }
+
+        if (terms.clauses.some((clause) => !clause.title.trim())) {
+          return badRequest("제목이 빈 조항이 있습니다.", "INVALID_TERMS");
+        }
+      }
+
+      const event = findEvent(previous.eventId);
+
+      if (!event) return notFound("존재하지 않는 행사입니다.");
+
+      const assignments = event.assignments
+        .filter(
+          (assignment) =>
+            assignment.staffId === previous.staffId &&
+            assignment.status === "CONFIRMED",
+        )
+        .sort((a, b) => a.workDate.localeCompare(b.workDate));
+
+      if (assignments.length === 0) {
+        return badRequest(
+          "확정된 근무가 없어 재발급할 수 없습니다. 배치를 먼저 확인해 주세요.",
+          "NO_ASSIGNMENT",
+        );
+      }
+
+      const template =
+        findContractTemplate(Number(body.templateId)) ??
+        findContractTemplate(previous.templateId) ??
+        contractTemplates.find((item) => item.isDefault && item.isActive);
+
+      if (!template) return badRequest("계약서 템플릿을 선택해 주세요.");
+
+      const draft = buildContractFrom(event, assignments, template);
+      const now = new Date().toISOString();
+      const revision = previous.revision + 1;
+      const contractId = nextId(contracts, "contractId");
+
+      const created: Contract = {
+        ...draft,
+        customTerms: terms,
+        contractId,
+        /* 원본 번호에 차수를 붙인다. 새 번호면 같은 건의 재발급인지 알 수 없다. */
+        contractNumber: `${previous.contractNumber.replace(/-R\d+$/, "")}-R${revision}`,
+        status: "SENT",
+        sentAt: now,
+        revision,
+        supersededContractId: previous.contractId,
+        amendReason: reason,
+        amendReasonType: "REVISION_REQUEST",
+        removedWorkDates: previous.workDates.filter(
+          (date) => !draft.workDates.includes(date),
+        ),
+        addedWorkDates: draft.workDates.filter(
+          (date) => !previous.workDates.includes(date),
+        ),
+        revisionRequests: [],
+        amendedAt: now,
+        createdAt: now,
+      };
+
+      previous.status = "SUPERSEDED";
+      previous.supersededByContractId = contractId;
+      previous.amendedAt = now;
+      /* 답이 나간 요청에 표시를 남긴다. 본인 화면의 이력에서 "몇 차로 반영됨"으로 읽힌다. */
+      previous.revisionRequests = (previous.revisionRequests ?? []).map(
+        (item) =>
+          item.resolvedAt
+            ? item
+            : { ...item, resolvedAt: now, resolvedRevision: revision },
+      );
+
+      contracts.unshift(created);
+      template.usageCount += 1;
+
+      await delay(MOCK_DELAY_MS);
+
+      return HttpResponse.json({ previous, created });
+    },
+  ),
+
   http.post(`${BASE_URI}/admin/contracts/send`, async ({ request }) => {
     const denied = requirePermission(request, "contract:send");
 
@@ -461,6 +581,19 @@ export const contractHandlers = [
 
       if (existing?.status === "SIGNED") {
         skipped.push(`${first.staffName}님은 이미 서명이 끝났습니다.`);
+        return;
+      }
+
+      if (existing?.status === "REJECTED") {
+        skipped.push(
+          `${first.staffName}님은 수정요청이 와 있습니다. 상세에서 재발급해 주세요.`,
+        );
+        return;
+      }
+
+      /* 이미 보낸 문서를 또 보내면 본인에게 같은 서명 요청이 두 번 간다. */
+      if (existing?.status === "SENT") {
+        skipped.push(`${first.staffName}님에게는 이미 보냈습니다.`);
         return;
       }
 
@@ -830,6 +963,18 @@ export const contractHandlers = [
       */
       const staffForAssignment = findStaff(previous.staffId);
       let restoredCount = 0;
+      /*
+        새로 만드는 날의 포지션은 **이 사람이 서던 포지션**을 따른다.
+        날마다 달랐으면(1일차 A타임 · 2일차 B타임) 살아 있는 첫 배치의 포지션이다.
+      */
+      const basePositionId =
+        ownAssignments.find((assignment) => assignment.status !== "CANCELED")
+          ?.positionId ??
+        ownAssignments[0]?.positionId ??
+        event.positions.find((position) => position.jobRole === previous.role)
+          ?.positionId ??
+        event.positions[0]?.positionId ??
+        0;
 
       addedDates.forEach((date) => {
         const existing = ownAssignments.find(
@@ -868,9 +1013,10 @@ export const contractHandlers = [
           staffProfileImageUrl: staffForAssignment?.profileImageUrl,
           staffGender: staffForAssignment?.gender ?? "MALE",
           isEmployee: staffForAssignment?.employment === "EMPLOYEE",
+          positionId: basePositionId,
           role: previous.role,
           status: "CONFIRMED",
-          ...resolveAssignmentWage(event, date, previous.role),
+          ...resolveAssignmentWage(event, date, basePositionId),
           attendance: "PENDING",
           lateMinutes: 0,
           isContractSigned: false,
@@ -891,22 +1037,17 @@ export const contractHandlers = [
         )
         .sort((a, b) => a.workDate.localeCompare(b.workDate));
 
-      const workHours = calculateScheduledWorkHours(event);
-
       /*
         새 차수의 금액은 계약서를 복사하지 않고 **배치에서 다시 읽는다.**
         중도 종료를 처리하기 전에 시급을 고쳐 두는 일이 흔한데,
         옛 계약서의 금액을 그대로 옮기면 그 수정이 통째로 사라진다.
       */
       const work = summarizeContractWork(
-        (keptAssignments.length > 0
-          ? keptAssignments.map((assignment) => ({
-              workDate: assignment.workDate,
-              wageType: assignment.wageType,
-              wage: assignment.wage,
-            }))
-          : previous.workDays.filter((day) => keptDates.includes(day.workDate))),
-        workHours,
+        keptAssignments.length > 0
+          ? keptAssignments.map((assignment) =>
+              buildContractWorkDay(event, assignment),
+            )
+          : previous.workDays.filter((day) => keptDates.includes(day.workDate)),
       );
 
       /*
@@ -962,19 +1103,25 @@ export const contractHandlers = [
         staffAddress: staff?.address ?? previous.staffAddress,
         templateId: template.templateId,
         templateName: template.name,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        endDayOffset: event.endDayOffset,
-        breakMinutes: event.breakMinutes,
-        workHours,
+        /*
+          개별로 고친 조항은 이어 간다. 금액 · 근무일을 바꿨다고 따로 약속한 문구가
+          사라지면 안 된다. 다만 템플릿을 갈아 끼웠으면 새 템플릿이 출발점이다.
+        */
+        customTerms: isTemplateChanged ? undefined : previous.customTerms,
         ...work,
         status: "DRAFT",
         /*
           서명은 옛 문서에 대한 것이다. 새 차수는 종이부터 다시 받는다.
           그래서 등록 대기(`DRAFT`)로 시작하고, 서명본을 올려야 완료가 된다.
+          전자서명도 함께 떼어 낸다 — 남겨 두면 새 문서에 옛 서명이 박힌 채로 보인다.
         */
         signedFile: undefined,
         registeredAt: undefined,
+        signature: undefined,
+        signedAt: undefined,
+        sentAt: undefined,
+        rejectedReason: undefined,
+        revisionRequests: [],
         revision,
         supersededContractId: previous.contractId,
         supersededByContractId: undefined,

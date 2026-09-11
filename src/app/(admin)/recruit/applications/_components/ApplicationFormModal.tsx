@@ -1,17 +1,24 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { usePostingListQuery } from "@/api/recruit/getPostingList";
 import { useApplicationMutation } from "@/api/recruit/mutateApplication";
 import { formatDate } from "@/lib/dayjs";
+import { formatWithCommas } from "@/lib/utils";
 import {
   EMPTY_APPLICATION_VALUES,
   applicationSchema,
   type ApplicationSchema,
   type ApplicationSchemaInput,
 } from "@/schema/recruit.schema";
+import { useJobRoleLabel } from "@/store/useOrgStore";
+import {
+  WAGE_TYPE_LABEL,
+  formatPositionLabel,
+  formatTimeRange,
+} from "@/type/event";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
@@ -30,8 +37,12 @@ interface ApplicationFormModalProps {
  *
  * 앱이 붙기 전까지는 문자로 받은 지원을 사람이 옮겨 적어야 한다.
  * 휴대폰번호로 기존 인력을 자동으로 이어 붙이므로, 이력이 끊기지 않는다.
+ *
+ * 공고는 행사 하나를 덮고 그 안에 포지션이 여럿이라, **어느 포지션에 지원했는지**를
+ * 함께 받는다. 그래야 확정할 때 그 포지션 발주가 있는 날마다 배치가 만들어진다.
  */
 const ApplicationFormModal = ({ isOpen, onClose }: ApplicationFormModalProps) => {
+  const jobRoleLabel = useJobRoleLabel();
   const { data: postingData } = usePostingListQuery({
     page: 1,
     size: 100,
@@ -44,6 +55,8 @@ const ApplicationFormModal = ({ isOpen, onClose }: ApplicationFormModalProps) =>
     control,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
     // 입력 타입(coerce 전)과 출력 타입(coerce 후)이 달라 제네릭 세 개를 모두 넘긴다.
   } = useForm<ApplicationSchemaInput, unknown, ApplicationSchema>({
@@ -55,11 +68,33 @@ const ApplicationFormModal = ({ isOpen, onClose }: ApplicationFormModalProps) =>
     if (isOpen) reset(EMPTY_APPLICATION_VALUES);
   }, [isOpen, reset]);
 
+  const postings = useMemo(() => postingData?.content ?? [], [postingData]);
+  const postingId = Number(watch("postingId")) || 0;
+  const selectedPosting = postings.find(
+    (posting) => posting.postingId === postingId,
+  );
+
   const postingOptions = [
     { label: "공고를 선택하세요", value: "0" },
-    ...(postingData?.content ?? []).map((posting) => ({
+    ...postings.map((posting) => ({
       label: `${formatDate(posting.workDate)} · ${posting.title}`,
       value: String(posting.postingId),
+    })),
+  ];
+
+  /* 포지션 선택지. 이름만으로는 A · B타임의 차이가 안 보여 시각 · 금액을 붙인다. */
+  const positionOptions = [
+    {
+      label: selectedPosting ? "포지션을 선택하세요" : "공고를 먼저 고르세요",
+      value: "0",
+    },
+    ...(selectedPosting?.positions ?? []).map((position) => ({
+      label: `${formatPositionLabel(position, jobRoleLabel)} · ${formatTimeRange(
+        position.startTime,
+        position.endTime,
+        position.endDayOffset,
+      )} · ${WAGE_TYPE_LABEL[position.wageType]} ${formatWithCommas(position.wage)}원`,
+      value: String(position.positionId),
     })),
   ];
 
@@ -99,8 +134,46 @@ const ApplicationFormModal = ({ isOpen, onClose }: ApplicationFormModalProps) =>
               <Select
                 options={postingOptions}
                 value={String(field.value)}
-                onChange={(event) => field.onChange(Number(event.target.value))}
+                onChange={(event) => {
+                  const nextPostingId = Number(event.target.value);
+                  const nextPosting = postings.find(
+                    (posting) => posting.postingId === nextPostingId,
+                  );
+
+                  field.onChange(nextPostingId);
+                  /*
+                    공고가 바뀌면 앞 공고의 포지션은 의미가 없다.
+                    포지션이 하나뿐인 공고면 고를 것이 없으니 바로 채운다.
+                  */
+                  setValue(
+                    "positionId",
+                    nextPosting?.positions.length === 1
+                      ? nextPosting.positions[0].positionId
+                      : 0,
+                  );
+                }}
                 hasError={Boolean(errors.postingId)}
+              />
+            )}
+          />
+        </FormField>
+
+        <FormField
+          label="포지션"
+          required
+          hint="확정하면 이 포지션 발주가 있는 근무일마다 배치됩니다."
+          error={errors.positionId?.message}
+        >
+          <Controller
+            control={control}
+            name="positionId"
+            render={({ field }) => (
+              <Select
+                options={positionOptions}
+                value={String(field.value ?? 0)}
+                disabled={!selectedPosting}
+                onChange={(event) => field.onChange(Number(event.target.value))}
+                hasError={Boolean(errors.positionId)}
               />
             )}
           />

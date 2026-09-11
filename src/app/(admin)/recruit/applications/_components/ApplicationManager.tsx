@@ -70,7 +70,7 @@ const ApplicationManager = () => {
   const handleAccept = (application: Application) => {
     openConfirm({
       title: "지원을 확정할까요?",
-      description: `'${application.applicantName}'님을 '${application.eventTitle}'에 ${jobRoleLabel(application.role)}(으)로 배치합니다.`,
+      description: `'${application.applicantName}'님을 '${application.eventTitle}'의 ${application.positionName || jobRoleLabel(application.role)} 포지션에 배치합니다. 이 포지션 발주가 있는 근무일마다 배치가 만들어집니다.`,
       warning: application.conflictEventTitle
         ? `같은 날 '${application.conflictEventTitle}'에 이미 확정되어 있어 배치가 거절될 수 있습니다.`
         : undefined,
@@ -137,10 +137,22 @@ const ApplicationManager = () => {
       ),
     },
     {
-      key: "role",
-      header: "직무",
+      /*
+        지원은 **포지션**에 한다. 같은 행사라도 A타임 · B타임은 시각 · 금액이 달라
+        직무만 적으면 확정했을 때 어느 자리로 들어가는지 알 수 없다.
+      */
+      key: "position",
+      header: "포지션",
       render: (application) => (
-        <Badge tone="neutral">{jobRoleLabel(application.role)}</Badge>
+        <TableCellStack
+          primary={application.positionName || jobRoleLabel(application.role)}
+          secondary={
+            application.positionName &&
+            application.positionName !== jobRoleLabel(application.role)
+              ? jobRoleLabel(application.role)
+              : undefined
+          }
+        />
       ),
     },
     {

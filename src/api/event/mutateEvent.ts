@@ -5,9 +5,22 @@ import type { AppError } from "@/type/api";
 import type {
   EventDetail,
   EventFormValues,
+  EventPosition,
   EventRoleSlot,
   EventStatus,
 } from "@/type/event";
+
+/** 근무일 하나의 발주 한 줄. 포지션을 가리키고, 그날의 인원 · 금액을 갖는다. */
+export type DayRoleInput = Pick<
+  EventRoleSlot,
+  "positionId" | "requiredCount" | "wageType" | "wage"
+>;
+
+/** 포지션을 만들거나 고칠 때 보내는 값. 번호는 서버가 붙인다. */
+export type PositionInput = Omit<EventPosition, "positionId"> & {
+  /** 추가할 때만. 모든 근무일에 이 인원으로 발주를 깐다. 0이면 깔지 않는다. */
+  requiredCount?: number;
+};
 
 export const createEvent = async (body: EventFormValues) => {
   const response = await adminAxios.post<EventDetail>("/admin/events", body);
@@ -37,7 +50,7 @@ export const updateEventStatus = async (eventId: number, status: EventStatus) =>
 export const updateEventDayRoles = async (
   eventId: number,
   date: string,
-  roles: Omit<EventRoleSlot, "assignedCount">[],
+  roles: DayRoleInput[],
 ) => {
   const response = await adminAxios.put<EventDetail>(
     `/admin/events/${eventId}/days/${date}/roles`,
@@ -49,6 +62,42 @@ export const updateEventDayRoles = async (
 
 export const deleteEvent = async (eventId: number) => {
   await adminAxios.delete(`/admin/events/${eventId}`);
+};
+
+export const createEventPosition = async (
+  eventId: number,
+  body: PositionInput,
+) => {
+  const response = await adminAxios.post<EventDetail>(
+    `/admin/events/${eventId}/positions`,
+    body,
+  );
+
+  return response.data;
+};
+
+export const updateEventPosition = async (
+  eventId: number,
+  positionId: number,
+  body: PositionInput,
+) => {
+  const response = await adminAxios.put<EventDetail>(
+    `/admin/events/${eventId}/positions/${positionId}`,
+    body,
+  );
+
+  return response.data;
+};
+
+export const deleteEventPosition = async (
+  eventId: number,
+  positionId: number,
+) => {
+  const response = await adminAxios.delete<EventDetail>(
+    `/admin/events/${eventId}/positions/${positionId}`,
+  );
+
+  return response.data;
 };
 
 /** 행사 생성 · 수정 · 상태 변경 후 캘린더와 목록을 함께 갱신합니다. */
@@ -68,6 +117,18 @@ export const useEventMutation = () => {
     */
     queryClient.invalidateQueries({ queryKey: ["get-payroll-list"] });
     queryClient.invalidateQueries({ queryKey: ["get-payroll-summary"] });
+  };
+
+  /*
+    포지션은 공고가 그대로 가리킨다. 이름 · 시각 · 금액을 고치면 관리자 공고 목록과
+    포털 공고가 함께 바뀌어야, 지원자가 본 금액과 계약서의 금액이 갈리지 않는다.
+  */
+  const invalidatePosition = () => {
+    invalidateEvent();
+    queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
+    queryClient.invalidateQueries({ queryKey: ["get-posting-list"] });
+    queryClient.invalidateQueries({ queryKey: ["get-my-postings"] });
+    queryClient.invalidateQueries({ queryKey: ["get-my-posting"] });
   };
 
   const createMutation = useMutation<EventDetail, AppError, EventFormValues>({
@@ -105,15 +166,13 @@ export const useEventMutation = () => {
   const dayRolesMutation = useMutation<
     EventDetail,
     AppError,
-    { eventId: number; date: string; roles: Omit<EventRoleSlot, "assignedCount">[] }
+    { eventId: number; date: string; roles: DayRoleInput[] }
   >({
     mutationFn: ({ eventId, date, roles }) =>
       updateEventDayRoles(eventId, date, roles),
     onSuccess: () => {
       showAppToast("success", "이 날의 발주 인원을 저장했습니다.");
-      invalidateEvent();
-      // 배치 현황은 발주 대비 충원을 보여 주므로 함께 갱신한다.
-      queryClient.invalidateQueries({ queryKey: ["get-assignment-list"] });
+      invalidatePosition();
     },
   });
 
@@ -125,11 +184,59 @@ export const useEventMutation = () => {
     },
   });
 
+  const createPositionMutation = useMutation<
+    EventDetail,
+    AppError,
+    { eventId: number; body: PositionInput }
+  >({
+    mutationFn: ({ eventId, body }) => createEventPosition(eventId, body),
+    onSuccess: (_, { body }) => {
+      showAppToast("success", `'${body.name}' 포지션을 추가했습니다.`, {
+        description:
+          (body.requiredCount ?? 0) > 0
+            ? `모든 근무일에 ${body.requiredCount}명씩 발주를 깔았습니다.`
+            : "발주 인원은 일별 근무자 탭에서 날짜마다 잡아 주세요.",
+      });
+      invalidatePosition();
+    },
+  });
+
+  const updatePositionMutation = useMutation<
+    EventDetail,
+    AppError,
+    { eventId: number; positionId: number; body: PositionInput }
+  >({
+    mutationFn: ({ eventId, positionId, body }) =>
+      updateEventPosition(eventId, positionId, body),
+    onSuccess: () => {
+      showAppToast("success", "포지션을 저장했습니다.", {
+        description: "이미 배치된 사람의 금액은 그대로입니다. 필요하면 적용 금액을 따로 고쳐 주세요.",
+      });
+      invalidatePosition();
+    },
+  });
+
+  const deletePositionMutation = useMutation<
+    EventDetail,
+    AppError,
+    { eventId: number; positionId: number }
+  >({
+    mutationFn: ({ eventId, positionId }) =>
+      deleteEventPosition(eventId, positionId),
+    onSuccess: () => {
+      showAppToast("success", "포지션을 삭제했습니다.");
+      invalidatePosition();
+    },
+  });
+
   return {
     createMutation,
     updateMutation,
     statusMutation,
     deleteMutation,
     dayRolesMutation,
+    createPositionMutation,
+    updatePositionMutation,
+    deletePositionMutation,
   };
 };

@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/dayjs";
 import {
   calculateScheduledWorkHours,
   calculateWorkHoursFromTimes,
+  resolveAssignmentSchedule,
   formatDistance,
   formatTimeRange,
   guessDayOffset,
@@ -85,7 +86,12 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
     draft?.checkOutTime ?? toTimeInput(assignment?.checkOutAt) ?? "";
   const breakMinutes =
     draft?.breakMinutes ??
-    String(assignment?.actualBreakMinutes ?? event?.breakMinutes ?? 0);
+    String(
+      assignment?.actualBreakMinutes ??
+        (event && assignment
+          ? resolveAssignmentSchedule(event, assignment).breakMinutes
+          : 0),
+    );
 
   /*
     이미 기록된 건이면 저장된 퇴근 일시가 근무일로부터 며칠 뒤인지 되짚는다.
@@ -126,7 +132,13 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
   /** 노쇼·결근은 나오지 않은 것이므로 출퇴근을 받지 않는다. */
   const isNoWork = attendance === "NO_SHOW" || attendance === "ABSENT";
 
-  const scheduledHours = event ? calculateScheduledWorkHours(event) : 0;
+  /*
+    예정 시각은 **이 배치의 포지션**을 따른다. 행사를 그대로 쓰면 B타임(야간)
+    근무자의 placeholder · 예정 대비 차이가 A타임 기준으로 나온다.
+  */
+  const schedule =
+    event && assignment ? resolveAssignmentSchedule(event, assignment) : null;
+  const scheduledHours = schedule ? calculateScheduledWorkHours(schedule) : 0;
 
   const hasCheckTime = Boolean(checkInTime && checkOutTime);
 
@@ -251,11 +263,11 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
               </p>
               <p className="mt-0.5 text-[12px] text-font-2">
                 옅게 적힌{" "}
-                {event
+                {schedule
                   ? formatTimeRange(
-                      event.startTime,
-                      event.endTime,
-                      event.endDayOffset,
+                      schedule.startTime,
+                      schedule.endTime,
+                      schedule.endDayOffset,
                     )
                   : "-"}
                 는 발주 시각입니다. 현장에서 실제로 오고 간 시각을 적어 주세요.
@@ -274,7 +286,7 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
               <FormField label="출근" required>
                 <TimeInput
                   value={checkInTime}
-                  placeholder={event?.startTime}
+                  placeholder={schedule?.startTime}
                   hasError={!checkInTime}
                   onChange={(nextTime) => patch({ checkInTime: nextTime })}
                 />
@@ -291,7 +303,7 @@ const AttendanceModal = ({ assignment, onClose }: AttendanceModalProps) => {
               >
                 <TimeInput
                   value={checkOutTime}
-                  placeholder={event?.endTime}
+                  placeholder={schedule?.endTime}
                   hasError={!checkOutTime}
                   onChange={(nextTime) =>
                     patch({

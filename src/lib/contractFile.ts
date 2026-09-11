@@ -130,35 +130,45 @@ const buildDocumentHtml = (document: ContractDocument): string => {
       <div style="margin-top:28px;border-top:1px solid #ccc;padding-top:20px">
         <p style="margin:0;font-size:13px;line-height:1.7">${escapeHtml(document.agreementNote)}</p>
 
-        <div style="display:flex;gap:32px;margin-top:28px">
-          <div style="flex:1">
-            <p style="margin:0;font-size:12px;color:#666">사업주 (갑)</p>
-            <p style="margin:6px 0 0;font-size:13px">${escapeHtml(document.companyName)}</p>
+        <!-- 갑 · 을을 줄 단위로 맞춘다. 화면(ContractDocumentView)과 같은 격자다. -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;column-gap:32px;margin-top:28px">
+          <p style="margin:0;font-size:12px;color:#666">사업주 (갑)</p>
+          <p style="margin:0;font-size:12px;color:#666">근로자 (을)</p>
+
+          <div style="margin-top:6px">
+            <p style="margin:0;font-size:13px">${escapeHtml(document.companyName)}</p>
             <p style="margin:0;font-size:12px;color:#666">${escapeHtml(document.companyAddress)}</p>
-            <p style="margin:8px 0 0;font-size:13px">대표자 ${escapeHtml(document.companyRepresentative)} (인)</p>
           </div>
+          ${
+            /*
+              전자서명으로 받은 건은 내려받는 파일에도 서명이 찍혀야 한다.
+              화면에는 서명이 있는데 파일에는 없으면, 그 파일은 서명 전 문서와
+              구별되지 않아 보관본으로 쓸 수 없다. (`ContractDocumentView`와 같은 갈래)
 
-          <div style="flex:1">
-            <p style="margin:0;font-size:12px;color:#666">근로자 (을)</p>
+              이미지는 data URL이라 외부 자원을 부르지 않는다 —
+              캔버스로 굽는 경로에서 외부 주소를 참조하면 그 자리에서 오염되어
+              내려받기가 통째로 실패한다.
+            */
+            document.signature
+              ? `<div style="margin-top:6px;height:60px;width:180px;border-bottom:1px solid #888;position:relative">
+                   <img src="${escapeHtml(document.signature.imageDataUrl)}" alt="" style="position:absolute;bottom:2px;left:0;height:58px;object-fit:contain;object-position:left bottom" />
+                 </div>`
+              : `<div style="margin-top:6px;height:60px;width:180px;border-bottom:1px solid #888"></div>`
+          }
+
+          <p style="margin:8px 0 0;font-size:13px">대표자 ${escapeHtml(document.companyRepresentative)} (인)</p>
+          ${
+            document.signature
+              ? `<p style="margin:8px 0 0;font-size:13px">성명 ${escapeHtml(document.signature.signedName)}</p>`
+              : `<p style="margin:8px 0 0;font-size:13px;color:#666">성명 __________ (서명)</p>`
+          }
+
+          <div style="grid-column:2">
             ${
-              /*
-                전자서명으로 받은 건은 내려받는 파일에도 서명이 찍혀야 한다.
-                화면에는 서명이 있는데 파일에는 없으면, 그 파일은 서명 전 문서와
-                구별되지 않아 보관본으로 쓸 수 없다. (`ContractDocumentView`와 같은 갈래)
-
-                이미지는 data URL이라 외부 자원을 부르지 않는다 —
-                캔버스로 굽는 경로에서 외부 주소를 참조하면 그 자리에서 오염되어
-                내려받기가 통째로 실패한다.
-              */
               document.signature
-                ? `<div style="height:60px;width:180px;border-bottom:1px solid #888;position:relative">
-                     <img src="${escapeHtml(document.signature.imageDataUrl)}" alt="" style="position:absolute;bottom:2px;left:0;height:58px;object-fit:contain;object-position:left bottom" />
-                   </div>
-                   <p style="margin:8px 0 0;font-size:13px">성명 ${escapeHtml(document.signature.signedName)}</p>
-                   <p style="margin:2px 0 0;font-size:11px;color:#666">전자서명 ${escapeHtml(document.signature.signedAt.slice(0, 16).replace("T", " "))}</p>
+                ? `<p style="margin:2px 0 0;font-size:11px;color:#666">전자서명 ${escapeHtml(document.signature.signedAt.slice(0, 16).replace("T", " "))}</p>
                    <p style="margin:0;font-size:11px;color:#999">문서검증 ${escapeHtml(document.signature.documentHash)}</p>`
-                : `<div style="height:60px;width:180px;border-bottom:1px solid #888"></div>
-                   <p style="margin:8px 0 0;font-size:13px;color:#666">성명 __________ (서명)</p>`
+                : ""
             }
             ${
               document.requiresGuardianSignature

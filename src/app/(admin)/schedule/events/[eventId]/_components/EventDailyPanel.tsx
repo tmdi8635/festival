@@ -18,23 +18,24 @@ import type { CsvColumn } from "@/lib/csv";
 import { formatDate } from "@/lib/dayjs";
 import { cn } from "@/lib/utils";
 import { openConfirm } from "@/store/useConfirmStore";
-import {
-  useJobRoleComparator,
-  useJobRoleLabel,
-} from "@/store/useOrgStore";
+import { useJobRoleLabel } from "@/store/useOrgStore";
 import {
   formatTimeRange,
   ASSIGNMENT_STATUS_LABEL,
   GENDER_PREFERENCE_BADGE,
   GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
+  attachPositionNames,
+  comparePositionOrder,
+  findPosition,
+  formatPositionLabel,
+  resolveAssignmentSchedule,
   resolveFillState,
   type Assignment,
   type EventDetail,
   type FillState,
   type EventDayPlan,
 } from "@/type/event";
-import { type JobRole } from "@/type/staff";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -76,8 +77,8 @@ const FILL_STATE_LABEL: Record<FillState, string> = {
 
 interface EventDailyPanelProps {
   event: EventDetail;
-  /** 그날 · 그 직무로 배치 모달을 연다. */
-  onAddStaff: (role?: JobRole, dates?: string[]) => void;
+  /** 그날 · 그 포지션으로 배치 모달을 연다. */
+  onAddStaff: (positionId?: number, dates?: string[]) => void;
   onOpenStaff: (staffId: number) => void;
 }
 
@@ -110,8 +111,11 @@ const EventDailyPanel = ({
   onOpenStaff,
 }: EventDailyPanelProps) => {
   const roleLabel = useJobRoleLabel();
-  // 직무 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
-  const compareRoles = useJobRoleComparator();
+  /*
+    포지션 순서(= 등록한 순서)로 세운다. A타임 다음에 B타임.
+    직무로 세우면 같은 스태프인 A · B타임 명단이 뒤섞인다.
+  */
+  const comparePositions = comparePositionOrder(event.positions);
   /*
     같은 표 안에서 손대는 대상이 둘이다.
     사람을 붙이고 떼는 것은 배치(`assignment`)이고,
@@ -147,8 +151,7 @@ const EventDailyPanel = ({
       .filter((assignment) => assignment.workDate === day.date)
       .sort(
         (a, b) =>
-            compareRoles(a.role, b.role) ||
-          a.staffName.localeCompare(b.staffName),
+          comparePositions(a, b) || a.staffName.localeCompare(b.staffName),
       );
 
     const confirmedCount = assignments.filter(
@@ -161,8 +164,8 @@ const EventDailyPanel = ({
 
     return {
       day,
-      // 발주 슬롯도 기준 설정 순서로 세운다. 날마다 칩 자리가 바뀌면 눈이 다시 찾는다.
-      roles: [...day.roles].sort((a, b) => compareRoles(a.role, b.role)),
+      // 발주 슬롯도 포지션 순서로 세운다. 날마다 칩 자리가 바뀌면 눈이 다시 찾는다.
+      roles: [...day.roles].sort(comparePositions),
       assignments,
       confirmedCount,
       requiredCount,
@@ -231,7 +234,7 @@ const EventDailyPanel = ({
           <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName={`${event.title}_일별근무자`}
-              rows={activeAssignments}
+              rows={attachPositionNames(event, activeAssignments)}
               columns={DAILY_CSV_COLUMNS}
               disabled={activeAssignments.length === 0}
             />
@@ -338,12 +341,18 @@ const EventDailyPanel = ({
                               new Date(`${day.date}T00:00:00`).getDay()
                             ]
                           }
-                          요일 ·{" "}
-                          {formatTimeRange(
-                            event.startTime,
-                            event.endTime,
-                            event.endDayOffset,
-                          )}
+                          요일
+                          {/*
+                            포지션이 하나면 그 시각이 곧 그날의 시각이다.
+                            여럿이면 시각은 줄마다 따로 적는다. 대표 시각을 여기
+                            적으면 야간조까지 그 시각에 오는 것처럼 읽힌다.
+                          */}
+                          {event.positions.length === 1 &&
+                            ` · ${formatTimeRange(
+                              event.positions[0].startTime,
+                              event.positions[0].endTime,
+                              event.positions[0].endDayOffset,
+                            )}`}
                         </p>
                         </span>
                       </button>
@@ -360,24 +369,33 @@ const EventDailyPanel = ({
                             slot.assignedCount,
                             slot.requiredCount,
                           );
+                          const position = findPosition(event, slot.positionId);
+                          const genderPreference =
+                            position?.genderPreference ?? "ANY";
 
                           return (
                             <button
-                              key={slot.role}
+                              key={slot.positionId}
                               type="button"
-                              onClick={() => onAddStaff(slot.role, [day.date])}
-                              title={`${formatDate(day.date)} ${roleLabel(slot.role)} 배치${
-                                slot.genderPreference !== "ANY"
-                                  ? ` · ${GENDER_PREFERENCE_LABEL[slot.genderPreference]} 발주`
+                              onClick={() =>
+                                onAddStaff(slot.positionId, [day.date])
+                              }
+                              title={`${formatDate(day.date)} ${
+                                position
+                                  ? `${formatPositionLabel(position, roleLabel)} ${formatTimeRange(position.startTime, position.endTime, position.endDayOffset)}`
+                                  : roleLabel(slot.role)
+                              } 배치${
+                                genderPreference !== "ANY"
+                                  ? ` · ${GENDER_PREFERENCE_LABEL[genderPreference]} 발주`
                                   : ""
-                              } (초과 배치도 가능합니다)`}
+                              }${position?.requiresHealthCert ? " · 보건증 필요" : ""} (초과 배치도 가능합니다)`}
                               className={cn(
                                 "inline-flex items-center gap-2 rounded-field border px-3 py-1.5 text-[12px] transition hover:border-brand active:scale-[0.98]",
                                 FILL_STATE_CHIP_CLASS[slotState],
                               )}
                             >
                               <span className="text-font-1">
-                                {roleLabel(slot.role)}
+                                {position?.name ?? roleLabel(slot.role)}
                               </span>
                               <span
                                 className={cn(
@@ -393,9 +411,9 @@ const EventDailyPanel = ({
                                 모든 칩에 같은 글자가 붙어 조건이 걸린 자리가
                                 오히려 안 보인다. 강제하는 값이 아니라 안내다.
                               */}
-                              {slot.genderPreference !== "ANY" && (
+                              {genderPreference !== "ANY" && (
                                 <span className="text-font-2">
-                                  {GENDER_PREFERENCE_BADGE[slot.genderPreference]}
+                                  {GENDER_PREFERENCE_BADGE[genderPreference]}
                                 </span>
                               )}
 
@@ -410,7 +428,7 @@ const EventDailyPanel = ({
                         {requiredCount}
                       </Badge>
 
-                      {/* 발주에 없던 직무(설치 · 철거 등)를 그날만 붙일 때 쓴다. */}
+                      {/* 이 날 발주에 없던 포지션을 그날만 붙일 때 쓴다. */}
                       {canAssign && (
                         <Button
                           size="sm"
@@ -462,7 +480,22 @@ const EventDailyPanel = ({
                       </p>
                     ) : (
                       <ul className="flex flex-col gap-1">
-                        {assignments.map((assignment) => (
+                        {assignments.map((assignment) => {
+                          /*
+                            포지션과 **그 포지션의 시각**을 이름에 붙인다.
+                            같은 날 A타임 · B타임이 섞인 명단에서 "이 사람 몇 시에 오지"를
+                            줄마다 답해야 현장 연락이 된다.
+                          */
+                          const position = findPosition(
+                            event,
+                            assignment.positionId,
+                          );
+                          const schedule = resolveAssignmentSchedule(
+                            event,
+                            assignment,
+                          );
+
+                          return (
                           <li
                             key={assignment.assignmentId}
                             className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-field border border-border-main px-3 py-2.5 sm:px-4"
@@ -482,8 +515,22 @@ const EventDailyPanel = ({
                                 }
                                 gender={assignment.staffGender}
                                 badge={
-                                  <Badge tone="neutral">
-                                    {roleLabel(assignment.role)}
+                                  <Badge
+                                    tone="neutral"
+                                    title={
+                                      position
+                                        ? formatPositionLabel(position, roleLabel)
+                                        : roleLabel(assignment.role)
+                                    }
+                                  >
+                                    {position?.name ?? roleLabel(assignment.role)}{" "}
+                                    <span className="font-normal tabular-nums">
+                                      {formatTimeRange(
+                                        schedule.startTime,
+                                        schedule.endTime,
+                                        schedule.endDayOffset,
+                                      )}
+                                    </span>
                                   </Badge>
                                 }
                               />
@@ -527,7 +574,8 @@ const EventDailyPanel = ({
                               </Button>
                             )}
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     )}
                       </div>

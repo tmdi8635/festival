@@ -38,6 +38,11 @@ export const ASSIGNMENT_WHO_COLUMNS: CsvColumn<Assignment>[] = [
   { header: "이름", value: (row) => row.staffName },
   { header: "연락처", value: (row) => formatPhoneNumber(row.staffPhone) },
   { header: "직무", value: (row) => jobRoleLabel(row.role) },
+  /*
+    포지션. 같은 직무라도 A타임 · B타임은 오는 시각 · 금액이 다르다.
+    이름은 응답(행사를 가로지르는 목록) 또는 `attachPositionNames`가 붙여 준다.
+  */
+  { header: "포지션", value: (row) => row.positionName ?? "" },
 ];
 
 /** 배치 상태와 근태 · 실제 출퇴근. 정산의 근거가 되는 값이다. */

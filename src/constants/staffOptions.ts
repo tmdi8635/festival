@@ -1,10 +1,13 @@
 import type { BadgeTone, SelectOption } from "@/components/ui";
+import type { MyWorkStage } from "@/type/my";
 import {
   ATTENDANCE_STATUS_LABEL,
   DOCUMENT_REVIEW_STATE_LABEL,
   GENDER_LABEL,
+  HEALTH_CERT_FILTER_LABEL,
   type AttendanceStatus,
   type DocumentReviewState,
+  type HealthCertState,
   type StaffStatus,
 } from "@/type/staff";
 
@@ -47,6 +50,23 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatus, BadgeTone> = {
   EARLY_LEAVE: "warning",
   ABSENT: "danger",
   NO_SHOW: "danger",
+};
+
+/**
+ * 포털 근무 단계 색. 돈이 오가는 단계는 **아직 기다리는 것(주황)과
+ * 끝난 것(초록)**이 한눈에 갈려야 한다. 본인이 가장 자주 확인하는 게 그 차이다.
+ */
+export const MY_WORK_STAGE_TONE: Record<MyWorkStage, BadgeTone> = {
+  CONFIRMED: "brand",
+  WORKING: "info",
+  WORKED: "neutral",
+  SETTLEMENT: "warning",
+  HOLD: "danger",
+  APPROVED: "info",
+  PAID: "success",
+  CANCELED: "neutral",
+  NO_SHOW: "danger",
+  ABSENT: "danger",
 };
 
 export const STAFF_STATUS_FILTER_OPTIONS: SelectOption[] = [
@@ -118,6 +138,33 @@ export const DOCUMENT_STATE_FILTER_OPTIONS: SelectOption[] = [
     value: state,
   })),
 ];
+
+/**
+ * 보건증 필터.
+ *
+ * '없음'에는 **만료**가 함께 들어간다. 식음료 자리에 세울 수 있느냐가 질문이라,
+ * 파일은 있지만 1년이 지난 보건증은 없는 것과 같다. (`matchesHealthCertFilter`)
+ * 인력 목록 · 서류 관리 · 배치 후보가 같은 선택지를 쓴다.
+ */
+export const HEALTH_CERT_FILTER_OPTIONS: SelectOption[] = [
+  { label: "보건증 전체", value: "" },
+  ...(["VALID", "NONE"] as const).map((filter) => ({
+    label: HEALTH_CERT_FILTER_LABEL[filter],
+    value: filter,
+  })),
+];
+
+/**
+ * 보건증 상태별 색. 서류 심사 색을 그대로 따르고, 만료만 위험으로 둔다.
+ * 만료는 파일이 있어도 현장에 설 수 없는 상태라 반려와 같은 무게다.
+ */
+export const HEALTH_CERT_STATE_TONE: Record<HealthCertState, BadgeTone> = {
+  NONE: "neutral",
+  SUBMITTED: "warning",
+  APPROVED: "success",
+  REJECTED: "danger",
+  EXPIRED: "danger",
+};
 
 /**
  * 인력 정렬 기준.

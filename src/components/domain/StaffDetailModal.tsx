@@ -10,6 +10,7 @@ import { CONTRACT_STATUS_TONE } from "@/constants/contractOptions";
 import {
   ATTENDANCE_STATUS_TONE,
   DOCUMENT_REVIEW_STATE_TONE,
+  HEALTH_CERT_STATE_TONE,
   STAFF_STATUS_HINT,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
@@ -26,7 +27,10 @@ import {
   DOCUMENT_LANES,
   DOCUMENT_LANE_LABEL,
   DOCUMENT_REVIEW_STATE_LABEL,
+  ATTENDANCE_PENALTY_LABEL,
   GENDER_LABEL,
+  HEALTH_CERT_STATE_LABEL,
+  healthCertExpiresAt,
   RATER_TYPE_LABEL,
   REPUTATION_BASE_SCORE,
   REPUTATION_VERDICT_LABEL,
@@ -467,7 +471,11 @@ const StaffDetailModal = ({
       key: "tags",
       header: "평가 항목",
       render: (item) =>
-        item.tags.length > 0 ? (
+        item.penaltyType ? (
+          <Badge tone="danger">
+            {ATTENDANCE_PENALTY_LABEL[item.penaltyType]}
+          </Badge>
+        ) : item.tags.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {item.tags.map((tag) => (
               <Badge
@@ -530,7 +538,9 @@ const StaffDetailModal = ({
         */
         <TableCellStack
           primary={<span className="text-[13px]">{item.ratedBy}</span>}
-          secondary={RATER_TYPE_LABEL[item.raterType]}
+          secondary={
+            item.penaltyType ? "근태 기록" : RATER_TYPE_LABEL[item.raterType]
+          }
         />
       ),
     },
@@ -793,29 +803,52 @@ const StaffDetailModal = ({
                           <span className="text-[13px] text-font-2">
                             {DOCUMENT_LANE_LABEL[lane]}
                           </span>
-                          <Badge
-                            tone={
-                              DOCUMENT_REVIEW_STATE_TONE[
-                                staff.reviews[lane].state
-                              ]
-                            }
-                          >
-                            {
-                              DOCUMENT_REVIEW_STATE_LABEL[
-                                staff.reviews[lane].state
-                              ]
-                            }
-                          </Badge>
+                          {/*
+                            보건증은 승인 뒤에도 만료가 있어 심사 상태 대신
+                            보건증 상태(유효 · 만료)를 적는다.
+                          */}
+                          {lane === "HEALTH_CERT" ? (
+                            <Badge
+                              tone={HEALTH_CERT_STATE_TONE[staff.healthCertState]}
+                            >
+                              {HEALTH_CERT_STATE_LABEL[staff.healthCertState]}
+                            </Badge>
+                          ) : (
+                            <Badge
+                              tone={
+                                DOCUMENT_REVIEW_STATE_TONE[
+                                  staff.reviews[lane].state
+                                ]
+                              }
+                            >
+                              {
+                                DOCUMENT_REVIEW_STATE_LABEL[
+                                  staff.reviews[lane].state
+                                ]
+                              }
+                            </Badge>
+                          )}
                         </div>
 
                         <SecureImage
                           label={DOCUMENT_LANE_LABEL[lane]}
                           url={
-                            lane === "ID_CARD"
-                              ? staff.idCardImageUrl
-                              : staff.bankBookImageUrl
+                            {
+                              ID_CARD: staff.idCardImageUrl,
+                              BANK_ACCOUNT: staff.bankBookImageUrl,
+                              HEALTH_CERT: staff.healthCertImageUrl,
+                            }[lane]
                           }
                         />
+
+                        {lane === "HEALTH_CERT" && staff.healthCertIssuedAt && (
+                          <p className="text-[12px] text-font-2 tabular-nums">
+                            발급 {formatDate(staff.healthCertIssuedAt)} · 만료{" "}
+                            {formatDate(
+                              healthCertExpiresAt(staff.healthCertIssuedAt),
+                            )}
+                          </p>
+                        )}
 
                         {staff.reviews[lane].state === "REJECTED" &&
                           staff.reviews[lane].rejectReason && (

@@ -189,7 +189,11 @@ const EventPickerModal = ({
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
-                      <RoleSlotChips roles={event.roles} isCompact />
+                      <RoleSlotChips
+                        roles={event.roles}
+                        positions={event.positions}
+                        isCompact
+                      />
 
                       <span
                         className={cn(

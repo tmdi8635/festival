@@ -3,8 +3,10 @@ import {
   calculateNightHours,
   calculateScheduledWorkHours,
   groupAssignmentsByStaffRole,
+  resolveAssignmentSchedule,
   resolveCheckOutDayOffset,
   resolveHourlyRate,
+  resolveLateMinutes,
   resolveWorkHours,
   toTimeInput,
 } from "@/type/event";
@@ -53,7 +55,12 @@ const buildWorkDay = (
   event: EventDetail,
   assignment: Assignment,
 ): PayrollWorkDay => {
-  const scheduledWorkHours = calculateScheduledWorkHours(event);
+  /*
+    예정 시간은 **그 배치의 포지션**에서 온다. 행사 시간을 그대로 쓰면
+    B타임(21~06) 근무자의 잠정 시간 · 야간 구간이 A타임 기준으로 잡힌다.
+  */
+  const schedule = resolveAssignmentSchedule(event, assignment);
+  const scheduledWorkHours = calculateScheduledWorkHours(schedule);
 
   /*
     나오지 않은 날은 0시간이다.
@@ -65,7 +72,7 @@ const buildWorkDay = (
   const payable = isPayableDay(assignment);
 
   const { workHours, isActual } = payable
-    ? resolveWorkHours(assignment, event)
+    ? resolveWorkHours(assignment, schedule)
     : { workHours: 0, isActual: true };
 
   /*
@@ -75,14 +82,27 @@ const buildWorkDay = (
   */
   const nightHours = payable
     ? calculateNightHours(
-        toTimeInput(assignment.checkInAt) || event.startTime,
-        toTimeInput(assignment.checkOutAt) || event.endTime,
+        toTimeInput(assignment.checkInAt) || schedule.startTime,
+        toTimeInput(assignment.checkOutAt) || schedule.endTime,
         operationSettings.nightStartTime,
         operationSettings.nightEndTime,
         resolveCheckOutDayOffset(assignment.workDate, assignment.checkOutAt) ??
-          event.endDayOffset,
+          schedule.endDayOffset,
       )
     : 0;
+
+  /*
+    지각 분수는 **출근 시각에서 그때 구한다.** (`resolveLateMinutes`)
+    저장된 `lateMinutes`만 보면 본인이 포털에서 찍은 지각이 0분으로 들어가
+    공제가 한 번도 붙지 않았다. 출근 기록이 없을 때만 예전 저장값을 쓴다.
+  */
+  const lateMinutes = assignment.checkInAt
+    ? resolveLateMinutes(
+        assignment.workDate,
+        schedule.startTime,
+        assignment.checkInAt,
+      )
+    : assignment.lateMinutes;
 
   /*
     지각은 분 단위로 깎는다. 규칙을 정해 두면 매번 협상하지 않아도 된다.
@@ -97,7 +117,7 @@ const buildWorkDay = (
             scheduledWorkHours,
           ) /
             60) *
-            assignment.lateMinutes,
+            lateMinutes,
         )
       : 0;
 
@@ -106,7 +126,7 @@ const buildWorkDay = (
     workDate: assignment.workDate,
     isPayable: payable,
     /* 공제를 끄면 되살릴 값이라 얼마가 빠졌는지를 그대로 들고 있는다. */
-    breakMinutes: assignment.actualBreakMinutes ?? event.breakMinutes,
+    breakMinutes: assignment.actualBreakMinutes ?? schedule.breakMinutes,
     /* 계산이 끝나면 `applyPayrollAmounts`가 실제로 매겨진 시간을 채운다. */
     paidWorkHours: 0,
     // 금액은 배치가 들고 있는 값을 그대로 쓴다. 행사 안에서 언제든 바뀔 수 있다.
@@ -120,7 +140,7 @@ const buildWorkDay = (
     checkOutAt: assignment.checkOutAt,
     nightHours,
     attendance: assignment.attendance,
-    lateMinutes: assignment.lateMinutes,
+    lateMinutes,
     deduction,
   };
 };

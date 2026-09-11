@@ -9,6 +9,7 @@ import {
   calculateScheduledWorkHours,
   calculateWorkHoursFromTimes,
   guessDayOffset,
+  resolveAssignmentSchedule,
   type Assignment,
   type DayOffset,
   type EventDetail,
@@ -59,6 +60,26 @@ const BulkAttendanceModal = ({
 }: BulkAttendanceModalProps) => {
   const { bulkAttendanceMutation } = useAssignmentMutation();
 
+  /*
+    초기값은 **고른 배치의 포지션 시각**이다. 행사 시각을 그대로 깔면
+    야간조만 골라 일괄 기록할 때 주간 시각이 들어간다.
+    포지션이 섞여 있으면 첫 건을 따르고, 예정 대비 차이는 보여 주지 않는다.
+    (한 줄로 비교할 기준이 없다)
+  */
+  const [firstAssignment] = assignments;
+  const schedule = firstAssignment
+    ? resolveAssignmentSchedule(event, firstAssignment)
+    : event;
+  const hasMixedSchedule = assignments.some((item) => {
+    const other = resolveAssignmentSchedule(event, item);
+
+    return (
+      other.startTime !== schedule.startTime ||
+      other.endTime !== schedule.endTime ||
+      other.endDayOffset !== schedule.endDayOffset
+    );
+  });
+
   // 행사 예정 시간을 초기값으로 깔아 준다. 대부분은 예정대로 끝나므로 손댈 일이 없다.
   const [draft, setDraft] = useState<{
     attendance: AttendanceStatus;
@@ -73,17 +94,17 @@ const BulkAttendanceModal = ({
   const attendance = draft?.attendance ?? "PRESENT";
   const lateMinutes = draft?.lateMinutes ?? "0";
   const shouldRecordTime = draft?.shouldRecordTime ?? true;
-  const checkInTime = draft?.checkInTime ?? event.startTime;
-  const checkOutTime = draft?.checkOutTime ?? event.endTime;
+  const checkInTime = draft?.checkInTime ?? schedule.startTime;
+  const checkOutTime = draft?.checkOutTime ?? schedule.endTime;
   /*
-    초기값은 행사에 적힌 종료 시점을 그대로 따른다.
-    행사 자체가 D+1에 끝나는 철야 건이면 퇴근도 대개 D+1이다.
+    초기값은 포지션에 적힌 종료 시점을 그대로 따른다.
+    야간 포지션이 D+1에 끝나면 퇴근도 대개 D+1이다.
   */
   const checkOutDayOffset =
     draft?.checkOutDayOffset ??
-    event.endDayOffset ??
-    guessDayOffset(event.startTime, event.endTime);
-  const breakMinutes = draft?.breakMinutes ?? String(event.breakMinutes);
+    schedule.endDayOffset ??
+    guessDayOffset(schedule.startTime, schedule.endTime);
+  const breakMinutes = draft?.breakMinutes ?? String(schedule.breakMinutes);
 
   const patchDraft = (
     patch: Partial<{
@@ -126,7 +147,7 @@ const BulkAttendanceModal = ({
     checkOutDayOffset,
   );
 
-  const scheduledWorkHours = calculateScheduledWorkHours(event);
+  const scheduledWorkHours = calculateScheduledWorkHours(schedule);
 
   /** 선택된 건이 며칠에 걸쳐 있는지. 같은 시각이 여러 날에 각각 붙는다는 것을 보여 준다. */
   const dates = [...new Set(assignments.map((item) => item.workDate))].sort();
@@ -361,6 +382,7 @@ const BulkAttendanceModal = ({
 
                   <span className="flex flex-wrap items-center justify-end gap-2">
                     {nextWorkHours !== undefined &&
+                      !hasMixedSchedule &&
                       nextWorkHours !== scheduledWorkHours && (
                         <Badge
                           tone={

@@ -1,20 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAssignmentCandidateQuery } from "@/api/event/getAssignmentCandidates";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
 import type { EmploymentType } from "@/type/employee";
-import {
-  useJobRoleComparator,
-  useJobRoleLabel,
-  useJobRoleOptions,
-  useActiveJobRoles,
-} from "@/store/useOrgStore";
+import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import { Sparkle, Star, Warning } from "@/icons";
 import { cn } from "@/lib/utils";
 import {
+  formatPositionLabel,
   formatTimeRange,
+  findPosition,
   GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
   describeRecurrence,
@@ -24,12 +21,17 @@ import {
 } from "@/type/event";
 import {
   DOCUMENT_REVIEW_STATE_LABEL,
+  HEALTH_CERT_STATE_LABEL,
   formatRegion,
+  hasValidHealthCert,
   REQUIRED_DOCUMENT_LABEL,
   type Gender,
-  type JobRole,
+  type HealthCertFilter,
 } from "@/type/staff";
-import { GENDER_FILTER_OPTIONS } from "@/constants/staffOptions";
+import {
+  GENDER_FILTER_OPTIONS,
+  HEALTH_CERT_FILTER_OPTIONS,
+} from "@/constants/staffOptions";
 import Alert from "@/components/ui/Alert";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
@@ -44,8 +46,8 @@ import RatingStat from "./RatingStat";
 
 interface StaffPickerModalProps {
   event: EventDetail | null;
-  /** 모달을 열 때 미리 선택해 둘 직무 (부족한 직무에서 바로 열 수 있게) */
-  initialRole?: JobRole;
+  /** 모달을 열 때 미리 골라 둘 포지션 (부족한 자리에서 바로 열 수 있게) */
+  initialPositionId?: number;
   /**
    * 모달을 열 때 미리 골라 둘 근무일.
    *
@@ -78,6 +80,9 @@ const EMPLOYMENT_FILTER_OPTIONS = [
 /**
  * 인력 배치 모달.
  *
+ * 배치는 **포지션**에 선다. 같은 스태프라도 A타임 · B타임은 오는 시각 · 금액이 달라서,
+ * 직무만 고르면 서버가 어느 자리로 넣어야 할지 알 수 없다.
+ *
  * 대표가 머릿속으로 하던 판단(누굴 넣지)을 화면이 대신 정렬해 준다.
  * - 즐겨찾기 → 해당 거래처 경험 → 평판 → 누적 근무 순으로 추천 점수를 매긴다.
  * - 같은 날 다른 행사에 확정된 사람은 기본적으로 목록에서 빼고,
@@ -85,36 +90,45 @@ const EMPLOYMENT_FILTER_OPTIONS = [
  */
 const StaffPickerModal = ({
   event,
-  initialRole,
+  initialPositionId,
   initialDates,
   onClose,
 }: StaffPickerModalProps) => {
   const jobRoleLabel = useJobRoleLabel();
   // 직무 나열 순서는 기준 설정이 정한다. 코드 알파벳순이면 팀장이 맨 뒤로 밀린다.
   const compareRoles = useJobRoleComparator();
-  const jobRoleOptions = useJobRoleOptions();
-  const activeJobRoles = useActiveJobRoles();
 
   /*
-    고르기 전에는 호출부가 지정한 직무를 그대로 쓰고, 고르면 draft가 화면을 담당한다.
+    고르기 전에는 호출부가 지정한 포지션을 그대로 쓰고, 고르면 draft가 화면을 담당한다.
     useState 초기값으로 두면 모달이 계속 마운트된 채 열고 닫히므로
-    "부족한 직무의 채우기"로 다시 열어도 처음 열었을 때의 직무가 남는다.
-    (직무가 통째로 바뀐 에이전시에서도 첫 직무가 늘 유효하도록 목록에서 고른다)
+    "부족한 자리의 채우기"로 다시 열어도 처음 열었을 때의 포지션이 남는다.
   */
-  const [draftRole, setDraftRole] = useState<JobRole | null>(null);
-  /* 선택지가 아니라 직무 정의에서 꺼낸다. 옵션의 value는 그냥 문자열이다. */
-  const role = draftRole ?? initialRole ?? activeJobRoles[0]?.code ?? "STAFF";
+  const [draftPositionId, setDraftPositionId] = useState<number | null>(null);
+  const positions = useMemo(() => event?.positions ?? [], [event]);
+  const positionId =
+    draftPositionId ?? initialPositionId ?? positions[0]?.positionId ?? 0;
+  const position = event ? findPosition(event, positionId) : undefined;
+  /* 후보의 가능 직무 중 지금 자리의 직무를 도드라지게 하는 데 쓴다. */
+  const role = position?.jobRole;
+
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<AssignmentStatus>("CONFIRMED");
   /*
     성별 필터.
 
-    발주에 조건이 있으면 그것이 **초기값**이 되고, 담당자가 '전체 성별'로
+    포지션에 조건이 있으면 그것이 **초기값**이 되고, 담당자가 '전체 성별'로
     되돌리면 조건과 다른 사람도 그대로 후보에 오른다.
     현장은 '남성만' 자리에 여성을 넣는 일도 늘 있어서, 필터가 그것을 막으면
     후보가 아예 안 보이는 날이 생긴다. 강제하지 않는다.
   */
   const [draftGender, setDraftGender] = useState<Gender | "" | null>(null);
+  /*
+    보건증 필터. 보건증이 필요한 포지션이면 '있음'이 초기값이다.
+    발급을 기다리는 사람을 먼저 잡아 두는 일도 있어서 언제든 풀 수 있다.
+  */
+  const [draftHealthCert, setDraftHealthCert] = useState<
+    HealthCertFilter | "" | null
+  >(null);
   const [employment, setEmployment] = useState<EmploymentType | "">("");
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -130,47 +144,59 @@ const StaffPickerModal = ({
   const eventDates = event?.dates ?? [];
   const targetDates = draftDates ?? initialDates ?? eventDates;
 
-  /*
-    고른 근무일의 발주에 걸린 성별 조건.
-    날마다 다르면(첫날만 남성) '무관'으로 떨어뜨린다. 한쪽을 대표로 세우면
-    조건이 없는 날까지 좁혀 놓고 고르게 된다.
-  */
+  /** 고른 근무일에 이 포지션의 발주 슬롯 */
   const targetSlots = (event?.days ?? [])
     .filter((day) => targetDates.includes(day.date))
-    .flatMap((day) => day.roles.filter((item) => item.role === role));
+    .flatMap((day) => day.roles.filter((item) => item.positionId === positionId));
 
-  const orderGender: GenderPreference =
-    targetSlots.length > 0 &&
-    targetSlots.every(
-      (slot) => slot.genderPreference === targetSlots[0].genderPreference,
-    )
-      ? targetSlots[0].genderPreference
-      : "ANY";
+  const orderGender: GenderPreference = position?.genderPreference ?? "ANY";
+  const requiresHealthCert = position?.requiresHealthCert ?? false;
 
   const gender =
     draftGender ?? (orderGender === "ANY" ? "" : (orderGender as Gender));
+  const healthCert =
+    draftHealthCert ?? (requiresHealthCert ? "VALID" : "");
 
   const { data, isLoading } = useAssignmentCandidateQuery(
     {
       eventId: event?.eventId ?? 0,
-      role,
+      positionId: positionId || undefined,
       keyword: keyword || undefined,
       includeUnavailable,
       gender: gender || undefined,
+      healthCert: healthCert || undefined,
       employment: employment || undefined,
       // 고른 날 기준으로 겹침을 계산해야 "이 날만 가능한 사람"이 걸러지지 않는다.
       dates: targetDates.join(","),
     },
-    Boolean(event),
+    Boolean(event) && positionId > 0,
   );
 
   const { createMutation } = useAssignmentMutation();
 
   const candidates = data?.items ?? [];
 
+  /** 포지션 선택지. 이름만으로는 A타임 · B타임의 차이가 안 보여 시각을 붙인다. */
+  const positionOptions = useMemo(
+    () =>
+      positions.map((item) => ({
+        label: `${item.name} · ${formatTimeRange(
+          item.startTime,
+          item.endTime,
+          item.endDayOffset,
+        )}`,
+        value: String(item.positionId),
+      })),
+    [positions],
+  );
+
+  const positionLabel = position
+    ? formatPositionLabel(position, jobRoleLabel)
+    : "포지션";
+
   /*
     부족 인원은 **고른 근무일 기준**으로 센다.
-    행사 전체 합계로 안내하면, 일자별 근무자에서 "그 날 그 직무"를 눌러 열었을 때
+    행사 전체 합계로 안내하면, 일자별 근무자에서 "그 날 그 자리"를 눌러 열었을 때
     "이 날은 다 찼는데 6명이 더 필요합니다"처럼 엇갈린 말이 나온다.
   */
   const hasOrder = targetSlots.length > 0;
@@ -200,27 +226,31 @@ const StaffPickerModal = ({
   const handleClose = () => {
     setSelectedIds([]);
     setDraftDates(null);
-    setDraftRole(null);
+    setDraftPositionId(null);
     setDraftGender(null);
+    setDraftHealthCert(null);
     setEmployment("");
     setKeyword("");
     onClose();
   };
 
   const handleSubmit = () => {
-    if (!event) return;
+    if (!event || !positionId) return;
 
     createMutation.mutate(
       {
         eventId: event.eventId,
         staffIds: selectedIds,
         dates: targetDates,
-        role,
+        positionId,
         status,
       },
       { onSuccess: () => handleClose() },
     );
   };
+
+  const canSubmit =
+    selectedIds.length > 0 && targetDates.length > 0 && positionId > 0;
 
   return (
     <Modal
@@ -229,15 +259,15 @@ const StaffPickerModal = ({
       title="인력 배치"
       description={
         event
-          ? `${event.title} · ${describeRecurrence(event.recurrence, event.dayCount)} · ${formatTimeRange(event.startTime, event.endTime, event.endDayOffset)}`
+          ? `${event.title} · ${describeRecurrence(event.recurrence, event.dayCount)}${
+              position
+                ? ` · ${positionLabel} ${formatTimeRange(position.startTime, position.endTime, position.endDayOffset)}`
+                : ""
+            }`
           : undefined
       }
       size="xl"
-      onSubmit={
-        selectedIds.length === 0 || targetDates.length === 0
-          ? undefined
-          : handleSubmit
-      }
+      onSubmit={canSubmit ? handleSubmit : undefined}
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
@@ -246,7 +276,7 @@ const StaffPickerModal = ({
           <Button
             variant="primary"
             onClick={handleSubmit}
-            disabled={selectedIds.length === 0 || targetDates.length === 0}
+            disabled={!canSubmit}
             isLoading={createMutation.isPending}
           >
             {selectedIds.length}명 ×{" "}
@@ -259,27 +289,34 @@ const StaffPickerModal = ({
       }
     >
       <div className="flex flex-col gap-4">
-        {shortage > 0 && (
+        {positions.length === 0 && (
+          <Alert tone="warning" title="이 행사에 포지션이 없습니다.">
+            개요 탭의 포지션 카드에서 포지션을 먼저 만들어 주세요. 배치는 포지션에
+            섭니다.
+          </Alert>
+        )}
+
+        {position && shortage > 0 && (
           <Alert
             tone="warning"
-            title={`고른 근무일 기준 ${jobRoleLabel(role)} ${shortage}명이 더 필요합니다.`}
+            title={`고른 근무일 기준 ${positionLabel} ${shortage}명이 더 필요합니다.`}
           >
             추천 순서대로 채우면 현장 적응이 빠른 인력부터 배치됩니다.
           </Alert>
         )}
 
         {/*
-          발주를 다 채웠거나 아예 발주에 없는 직무여도 배치를 막지 않는다.
-          현장에서 "한 명 더", "설치 인력 추가"가 수시로 생기고,
-          그때마다 발주 인원을 먼저 고쳐야 한다면 아무도 그렇게 쓰지 않는다.
+          발주를 다 채웠거나 아예 그날 발주에 없는 포지션이어도 배치를 막지 않는다.
+          현장에서 "한 명 더"가 수시로 생기고, 그때마다 발주 인원을 먼저 고쳐야 한다면
+          아무도 그렇게 쓰지 않는다.
         */}
-        {shortage === 0 && (
+        {position && shortage === 0 && (
           <Alert
             tone="info"
             title={
               hasOrder
-                ? `고른 근무일의 ${jobRoleLabel(role)} 발주 인원은 이미 채웠습니다.`
-                : `${jobRoleLabel(role)}은 고른 근무일의 발주에 없는 직무입니다.`
+                ? `고른 근무일의 ${positionLabel} 발주 인원은 이미 채웠습니다.`
+                : `${positionLabel}은 고른 근무일의 발주에 없는 포지션입니다.`
             }
           >
             현장 상황에 따라 더 배치할 수 있습니다. 발주보다 많이 넣으면 충원
@@ -294,7 +331,7 @@ const StaffPickerModal = ({
         */}
         {eventDates.length > 1 && (
           <div className="flex flex-col gap-2 rounded-field border border-border-main bg-subtle px-4 py-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[13px] font-medium text-font-1">
                 배치할 근무일
                 <span className="ml-1.5 text-[12px] font-normal text-font-2">
@@ -367,19 +404,26 @@ const StaffPickerModal = ({
           />
 
           <div className="flex flex-wrap items-center gap-2">
+            {/*
+              배치할 포지션. 바꾸면 성별 · 보건증 필터의 초기값도 그 포지션을 따른다.
+              앞 포지션에서 고른 필터가 남으면 조건이 없는 자리에서도 후보가 줄어든다.
+            */}
             <Select
-              aria-label="배치할 직무"
-              options={jobRoleOptions}
-              value={role}
-              onChange={(event) => {
-                setDraftRole(event.target.value as JobRole);
+              aria-label="배치할 포지션"
+              options={positionOptions}
+              value={String(positionId)}
+              disabled={positions.length === 0}
+              onChange={(changeEvent) => {
+                setDraftPositionId(Number(changeEvent.target.value));
+                setDraftGender(null);
+                setDraftHealthCert(null);
                 setSelectedIds([]);
               }}
-              selectBoxClassName="w-36"
+              selectBoxClassName="w-48"
             />
 
             {/*
-              성별 필터. 발주 조건이 초기값을 정할 뿐 **막지 않는다.**
+              성별 필터. 포지션 조건이 초기값을 정할 뿐 **막지 않는다.**
               '전체 성별'로 되돌리면 조건과 다른 사람도 그대로 보인다.
             */}
             <Select
@@ -391,6 +435,19 @@ const StaffPickerModal = ({
                 setSelectedIds([]);
               }}
               selectBoxClassName="w-28"
+            />
+
+            <Select
+              aria-label="보건증 필터"
+              options={HEALTH_CERT_FILTER_OPTIONS}
+              value={healthCert}
+              onChange={(changeEvent) => {
+                setDraftHealthCert(
+                  changeEvent.target.value as HealthCertFilter | "",
+                );
+                setSelectedIds([]);
+              }}
+              selectBoxClassName="w-36"
             />
 
             {/* 우리 직원만 세워 보는 자리. 직무 조건을 건너뛰는 사람들이라 따로 찾을 길이 있어야 한다. */}
@@ -409,8 +466,8 @@ const StaffPickerModal = ({
               aria-label="배치 상태"
               options={ASSIGNMENT_STATUS_OPTIONS}
               value={status}
-              onChange={(event) =>
-                setStatus(event.target.value as AssignmentStatus)
+              onChange={(changeEvent) =>
+                setStatus(changeEvent.target.value as AssignmentStatus)
               }
               selectBoxClassName="w-32"
             />
@@ -418,21 +475,24 @@ const StaffPickerModal = ({
         </div>
 
         {/*
-          발주에 성별 조건이 있으면 알려 준다. **막지는 않는다.**
+          포지션에 걸린 조건을 알려 준다. **관리자의 배치는 막지 않는다.**
 
           현장은 유동적이라 '남성만'으로 받은 자리에 여성을 넣는 일도,
-          그 반대도 늘 있다. 시스템이 그것을 막으면 담당자는 조건을 아예
-          안 적게 되고, 그러면 적어 둔 의미까지 사라진다.
-          반드시 지켜야 하는 조건이라면 내부 메모로 따로 남긴다.
+          보건증 발급을 기다리는 사람을 먼저 잡아 두는 일도 있다.
+          시스템이 그것을 막으면 담당자는 조건을 아예 안 적게 된다.
         */}
-        {orderGender !== "ANY" && (
+        {(orderGender !== "ANY" || requiresHealthCert) && (
           <Alert
             tone="info"
-            title={`이 발주에는 '${GENDER_PREFERENCE_LABEL[orderGender]}' 조건이 적혀 있습니다.`}
+            title={`이 포지션의 조건: ${[
+              orderGender !== "ANY" ? GENDER_PREFERENCE_LABEL[orderGender] : "",
+              requiresHealthCert ? "보건증 필요" : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}`}
           >
-            참고용 표시입니다. 조건과 다른 인력도 그대로 배치할 수 있고 경고도
-            뜨지 않습니다. 위 성별 필터를 &lsquo;전체 성별&rsquo;로 바꾸면 모든
-            후보가 보입니다.
+            조건에 맞는 후보가 먼저 걸러져 있습니다. 조건과 다른 인력도 배치할 수
+            있으니, 필요하면 위 필터를 &lsquo;전체&rsquo;로 바꿔 모든 후보를 보세요.
           </Alert>
         )}
 
@@ -455,7 +515,7 @@ const StaffPickerModal = ({
         {!isLoading && candidates.length === 0 && (
           <EmptyState
             title="조건에 맞는 인력이 없습니다."
-            description="직무를 바꾸거나 검색어를 지워서 다시 찾아보세요."
+            description="포지션 · 필터를 바꾸거나 검색어를 지워서 다시 찾아보세요."
           />
         )}
 
@@ -464,8 +524,7 @@ const StaffPickerModal = ({
             {candidates.map((candidate, index) => {
               /*
                 반복 행사에서는 "일부 날만 겹치는" 사람이 대부분이다.
-                예전처럼 하나라도 겹치면 통째로 막아 버리면, 나올 수 있는 날까지
-                놓치게 된다. 고른 날이 전부 막힌 사람만 선택을 막고,
+                고른 날이 전부 막힌 사람만 선택을 막고,
                 일부만 겹치는 사람은 몇 날이 빠지는지 알려 준 뒤 고르게 한다.
               */
               const blockedDates = targetDates.filter(
@@ -477,10 +536,9 @@ const StaffPickerModal = ({
               /*
                 서류(신분증 · 통장사본)가 없으면 **확정 배치만** 막는다.
                 일을 다 시킨 뒤에 통장사본이 없다는 걸 알면 지급할 방법이 없다.
-                제안 · 대기로는 그대로 담을 수 있다 — 서류는 보통 같이 하기로 한
-                뒤에 받으므로, 여기까지 막으면 새 인력을 부를 방법이 없어진다.
+                제안 · 대기로는 그대로 담을 수 있다.
+                직원은 입사할 때 회사가 서류를 이미 받았다. 여기서 다시 막지 않는다.
               */
-              /* 직원은 입사할 때 회사가 서류를 이미 받았다. 여기서 다시 막지 않는다. */
               const isDocumentBlocked =
                 status === "CONFIRMED" &&
                 !candidate.isEmployee &&
@@ -490,6 +548,9 @@ const StaffPickerModal = ({
               const hasPartialConflict =
                 blockedDates.length > 0 && !isFullyBlocked;
               const isSelected = selectedIds.includes(candidate.staffId);
+              const hasHealthCert = hasValidHealthCert(
+                candidate.healthCertState,
+              );
 
               return (
                 <li key={candidate.staffId}>
@@ -520,11 +581,11 @@ const StaffPickerModal = ({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <p className="truncate text-[14px] font-medium text-font-1">
                           {candidate.name}
                         </p>
-                        {/* 성별 조건이 걸린 발주가 있어 이름 옆에 늘 함께 보인다. */}
+                        {/* 성별 조건이 걸린 포지션이 있어 이름 옆에 늘 함께 보인다. */}
                         <GenderMark gender={candidate.gender} />
                         {candidate.isFavorite && (
                           <Star size={14} className="shrink-0 text-warning" />
@@ -549,11 +610,8 @@ const StaffPickerModal = ({
 
                       {/*
                         이 사람이 어떤 일을 할 수 있는가.
-
-                        지금 고르는 직무 말고도 무엇이 되는지가 보여야
+                        지금 고르는 자리 말고도 무엇이 되는지가 보여야
                         "스태프가 모자란데 이 사람은 MC도 되네" 같은 판단이 그 자리에서 된다.
-                        그게 안 보이면 담당자는 인력풀을 따로 열어 한 명씩 확인하거나,
-                        머릿속에 있는 몇 사람만 계속 돌려 쓰게 된다.
                       */}
                       <div className="mt-1 flex flex-wrap items-center gap-1">
                         {candidate.isEmployee && (
@@ -564,7 +622,7 @@ const StaffPickerModal = ({
                         {[...candidate.roles].sort(compareRoles).map((item) => (
                           <Badge
                             key={item}
-                            /* 지금 배치하려는 직무를 도드라지게 한다. */
+                            /* 지금 배치하려는 자리의 직무를 도드라지게 한다. */
                             tone={item === role ? "brand" : "neutral"}
                             className="px-1.5 py-0 text-[11px]"
                           >
@@ -583,7 +641,18 @@ const StaffPickerModal = ({
                       </p>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      {/*
+                        보건증은 **필요한 자리에서만** 적는다. 모든 후보에 붙이면
+                        식음료와 무관한 자리에서도 눈이 거기 걸린다.
+                      */}
+                      {requiresHealthCert && (
+                        <Badge tone={hasHealthCert ? "success" : "warning"}>
+                          보건증{" "}
+                          {HEALTH_CERT_STATE_LABEL[candidate.healthCertState]}
+                        </Badge>
+                      )}
+
                       {/*
                         무엇 때문에 막혔는지를 배지가 그대로 말한다.
                         '서류 미제출' 하나로 뭉뚱그리면, 본인이 이미 올려 둔 사람에게도
@@ -603,7 +672,6 @@ const StaffPickerModal = ({
 
                       {/*
                         노쇼는 현장에 구멍을 내는 사고라 배치 전에 반드시 보여야 한다.
-                        예전에는 '신뢰도' 점수 안에 묻혀 있어 눈에 띄지 않았다.
                       */}
                       {candidate.noShowCount > 0 && (
                         <Badge tone="danger">노쇼 {candidate.noShowCount}회</Badge>

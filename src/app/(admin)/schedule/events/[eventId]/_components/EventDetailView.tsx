@@ -33,7 +33,6 @@ import {
   summarizeEventProgress,
   type EventStatus,
 } from "@/type/event";
-import type { JobRole } from "@/type/staff";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -145,7 +144,10 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const [draftTab, setDraftTab] = useState<EventTab | null>(null);
   const tab = draftTab ?? (isEventTab(paramTab) ? paramTab : "OVERVIEW");
 
-  const [pickerRole, setPickerRole] = useState<JobRole | undefined>(undefined);
+  /** 배치 모달을 열 때 미리 골라 둘 포지션. 부족한 자리에서 바로 열 수 있게 한다. */
+  const [pickerPositionId, setPickerPositionId] = useState<number | undefined>(
+    undefined,
+  );
   const [pickerDates, setPickerDates] = useState<string[] | undefined>(undefined);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -186,8 +188,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
     });
   };
 
-  const handleOpenPicker = (role?: JobRole, dates?: string[]) => {
-    setPickerRole(role);
+  const handleOpenPicker = (positionId?: number, dates?: string[]) => {
+    setPickerPositionId(positionId);
     setPickerDates(dates);
     setIsPickerOpen(true);
   };
@@ -428,7 +430,11 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
             {event.venue}
           </span>
 
-          <RoleSlotChips roles={event.roles} className="ml-auto" />
+          <RoleSlotChips
+            roles={event.roles}
+            positions={event.positions}
+            className="ml-auto"
+          />
         </div>
 
         {/*
@@ -499,7 +505,10 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
       <Tabs items={tabs} value={visibleTab} onChange={handleChangeTab} />
 
       {visibleTab === "OVERVIEW" && (
-        <EventOverviewPanel event={event} onFillRole={handleOpenPicker} />
+        <EventOverviewPanel
+          event={event}
+          onFillPosition={(positionId) => handleOpenPicker(positionId)}
+        />
       )}
 
       {visibleTab === "DAILY" && (
@@ -524,7 +533,7 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
 
       <StaffPickerModal
         event={isPickerOpen ? event : null}
-        initialRole={pickerRole}
+        initialPositionId={pickerPositionId}
         initialDates={pickerDates}
         onClose={() => setIsPickerOpen(false)}
       />

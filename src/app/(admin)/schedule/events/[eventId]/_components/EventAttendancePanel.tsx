@@ -21,7 +21,7 @@ import {
 import {
   groupAssignments,
   groupAssignmentsByStaffRole,
-  calculateScheduledWorkHours,
+  attachPositionNames,
   type Assignment,
   type AssignmentStatus,
   type EventDetail,
@@ -178,8 +178,6 @@ const EventAttendancePanel = ({
       (!assignment.checkInAt || !assignment.checkOutAt),
   );
 
-  const scheduledWorkHours = calculateScheduledWorkHours(event);
-
   const dateOptions = [
     { label: "전체 근무일", value: "" },
     ...event.dates.map((date) => ({
@@ -261,7 +259,7 @@ const EventAttendancePanel = ({
           <div className="flex flex-wrap items-center gap-2">
             <CsvExportButton
               fileName={`${event.title}_출퇴근명부`}
-              rows={rows}
+              rows={attachPositionNames(event, rows)}
               columns={ATTENDANCE_CSV_COLUMNS}
               disabled={rows.length === 0}
             />
@@ -349,7 +347,6 @@ const EventAttendancePanel = ({
                 assignments={assignments}
                 event={event}
                 groupMode={groupMode}
-                scheduledWorkHours={scheduledWorkHours}
                 isGroupSelected={areAllSelected(
                   assignments.map((item) => item.assignmentId),
                 )}

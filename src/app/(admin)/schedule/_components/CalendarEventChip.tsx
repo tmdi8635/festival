@@ -6,6 +6,9 @@ import { cn } from "@/lib/utils";
 import {
   EVENT_STATUS_LABEL,
   describeRecurrence,
+  findPosition,
+  formatPositionLabel,
+  formatTimeRange,
   type CalendarEvent,
 } from "@/type/event";
 import Badge from "@/components/ui/Badge";
@@ -105,18 +108,32 @@ const CalendarEventChip = ({
           </div>
         )}
 
-        <RoleSlotChips roles={roles} isCompact />
+        <RoleSlotChips roles={roles} positions={event.positions} isCompact />
       </button>
 
       {/* 자세히 보기: 그날 나오는 명단을 캘린더에서 바로 확인한다. */}
       {isDetailed && dayStaff.length > 0 && (
         <ul className="flex flex-wrap gap-1 border-t border-border-main pt-1.5">
-          {dayStaff.map((assignment) => (
+          {dayStaff.map((assignment) => {
+            /*
+              포지션 이름을 붙인다. 같은 스태프라도 A타임 · B타임은 오는 시각이 달라서,
+              직무만 적으면 "이 사람 몇 시에 오지"를 캘린더에서 답할 수 없다.
+            */
+            const position = findPosition(event, assignment.positionId);
+            const positionLabel = position
+              ? formatPositionLabel(position, jobRoleLabel)
+              : jobRoleLabel(assignment.role);
+
+            return (
             <li key={assignment.assignmentId}>
               <button
                 type="button"
                 onClick={() => onStaffClick?.(assignment.staffId)}
-                title={`${assignment.staffName} · ${jobRoleLabel(assignment.role)}`}
+                title={`${assignment.staffName} · ${positionLabel}${
+                  position
+                    ? ` · ${formatTimeRange(position.startTime, position.endTime, position.endDayOffset)}`
+                    : ""
+                }`}
                 className={cn(
                   "rounded-full border border-border-main px-1.5 py-0.5 text-[11px] text-font-2 transition",
                   "hover:border-brand hover:text-brand",
@@ -125,11 +142,12 @@ const CalendarEventChip = ({
               >
                 {assignment.staffName}
                 <span className="ml-1 text-font-disabled">
-                  {jobRoleLabel(assignment.role)}
+                  {position?.name ?? jobRoleLabel(assignment.role)}
                 </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

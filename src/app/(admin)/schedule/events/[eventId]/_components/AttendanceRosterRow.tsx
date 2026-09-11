@@ -3,11 +3,13 @@
 import { ASSIGNMENT_STATUS_TONE } from "@/constants/eventOptions";
 import { ATTENDANCE_STATUS_TONE } from "@/constants/staffOptions";
 import { Star, UserCheck } from "@/icons";
-import { formatDate } from "@/lib/dayjs";
+import { formatDate, formatDateTime } from "@/lib/dayjs";
 import { cn } from "@/lib/utils";
 import { useJobRoleLabel } from "@/store/useOrgStore";
 import {
   ASSIGNMENT_STATUS_LABEL,
+  findPosition,
+  resolveAssignmentSchedule,
   resolveWorkHours,
   toTimeInput,
   type Assignment,
@@ -57,7 +59,17 @@ const AttendanceRosterRow = ({
   const canWrite = useHasPermission("assignment:write");
 
   const roleLabel = useJobRoleLabel();
-  const { workHours, isActual } = resolveWorkHours(assignment, event);
+  /*
+    예정 시간은 **이 배치의 포지션**을 따른다. 행사를 그대로 넘기면
+    B타임(야간) 근무자의 예정 시간이 A타임 기준으로 적힌다.
+  */
+  const { workHours, isActual } = resolveWorkHours(
+    assignment,
+    resolveAssignmentSchedule(event, assignment),
+  );
+  const positionName =
+    findPosition(event, assignment.positionId)?.name ??
+    roleLabel(assignment.role);
 
   return (
     <li
@@ -88,7 +100,7 @@ const AttendanceRosterRow = ({
             <GenderMark gender={assignment.staffGender} size={12} />
           </span>
           <span className="ml-1.5 text-[12px] text-font-2">
-            {roleLabel(assignment.role)}
+            {positionName}
           </span>
         </button>
       )}
@@ -101,6 +113,20 @@ const AttendanceRosterRow = ({
         {ATTENDANCE_STATUS_LABEL[assignment.attendance]}
         {assignment.lateMinutes > 0 && ` ${assignment.lateMinutes}분`}
       </Badge>
+
+      {/*
+        본인이 포털에서 늦게 취소한 노쇼는 **무단 노쇼와 다르다.** 미리 알렸다는 것,
+        그리고 왜 빠졌는지가 명단에서 바로 보여야 대타를 구할지 판단할 수 있다.
+      */}
+      {assignment.staffCanceledAt && (
+        <span
+          className="min-w-0 max-w-full truncate text-[12px] text-danger sm:max-w-60"
+          title={assignment.staffCancelReason}
+        >
+          본인 취소 {formatDateTime(assignment.staffCanceledAt)}
+          {assignment.staffCancelReason && ` · ${assignment.staffCancelReason}`}
+        </span>
+      )}
 
       {/* 실제 출퇴근이 곧 지급액이다. 안 적힌 건은 '예정'으로 표시한다. */}
       <span className="flex items-center gap-1.5 text-[12px] tabular-nums">

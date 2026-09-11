@@ -5,6 +5,8 @@ import { useStaffListQuery } from "@/api/staff/getStaffList";
 import {
   DOCUMENT_REVIEW_STATE_TONE,
   DOCUMENT_STATE_FILTER_OPTIONS,
+  HEALTH_CERT_FILTER_OPTIONS,
+  HEALTH_CERT_STATE_TONE,
   STAFF_STATUS_LABEL,
   STAFF_STATUS_TONE,
 } from "@/constants/staffOptions";
@@ -14,7 +16,9 @@ import { formatDate } from "@/lib/dayjs";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   DOCUMENT_REVIEW_STATE_LABEL,
+  HEALTH_CERT_STATE_LABEL,
   formatPhoneNumber,
+  type HealthCertFilter,
   type Staff,
 } from "@/type/staff";
 import Alert from "@/components/ui/Alert";
@@ -36,6 +40,7 @@ const DOCUMENT_CSV_COLUMNS: CsvColumn<Staff>[] = [
     header: "서류 심사",
     value: (row) => DOCUMENT_REVIEW_STATE_LABEL[row.documentReviewState],
   },
+  { header: "보건증", value: (row) => HEALTH_CERT_STATE_LABEL[row.healthCertState] },
   { header: "누적 근무", value: (row) => row.workCount },
   { header: "등록일", value: (row) => formatDate(row.createdAt) },
 ];
@@ -56,6 +61,11 @@ const DocumentManager = () => {
 
   // 기본값을 '승인 대기'로 두어 화면을 열자마자 할 일이 보이게 한다.
   const [documentState, setDocumentState] = useState("SUBMITTED");
+  /**
+   * 보건증 필터. 보건증은 필수 서류가 아니라 대표 상태(`documentState`)에 섞이지 않는다.
+   * 따로 걸러 볼 수 있어야 "보건증 올린 사람 · 만료된 사람"을 이 화면에서 찾는다.
+   */
+  const [healthCert, setHealthCert] = useState<HealthCertFilter | "">("");
 
   /*
     이 화면은 심사 모달 하나만 연다.
@@ -71,6 +81,7 @@ const DocumentManager = () => {
     size: DEFAULT_PAGE_SIZE,
     keyword: keyword || undefined,
     documentState: documentState || undefined,
+    healthCert: healthCert || undefined,
     /*
       상태 필터를 걸지 않는다.
 
@@ -125,6 +136,17 @@ const DocumentManager = () => {
       render: (staff) => (
         <Badge tone={DOCUMENT_REVIEW_STATE_TONE[staff.documentReviewState]}>
           {DOCUMENT_REVIEW_STATE_LABEL[staff.documentReviewState]}
+        </Badge>
+      ),
+    },
+    {
+      /* 보건증은 선택 서류라 대표 상태와 따로 적는다. 만료는 여기서만 보인다. */
+      key: "healthCert",
+      header: "보건증",
+      align: "center",
+      render: (staff) => (
+        <Badge tone={HEALTH_CERT_STATE_TONE[staff.healthCertState]}>
+          {HEALTH_CERT_STATE_LABEL[staff.healthCertState]}
         </Badge>
       ),
     },
@@ -189,6 +211,16 @@ const DocumentManager = () => {
               value={documentState}
               onChange={withPageReset((event) => setDocumentState(event.target.value))}
               selectBoxClassName="w-32"
+            />
+
+            <Select
+              aria-label="보건증 필터"
+              options={HEALTH_CERT_FILTER_OPTIONS}
+              value={healthCert}
+              onChange={withPageReset((event) =>
+                setHealthCert(event.target.value as HealthCertFilter | ""),
+              )}
+              selectBoxClassName="w-36"
             />
           </div>
         </div>

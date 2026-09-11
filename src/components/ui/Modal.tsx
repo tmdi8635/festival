@@ -47,6 +47,40 @@ interface ModalProps {
  */
 const openStack: symbol[] = [];
 
+/**
+ * 모달이 아닌 겹침 창(하단 시트 · 전체화면 뷰어)을 **같은 스택에** 세운다.
+ *
+ * 스택을 따로 두면 시트 위에 확인창이 뜬 상태에서 Escape 한 번에
+ * 확인창과 시트가 함께 닫힌다. 겹쳐 뜨는 창은 종류와 상관없이 **맨 위만** 키를 받는다.
+ * Enter는 받지 않는다 — 시트 안에는 서명판 · 여러 줄 입력처럼 Enter가 제 뜻을 가진 칸이 많다.
+ */
+export const useEscapeLayer = (isOpen: boolean, onClose: () => void) => {
+  const idRef = useRef<symbol>(Symbol("layer"));
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const id = idRef.current;
+
+    openStack.push(id);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (openStack[openStack.length - 1] !== id) return;
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+
+      const index = openStack.indexOf(id);
+
+      if (index >= 0) openStack.splice(index, 1);
+    };
+  }, [isOpen, onClose]);
+};
+
 /** Enter를 확인으로 받으면 안 되는 자리인지. */
 const shouldIgnoreEnter = (event: KeyboardEvent): boolean => {
   /*

@@ -106,6 +106,9 @@ const ContractSheetView = ({
       ? Math.min(1, frameWidth / A4_PAGE_WIDTH)
       : 1;
 
+  /* 줄여서 그리는 중인지. 높이까지 재야 줄인 크기로 칸을 잡을 수 있다. */
+  const isScaled = fitToWidth && scale < 1 && contentHeight > 0;
+
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {showPrintGuide && (
@@ -139,25 +142,23 @@ const ContractSheetView = ({
       )}
 
       {/*
-        가로 스크롤은 **언제나 켜 둔다.**
+        줄이기 전에는 가로 스크롤을 켜 둔다.
 
         줄이는 배율은 실제로 그려진 폭을 재야 나오는데(`frameRef`), 그 측정이
         늦거나 오지 않는 환경이 있다. 그때 스크롤까지 없으면 지면이 잘린 채로
         갇혀서, 서명해야 하는 사람이 문서의 오른쪽 절반을 아예 볼 수 없다.
-        줄여서 다 들어오면 스크롤은 저절로 생기지 않으므로 켜 두어도 손해가 없다.
+
+        **줄인 뒤에는 칸 안 스크롤을 닫는다.** transform은 자리를 차지하는 크기를
+        바꾸지 않아서, 줄인 지면 뒤에는 원래 크기(1400px 남짓)의 빈 자리가 그대로 남는다.
+        `overflow-x: auto`는 세로도 auto로 만들기 때문에, 문서 위를 쓸어 올리면 페이지가
+        아니라 이 칸이 그 빈 자리까지 굴러가 문서 아래에 끝없는 여백이 생긴다.
+        줄인 높이를 직접 잡고 넘치는 것은 잘라 낸다 — 보이는 것은 줄인 지면이 전부다.
+        (`hidden`이 아니라 `clip`이다. hidden은 포커스 이동 · 찾기로도 칸이 굴러간다)
       */}
       <div
         ref={frameRef}
-        className="overflow-x-auto"
-        style={
-          /*
-            줄인 만큼 아래 여백이 남는다. transform은 자리를 차지하는 크기를
-            바꾸지 않기 때문에, 줄인 높이를 여기서 직접 잡아 준다.
-          */
-          fitToWidth && scale < 1 && contentHeight > 0
-            ? { height: contentHeight * scale }
-            : undefined
-        }
+        className={isScaled ? "overflow-clip" : "overflow-x-auto"}
+        style={isScaled ? { height: contentHeight * scale } : undefined}
       >
         {/* 지면 폭은 A4 그대로 고정한다. 화면 폭에 맞춰 늘이면 줄바꿈 위치가 달라진다. */}
         <div

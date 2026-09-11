@@ -2,7 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminAxios } from "..";
 import { showAppToast } from "@/lib/toast";
 import type { AppError } from "@/type/api";
-import type { AmendReasonType, Contract } from "@/type/contract";
+import type {
+  AmendReasonType,
+  Contract,
+  ContractCustomTerms,
+} from "@/type/contract";
 
 /**
  * 서명받은 계약서를 등록한다.
@@ -38,8 +42,8 @@ export interface RegisterContractRequest {
  * 계약서를 본인에게 보낸다. (전자서명 요청)
  *
  * 이 요청이 성공하면 계약번호가 붙고, 그 사람의 포털 화면에 서명할 문서가 뜬다.
- * 반려된 건을 다시 보내는 것도 같은 요청이다 — 내용을 지금 배치 기준으로
- * 다시 조립하므로, 금액을 고친 뒤 그대로 부르면 된다.
+ * **반려(수정요청)된 건은 이 길로 다시 보내지 않는다.** 재발급(`reissueContract`)으로
+ * 새 차수를 낸다. 같은 문서를 고쳐 다시 보내면 무엇이 바뀌었는지가 이력에서 사라진다.
  */
 export interface SendContractRequest {
   eventId: number;
@@ -96,6 +100,42 @@ export const cancelContractRegistration = async (contractId: number) => {
 
 export const deleteContract = async (contractId: number) => {
   await adminAxios.delete(`/admin/contracts/${contractId}`);
+};
+
+/**
+ * 재발급 — 본인의 수정요청에 대한 답.
+ *
+ * 반려된 차수는 재작성됨으로 남고, 지금 배치로 다시 조립한 새 차수가 서명 대기로 나간다.
+ * 사유는 본인 화면에 그대로 보인다. "무엇을 고쳤는지"를 한 줄로 적는다.
+ */
+export interface ReissueContractRequest {
+  contractId: number;
+  reason: string;
+  templateId?: number;
+  /**
+   * 새 차수의 문서 내용. 이 사람 계약서만 고쳐 쓴 조항이다.
+   *
+   * `null`이면 템플릿 그대로 되돌리고, 비우면(`undefined`) 지난 차수의 내용을 이어 간다.
+   * 둘을 가르지 않으면 "템플릿으로 돌려 달라"와 "안 건드렸다"가 같은 요청이 된다.
+   */
+  terms?: ContractCustomTerms | null;
+}
+
+export interface ReissueContractResponse {
+  previous: Contract;
+  created: Contract;
+}
+
+export const reissueContract = async ({
+  contractId,
+  ...body
+}: ReissueContractRequest) => {
+  const response = await adminAxios.post<ReissueContractResponse>(
+    `/admin/contracts/${contractId}/reissue`,
+    body,
+  );
+
+  return response.data;
 };
 
 export interface AmendContractRequest {
@@ -284,11 +324,37 @@ export const useContractMutation = () => {
     },
   });
 
+  /**
+   * 반려된 계약서를 새 차수로 재발급한다.
+   *
+   * 본인 포털의 목록 · 할 일 · 이력이 함께 바뀌어야 한다. 나란히 열어 두고
+   * "재발급 → 포털에 2차 서명 대기"를 확인하는 것이 이 기능의 확인 방법이다.
+   */
+  const reissueMutation = useMutation<
+    ReissueContractResponse,
+    AppError,
+    ReissueContractRequest
+  >({
+    mutationFn: reissueContract,
+    onSuccess: ({ created }) => {
+      showAppToast(
+        "success",
+        `${created.staffName}님에게 ${created.revision}차 계약서를 다시 보냈습니다.`,
+        { description: "본인 화면에 서명 대기로 올라가고, 1차의 수정요청은 이력에 남습니다." },
+      );
+      invalidateContract();
+      queryClient.invalidateQueries({ queryKey: ["get-my-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["get-my-contract-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["get-my-summary"] });
+    },
+  });
+
   return {
     sendMutation,
     registerMutation,
     cancelRegistrationMutation,
     amendMutation,
+    reissueMutation,
     deleteMutation,
   };
 };

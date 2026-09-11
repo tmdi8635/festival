@@ -5,6 +5,29 @@ import { formatPhoneNumber } from "@/type/staff";
 import { formatKoreanDate } from "./dayjs";
 
 /**
+ * 안내문의 근무시간 줄.
+ *
+ * **포지션마다 한 줄씩** 적는다. 행사의 기본 근무시간 한 줄만 적으면
+ * B타임(21:00~06:00) 사람이 이 공지를 보고 아침 9시에 온다.
+ * 포지션이 하나뿐이면 예전처럼 한 줄로 끝낸다.
+ */
+const buildScheduleLines = (event: EventDetail): string[] => {
+  const line = (
+    time: { startTime: string; endTime: string; endDayOffset: EventDetail["endDayOffset"]; breakMinutes: number },
+  ) =>
+    `${formatTimeRange(time.startTime, time.endTime, time.endDayOffset)} (휴게 ${time.breakMinutes}분)`;
+
+  if (event.positions.length <= 1) {
+    return [`⏰ 근무시간: ${line(event.positions[0] ?? event)}`];
+  }
+
+  return [
+    "⏰ 근무시간",
+    ...event.positions.map((position) => `   · ${position.name} ${line(position)}`),
+  ];
+};
+
+/**
  * 행사 출근 안내 문구를 만든다.
  *
  * 지금은 대표가 매번 손으로 쓰고, 바쁘면 아예 못 보낸다.
@@ -19,7 +42,7 @@ export const buildEventNotice = (event: EventDetail): string =>
         ? ""
         : ` ~ ${formatKoreanDate(event.endDate)}`
     }`,
-    `⏰ 근무시간: ${formatTimeRange(event.startTime, event.endTime, event.endDayOffset)} (휴게 ${event.breakMinutes}분)`,
+    ...buildScheduleLines(event),
     `📍 장소: ${event.venue}`,
     `   ${event.address}`,
     `🚩 집합: ${event.meetingPoint}`,

@@ -3,8 +3,11 @@ import { adminAxios } from "..";
 import type { AppError } from "@/type/api";
 import type { MyPayroll, MySummary, MyWork } from "@/type/my";
 
-/** 예정 · 종료. 한 화면에서 탭으로 오간다 */
-export type MyScheduleScope = "UPCOMING" | "PAST";
+/**
+ * 예정 · 종료는 목록의 탭으로 오가고, `ALL`은 캘린더가 쓴다.
+ * 달력은 지난 근무와 앞으로의 근무를 한 장에 그려야 한다.
+ */
+export type MyScheduleScope = "UPCOMING" | "PAST" | "ALL";
 
 export const getMyAssignments = async (scope: MyScheduleScope) => {
   const response = await adminAxios.get<{ items: MyWork[] }>(

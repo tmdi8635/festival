@@ -27,7 +27,8 @@ export interface CreateAssignmentRequest {
    * 반복 행사는 "주말 4주 중 2주만 가능"한 경우가 흔해서 날짜를 골라 보낼 수 있어야 한다.
    */
   dates?: string[];
-  role: JobRole;
+  /** 설 포지션. 시각 · 기본 금액 · 직무가 전부 여기서 온다. */
+  positionId: number;
   status: AssignmentStatus;
 }
 
@@ -60,7 +61,8 @@ export type UpdateAssignmentRequest = Partial<
   Pick<
     Assignment,
     | "status"
-    | "role"
+    /* 포지션을 옮기면 직무는 서버가 따라 바꾼다. 직무를 따로 보내지 않는다. */
+    | "positionId"
     | "attendance"
     | "lateMinutes"
     | "reputationVerdict"
