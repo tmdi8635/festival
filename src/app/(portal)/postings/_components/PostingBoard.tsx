@@ -71,13 +71,14 @@ const PostingCard = ({ posting, onlyMine, onOpen }: PostingCardProps) => {
     남아 토글을 켜도 화면이 그대로다. 사람들이 안 보고 싶은 것은 공고가 아니라
     지원할 수 없는 자리 쪽이다. (왜 안 되는지는 상세에서 줄마다 말해 준다)
   */
-  const listedPositions = useMemo(
-    () =>
-      onlyMine
-        ? posting.positions.filter((position) => position.matchesMe)
-        : posting.positions,
-    [onlyMine, posting.positions],
-  );
+  const listedPositions = useMemo(() => {
+    const lines = onlyMine
+      ? posting.lines.filter((position) => position.matchesMe)
+      : posting.lines;
+
+    /* 급구 줄을 앞으로. 카드에는 세 줄만 서는데 급구가 넷째에 있으면 아무도 못 본다. */
+    return [...lines].sort((a, b) => Number(b.isUrgent) - Number(a.isUrgent));
+  }, [onlyMine, posting.lines]);
   const visiblePositions = listedPositions.slice(0, VISIBLE_POSITION_COUNT);
   const hiddenCount = listedPositions.length - visiblePositions.length;
 
@@ -134,10 +135,14 @@ const PostingCard = ({ posting, onlyMine, onOpen }: PostingCardProps) => {
         <span className="flex flex-col gap-1 rounded-field bg-subtle px-3 py-2">
           {visiblePositions.map((position) => (
             <span
-              key={position.positionId}
+              key={position.targetId}
               className="flex items-baseline justify-between gap-3 text-[13px]"
             >
               <span className="min-w-0 truncate">
+                {/* 급구 줄은 하루만 서도 되는 자리다. 훑는 사람 눈에 먼저 걸려야 한다. */}
+                {position.isUrgent && (
+                  <span className="mr-1 font-semibold text-font-error">급구</span>
+                )}
                 <span className="font-medium text-font-1">{position.name}</span>{" "}
                 <span className="text-font-2 tabular-nums">
                   {formatTimeRange(

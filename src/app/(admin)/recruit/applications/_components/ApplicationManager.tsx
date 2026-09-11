@@ -10,13 +10,13 @@ import {
 } from "@/constants/recruitOptions";
 import { useListSearch } from "@/hooks/useListSearch";
 import { Ban, Check, Plus, UserPlus, Warning } from "@/icons";
-import { formatDate, formatDateTime } from "@/lib/dayjs";
-import { showErrorToast } from "@/lib/toast";
+import { formatDateTime } from "@/lib/dayjs";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleLabel } from "@/store/useOrgStore";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   APPLICATION_STATUS_LABEL,
+  describeApplicationDates,
   type Application,
   type ApplicationStatus,
 } from "@/type/recruit";
@@ -31,6 +31,7 @@ import SearchInput from "@/components/ui/SearchInput";
 import Select from "@/components/ui/Select";
 import Table, { TableCellStack, type TableColumn } from "@/components/ui/Table";
 import StaffDetailModal from "@/components/domain/StaffDetailModal";
+import ApplicationAcceptModal from "./ApplicationAcceptModal";
 import ApplicationFormModal from "./ApplicationFormModal";
 import FeatureNotice from "@/components/domain/FeatureNotice";
 
@@ -49,6 +50,8 @@ const ApplicationManager = () => {
   const [onlyNewApplicant, setOnlyNewApplicant] = useState(false);
   const [detailStaffId, setDetailStaffId] = useState<number | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  /** 확정 모달을 연 지원. 어느 날을 확정할지 거기서 정한다. */
+  const [acceptTarget, setAcceptTarget] = useState<Application | null>(null);
 
   const { data, isLoading } = useApplicationListQuery({
     page,
@@ -66,25 +69,6 @@ const ApplicationManager = () => {
   const canAssign = useHasPermission("assignment:write");
 
   const { statusMutation } = useApplicationMutation();
-
-  const handleAccept = (application: Application) => {
-    openConfirm({
-      title: "지원을 확정할까요?",
-      description: `'${application.applicantName}'님을 '${application.eventTitle}'의 ${application.positionName || jobRoleLabel(application.role)} 포지션에 배치합니다. 이 포지션 발주가 있는 근무일마다 배치가 만들어집니다.`,
-      warning: application.conflictEventTitle
-        ? `같은 날 '${application.conflictEventTitle}'에 이미 확정되어 있어 배치가 거절될 수 있습니다.`
-        : undefined,
-      confirmText: "확정",
-      onConfirm: () =>
-        statusMutation
-          .mutateAsync({
-            applicationId: application.applicationId,
-            status: "ACCEPTED",
-          })
-          // 중복 배치·미등록 인력은 서버가 막으므로 사유를 그대로 보여 준다.
-          .catch((error) => showErrorToast(error)),
-    });
-  };
 
   const handleReject = (application: Application) => {
     openConfirm({
@@ -129,8 +113,12 @@ const ApplicationManager = () => {
         <TableCellStack
           primary={application.eventTitle}
           secondary={
+            /*
+              신청한 날을 적는다. 첫날 하나만 적으면 전일 지원과 하루 지원이
+              같은 줄로 보여서, 확정을 누르기 전에는 며칠이 들어가는지 모른다.
+            */
             <span className="tabular-nums">
-              {formatDate(application.workDate)}
+              {describeApplicationDates(application)}
             </span>
           }
         />
@@ -212,7 +200,7 @@ const ApplicationManager = () => {
               variant="secondary"
               leftIcon={<Check size={14} />}
               disabled={application.status !== "PENDING"}
-              onClick={() => handleAccept(application)}
+              onClick={() => setAcceptTarget(application)}
             >
               확정
             </Button>
@@ -240,8 +228,8 @@ const ApplicationManager = () => {
         fallback="카톡 · 문자로 받은 지원은 인력풀에 직접 등록한 뒤 행사 상세에서 배치해 주세요."
       />
       <Alert tone="info" title="확정하면 배치까지 한 번에 끝납니다.">
-        확정 시 해당 행사에 자동으로 배치되며, 같은 날 다른 행사에 이미 확정된
-        인력은 시스템이 막습니다.
+        지원자가 신청한 날에 자동으로 배치됩니다. 날짜를 골라 낸 지원은 일부만
+        확정할 수 있고, 전일 지원은 하루라도 다른 행사와 겹치면 시스템이 막습니다.
       </Alert>
 
       <Card noPadding>
@@ -307,6 +295,14 @@ const ApplicationManager = () => {
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
       />
+
+      {acceptTarget && (
+        <ApplicationAcceptModal
+          key={acceptTarget.applicationId}
+          application={acceptTarget}
+          onClose={() => setAcceptTarget(null)}
+        />
+      )}
 
       <StaffDetailModal
         staffId={detailStaffId}

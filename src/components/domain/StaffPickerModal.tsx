@@ -4,6 +4,9 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useAssignmentCandidateQuery } from "@/api/event/getAssignmentCandidates";
 import { useAssignmentMutation } from "@/api/event/mutateAssignment";
+import { useOfferMutation } from "@/api/offer/mutateOffer";
+import type { PostingParticipation } from "@/type/recruit";
+import Textarea from "@/components/ui/Textarea";
 import type { EmploymentType } from "@/type/employee";
 import { useJobRoleComparator, useJobRoleLabel } from "@/store/useOrgStore";
 import { Sparkle, Star, Warning } from "@/icons";
@@ -15,6 +18,7 @@ import {
   GENDER_PREFERENCE_LABEL,
   WEEKDAY_LABELS,
   describeRecurrence,
+  resolvePositionWorkDates,
   type AssignmentStatus,
   type EventDetail,
   type GenderPreference,
@@ -55,13 +59,30 @@ interface StaffPickerModalProps {
    * 비우면 행사의 모든 근무일이 대상이다.
    */
   initialDates?: string[];
+  /** '포털로 제안'으로 열지. 행사 상세의 보낸 제안 탭에서 연다 */
+  initialStatus?: PickerStatus;
   onClose: () => void;
 }
 
+/** 배치 상태 + 포털 제안. 제안은 배치가 아니라 `WorkOffer`로 간다 */
+type PickerStatus = AssignmentStatus | "OFFER";
+
+/*
+  '제안 단계'(PROPOSED 배치)는 **포털로 제안**으로 바뀌었다.
+
+  예전의 제안 배치는 본인에게 물어볼 길이 없는 메모였다. 그런데 포털은 그것을 근무로
+  보여 줘서, 본인은 제안받은 날을 확정된 날로 알았다. 이제 제안은 본인이 수락 · 거절하는
+  별도 기록이고, 수락하는 순간 확정 배치가 된다. (`PROPOSED` 상태 자체는 타입에 남긴다)
+*/
 const ASSIGNMENT_STATUS_OPTIONS = [
   { label: "확정 배치", value: "CONFIRMED" },
   { label: "대기 인력", value: "WAITLIST" },
-  { label: "제안 단계", value: "PROPOSED" },
+  { label: "포털로 제안", value: "OFFER" },
+];
+
+const OFFER_PARTICIPATION_OPTIONS: { label: string; value: PostingParticipation }[] = [
+  { label: "모든 날 수락만 (전일)", value: "FULL" },
+  { label: "날짜 골라 수락 (분할)", value: "SPLIT" },
 ];
 
 /**
@@ -92,6 +113,7 @@ const StaffPickerModal = ({
   event,
   initialPositionId,
   initialDates,
+  initialStatus,
   onClose,
 }: StaffPickerModalProps) => {
   const jobRoleLabel = useJobRoleLabel();
@@ -112,7 +134,16 @@ const StaffPickerModal = ({
   const role = position?.jobRole;
 
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<AssignmentStatus>("CONFIRMED");
+  /* 포지션 · 날짜와 같은 draft 방식. 모달이 마운트된 채 열고 닫혀서 초기값이 남으면 안 된다. */
+  const [draftStatus, setDraftStatus] = useState<PickerStatus | null>(null);
+  const status: PickerStatus = draftStatus ?? initialStatus ?? "CONFIRMED";
+  const isOffer = status === "OFFER";
+  const [offerMessage, setOfferMessage] = useState("");
+  const [draftParticipation, setDraftParticipation] =
+    useState<PostingParticipation | null>(null);
+  /* 제안 방식의 초기값은 포지션의 발주 조건이다. (전일만 받는 자리면 전일 제안) */
+  const participation: PostingParticipation =
+    draftParticipation ?? (position?.scheduleRule === "SPLIT_OK" ? "SPLIT" : "FULL");
   /*
     성별 필터.
 
@@ -131,6 +162,8 @@ const StaffPickerModal = ({
   >(null);
   const [employment, setEmployment] = useState<EmploymentType | "">("");
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
+  /** 전 일정 가능자만. null이면 포지션 조건 · 고른 날에서 초기값을 정한다 */
+  const [draftFullOnly, setDraftFullOnly] = useState<boolean | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   /**
@@ -157,12 +190,29 @@ const StaffPickerModal = ({
   const healthCert =
     draftHealthCert ?? (requiresHealthCert ? "VALID" : "");
 
+  /*
+    전 일정 가능자만.
+
+    업체가 전일을 원하는 포지션이고 **그 포지션의 날을 전부 골랐을 때** 켜진 채로 시작한다.
+    날짜를 몇 개만 골랐다면 그 자체로 하루씩 채우는 중이라(노쇼 대타 · 급구) 끈 채로 둔다.
+    성별 · 보건증처럼 초기값일 뿐이고 담당자가 언제든 바꾼다.
+  */
+  const isFullOnlyPosition = position?.scheduleRule === "FULL_ONLY";
+  const positionDates =
+    event && positionId > 0 ? resolvePositionWorkDates(event, positionId) : [];
+  const coversAllPositionDates =
+    positionDates.length > 1 &&
+    positionDates.every((date) => targetDates.includes(date));
+  const fullScheduleOnly =
+    draftFullOnly ?? (isFullOnlyPosition && coversAllPositionDates);
+
   const { data, isLoading } = useAssignmentCandidateQuery(
     {
       eventId: event?.eventId ?? 0,
       positionId: positionId || undefined,
       keyword: keyword || undefined,
       includeUnavailable,
+      fullScheduleOnly: fullScheduleOnly || undefined,
       gender: gender || undefined,
       healthCert: healthCert || undefined,
       employment: employment || undefined,
@@ -173,6 +223,7 @@ const StaffPickerModal = ({
   );
 
   const { createMutation } = useAssignmentMutation();
+  const { createMutation: offerMutation } = useOfferMutation();
 
   const candidates = data?.items ?? [];
 
@@ -229,6 +280,10 @@ const StaffPickerModal = ({
     setDraftPositionId(null);
     setDraftGender(null);
     setDraftHealthCert(null);
+    setDraftFullOnly(null);
+    setDraftStatus(null);
+    setDraftParticipation(null);
+    setOfferMessage("");
     setEmployment("");
     setKeyword("");
     onClose();
@@ -236,6 +291,23 @@ const StaffPickerModal = ({
 
   const handleSubmit = () => {
     if (!event || !positionId) return;
+
+    /* 제안은 배치를 만들지 않는다. 본인이 수락하는 순간 서버가 확정 배치를 만든다. */
+    if (status === "OFFER") {
+      offerMutation.mutate(
+        {
+          eventId: event.eventId,
+          staffIds: selectedIds,
+          positionId,
+          dates: targetDates,
+          participation,
+          message: offerMessage,
+        },
+        { onSuccess: () => handleClose() },
+      );
+
+      return;
+    }
 
     createMutation.mutate(
       {
@@ -256,7 +328,7 @@ const StaffPickerModal = ({
     <Modal
       isOpen={Boolean(event)}
       onClose={handleClose}
-      title="인력 배치"
+      title={isOffer ? "근무 제안" : "인력 배치"}
       description={
         event
           ? `${event.title} · ${describeRecurrence(event.recurrence, event.dayCount)}${
@@ -277,13 +349,19 @@ const StaffPickerModal = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            isLoading={createMutation.isPending}
+            isLoading={createMutation.isPending || offerMutation.isPending}
           >
-            {selectedIds.length}명 ×{" "}
-            {targetDates.length === eventDates.length
-              ? "전체"
-              : `${targetDates.length}일`}{" "}
-            배치
+            {isOffer ? (
+              `${selectedIds.length}명에게 제안`
+            ) : (
+              <>
+                {selectedIds.length}명 ×{" "}
+                {targetDates.length === eventDates.length
+                  ? "전체"
+                  : `${targetDates.length}일`}{" "}
+                배치
+              </>
+            )}
           </Button>
         </>
       }
@@ -396,6 +474,41 @@ const StaffPickerModal = ({
           </div>
         )}
 
+        {/*
+          포털로 제안. 고른 사람 · 날짜는 배치와 같고, 방식과 한마디만 더 받는다.
+          수락이 곧 확정이라 무엇을 약속하는 제안인지(전일 · 분할)가 분명해야 한다.
+        */}
+        {isOffer && (
+          <div className="flex flex-col gap-2 rounded-field border border-brand bg-surface-selected px-4 py-3">
+            <p className="text-[13px] font-medium text-font-1">
+              포털로 제안 보내기
+              <span className="ml-1.5 text-[12px] font-normal text-font-2">
+                본인이 수락하면 곧바로 확정 배치됩니다. 응답 기한은 24시간(첫 근무 3시간
+                전까지)입니다.
+              </span>
+            </p>
+            {targetDates.length > 1 && (
+              <Select
+                aria-label="제안 방식"
+                options={OFFER_PARTICIPATION_OPTIONS}
+                value={participation}
+                onChange={(changeEvent) =>
+                  setDraftParticipation(
+                    changeEvent.target.value as PostingParticipation,
+                  )
+                }
+                selectBoxClassName="w-56"
+              />
+            )}
+            <Textarea
+              rows={2}
+              value={offerMessage}
+              onChange={(changeEvent) => setOfferMessage(changeEvent.target.value)}
+              placeholder="예) 지난번 현장 잘해 주셔서 먼저 연락드려요."
+            />
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <SearchInput
             value={keyword}
@@ -417,6 +530,7 @@ const StaffPickerModal = ({
                 setDraftPositionId(Number(changeEvent.target.value));
                 setDraftGender(null);
                 setDraftHealthCert(null);
+                setDraftFullOnly(null);
                 setSelectedIds([]);
               }}
               selectBoxClassName="w-48"
@@ -467,7 +581,7 @@ const StaffPickerModal = ({
               options={ASSIGNMENT_STATUS_OPTIONS}
               value={status}
               onChange={(changeEvent) =>
-                setStatus(changeEvent.target.value as AssignmentStatus)
+                setDraftStatus(changeEvent.target.value as PickerStatus)
               }
               selectBoxClassName="w-32"
             />
@@ -496,13 +610,33 @@ const StaffPickerModal = ({
           </Alert>
         )}
 
-        <Checkbox
-          label="같은 날 다른 행사에 확정된 인력도 보기"
-          checked={includeUnavailable}
-          onChange={(changeEvent) =>
-            setIncludeUnavailable(changeEvent.target.checked)
-          }
-        />
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Checkbox
+              label="같은 날 다른 행사에 확정된 인력도 보기"
+              checked={includeUnavailable}
+              onChange={(changeEvent) =>
+                setIncludeUnavailable(changeEvent.target.checked)
+              }
+            />
+            {eventDates.length > 1 && (
+              <Checkbox
+                label="고른 날 전부 나올 수 있는 사람만"
+                checked={fullScheduleOnly}
+                onChange={(changeEvent) => {
+                  setDraftFullOnly(changeEvent.target.checked);
+                  setSelectedIds([]);
+                }}
+              />
+            )}
+          </div>
+          {isFullOnlyPosition && eventDates.length > 1 && (
+            <p className="text-[12px] text-font-2">
+              업체가 전 일정 가능자를 원하는 자리입니다. 노쇼 대타처럼 하루만 채울 때는
+              위에서 그 날만 골라 넣으세요.
+            </p>
+          )}
+        </div>
 
         {isLoading && (
           <div className="flex flex-col gap-2">
@@ -539,12 +673,22 @@ const StaffPickerModal = ({
                 제안 · 대기로는 그대로 담을 수 있다.
                 직원은 입사할 때 회사가 서류를 이미 받았다. 여기서 다시 막지 않는다.
               */
+              /*
+                포털 제안도 막는다. 수락하는 순간 확정 배치가 되므로 서버가 서류 없는 사람은
+                건너뛴다 — 여기서 고르게 두면 "보냈다"고 믿은 사람에게 제안이 가지 않는다.
+              */
               const isDocumentBlocked =
-                status === "CONFIRMED" &&
+                (status === "CONFIRMED" || status === "OFFER") &&
                 !candidate.isEmployee &&
                 !candidate.isDocumentApproved;
+              /*
+                전일 제안은 **하루라도 막히면** 보낼 수 없다(서버가 건너뛴다).
+                배치처럼 "나머지 날은 건너뜁니다"로 두면 담당자는 보낸 줄 안다.
+              */
+              const isOfferFullBlocked =
+                isOffer && participation === "FULL" && blockedDates.length > 0;
               const isFullyBlocked =
-                availableCount === 0 || isDocumentBlocked;
+                availableCount === 0 || isDocumentBlocked || isOfferFullBlocked;
               const hasPartialConflict =
                 blockedDates.length > 0 && !isFullyBlocked;
               const isSelected = selectedIds.includes(candidate.staffId);

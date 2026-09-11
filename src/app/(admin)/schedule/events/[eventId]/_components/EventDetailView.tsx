@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useContractListQuery } from "@/api/contract/getContractList";
 import { useEventDetailQuery } from "@/api/event/getEventDetail";
 import { useEventMutation } from "@/api/event/mutateEvent";
+import { useOfferListQuery } from "@/api/offer/getOfferList";
 import { useHasPermission } from "@/store/useAdminStore";
 import { usePayrollSummaryQuery } from "@/api/payroll/getPayrollSummary";
 import {
@@ -51,6 +52,7 @@ import EventAttendancePanel from "./EventAttendancePanel";
 import EventContractPanel from "./EventContractPanel";
 import EventDailyPanel from "./EventDailyPanel";
 import EventNoticePanel from "./EventNoticePanel";
+import EventOfferPanel from "./EventOfferPanel";
 import EventOverviewPanel from "./EventOverviewPanel";
 import EventPayrollPanel from "./EventPayrollPanel";
 
@@ -58,6 +60,7 @@ export type EventTab =
   | "OVERVIEW"
   | "DAILY"
   | "ATTENDANCE"
+  | "OFFER"
   | "CONTRACT"
   | "PAYROLL"
   | "MESSAGE"
@@ -67,6 +70,7 @@ const EVENT_TABS: EventTab[] = [
   "OVERVIEW",
   "DAILY",
   "ATTENDANCE",
+  "OFFER",
   "CONTRACT",
   "PAYROLL",
   "MESSAGE",
@@ -149,6 +153,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
     undefined,
   );
   const [pickerDates, setPickerDates] = useState<string[] | undefined>(undefined);
+  /** 배치 모달을 '포털로 제안' 상태로 열지. 보낸 제안 탭의 버튼이 켠다 */
+  const [pickerStatus, setPickerStatus] = useState<"OFFER" | undefined>(undefined);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [detailStaffId, setDetailStaffId] = useState<number | null>(null);
@@ -179,6 +185,8 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const { data: payrollSummary } = usePayrollSummaryQuery({
     eventId: String(eventId),
   });
+  /* '보낸 제안' 탭의 숫자 = 응답 대기. 처리해야(기다려야) 할 건수라 다른 탭과 뜻이 같다. */
+  const { data: offerData } = useOfferListQuery({ eventId });
 
   const handleChangeTab = (next: EventTab) => {
     setDraftTab(next);
@@ -191,6 +199,15 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
   const handleOpenPicker = (positionId?: number, dates?: string[]) => {
     setPickerPositionId(positionId);
     setPickerDates(dates);
+    setPickerStatus(undefined);
+    setIsPickerOpen(true);
+  };
+
+  /** 같은 배치 모달을 '포털로 제안'으로 연다. 후보 추천 · 겹침 판정을 그대로 쓴다 */
+  const handleOpenOffer = () => {
+    setPickerPositionId(undefined);
+    setPickerDates(undefined);
+    setPickerStatus("OFFER");
     setIsPickerOpen(true);
   };
 
@@ -297,6 +314,12 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
             label: "출퇴근 명부",
             value: "ATTENDANCE" as const,
             count: progress.totalCount,
+          },
+          {
+            label: "보낸 제안",
+            value: "OFFER" as const,
+            count:
+              offerData?.items.filter((offer) => offer.state === "PENDING").length ?? 0,
           },
         ]
       : []),
@@ -523,6 +546,10 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
         <EventAttendancePanel event={event} onOpenStaff={setDetailStaffId} />
       )}
 
+      {visibleTab === "OFFER" && (
+        <EventOfferPanel event={event} onSendOffer={handleOpenOffer} />
+      )}
+
       {visibleTab === "CONTRACT" && <EventContractPanel event={event} />}
 
       {visibleTab === "PAYROLL" && <EventPayrollPanel event={event} />}
@@ -535,6 +562,7 @@ const EventDetailView = ({ eventId }: EventDetailViewProps) => {
         event={isPickerOpen ? event : null}
         initialPositionId={pickerPositionId}
         initialDates={pickerDates}
+        initialStatus={pickerStatus}
         onClose={() => setIsPickerOpen(false)}
       />
 

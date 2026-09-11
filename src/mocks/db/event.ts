@@ -19,6 +19,7 @@ import {
   findPosition,
   matchesGenderPreference,
   resolveEventDates,
+  resolvePositionWorkDates,
   toCheckDateTime,
   SINGLE_RECURRENCE,
 } from "@/type/event";
@@ -261,6 +262,15 @@ const buildSeedPositions = (
         이 한 줄이 없으면 보건증 조건이 붙은 공고가 목업에 하나도 없다.
       */
       requiresHealthCert: title.startsWith("F&B") && role === "STAFF",
+      /*
+        대부분은 전일만이다. 업체가 사흘을 끝까지 서는 사람을 원하는 게 보통이라서다.
+        몸으로 하는 설치 · 철거와 일부 스태프 자리만 일자별로 받는다 —
+        화면에서 두 경우가 모두 보여야 차이를 확인할 수 있다.
+      */
+      scheduleRule:
+        role === "SETUP" || (role === "STAFF" && seed % 3 === 0)
+          ? "SPLIT_OK"
+          : "FULL_ONLY",
     };
   });
 
@@ -804,18 +814,113 @@ export const findEvent = (eventId: number) =>
  * 그러면 담당자가 일별 발주를 0으로 내린 뒤 남은 지원을 확정하는 순간
  * 발주 0인 자리에 전일 배치가 깔린다. 부르지 않은 사람이 모든 날에 서는 것보다
  * "설 자리가 없다"고 거절하는 편이 옳다.
+ *
+ * 계산은 `type/event.ts`의 `resolvePositionWorkDates`가 원본이다. 공고 폼 · 포털이
+ * 같은 날짜를 봐야 해서 옮겼고, 목업 쪽 이름은 호출부를 위해 남겨 둔다.
  */
-export const positionWorkDates = (
+export const positionWorkDates = resolvePositionWorkDates;
+
+/**
+ * 이 사람을 이 날들에 **넣을 수 있는가** — 날마다 따로 본다.
+ *
+ * 지원 확정 · 제안 수락이 같은 판정을 쓴다. 전일 모집은 하루라도 막히면 통째로
+ * 거절하고, 분할 모집은 막힌 날만 빼고 넣는다. 그 정책은 부르는 쪽이 정하고,
+ * 여기서는 날짜를 셋으로 가르기만 한다.
+ */
+export const planAssignmentDates = (
   event: EventDetail,
+  staffId: number,
+  dates: readonly string[],
+) => {
+  /** 넣을 수 있는 날 */
+  const available: string[] = [];
+  /** 다른 행사에 확정되어 있는 날 */
+  const conflicts: { date: string; title: string }[] = [];
+  /** 이 행사에 이미 들어가 있는 날. 사람 × 날짜는 배치 한 건이다 */
+  const already: string[] = [];
+
+  dates.forEach((date) => {
+    const isAssigned = event.assignments.some(
+      (assignment) =>
+        assignment.staffId === staffId &&
+        assignment.workDate === date &&
+        assignment.status !== "CANCELED",
+    );
+
+    if (isAssigned) {
+      already.push(date);
+      return;
+    }
+
+    const conflict = findConflictEvent(staffId, date, event.eventId);
+
+    if (conflict) {
+      conflicts.push({ date, title: conflict.title });
+      return;
+    }
+
+    available.push(date);
+  });
+
+  return { available, conflicts, already };
+};
+
+/**
+ * 확정 배치를 만든다. 넣을 날은 `planAssignmentDates`로 이미 걸러 온 것이어야 한다.
+ *
+ * 지원 확정과 제안 수락이 **같은 모양의 배치**를 만들어야 한다. 한쪽만 계약서 여부나
+ * 금액 복사를 빠뜨리면, 어느 길로 들어왔는지에 따라 정산이 달라진다.
+ */
+export const pushConfirmedAssignments = (
+  event: EventDetail,
+  staff: (typeof staffList)[number],
   positionId: number,
-): string[] =>
-  event.days
-    .filter((day) =>
-      day.roles.some(
-        (slot) => slot.positionId === positionId && slot.requiredCount > 0,
+  dates: readonly string[],
+): number => {
+  const position = findPosition(event, positionId);
+
+  if (!position) return 0;
+
+  let maxId = events.reduce(
+    (max, item) =>
+      item.assignments.reduce(
+        (innerMax, assignment) => Math.max(innerMax, assignment.assignmentId),
+        max,
       ),
-    )
-    .map((day) => day.date);
+    0,
+  );
+
+  dates.forEach((date) => {
+    maxId += 1;
+
+    event.assignments.push({
+      assignmentId: maxId,
+      eventId: event.eventId,
+      eventTitle: event.title,
+      workDate: date,
+      staffId: staff.staffId,
+      staffName: staff.name,
+      staffPhone: staff.phoneNumber,
+      staffProfileImageUrl: staff.profileImageUrl,
+      staffGender: staff.gender,
+      isEmployee: staff.employment === "EMPLOYEE",
+      positionId: position.positionId,
+      role: position.jobRole,
+      status: "CONFIRMED",
+      ...resolveAssignmentWage(event, date, position.positionId),
+      attendance: "PENDING",
+      lateMinutes: 0,
+      /* 직원은 회사와 이미 근로계약이 되어 있어 행사마다 다시 쓰지 않는다. */
+      isContractSigned: staff.employment === "EMPLOYEE",
+      isPaid: false,
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  recalculateEventCounts(event);
+
+  return dates.length;
+};
 
 /**
  * 배치 목록을 근거로 일자별 · 전체 확정 인원을 다시 센다.
@@ -1071,12 +1176,17 @@ const buildNightMarketEvent = () => {
     endDayOffset: 0 as DayOffset,
     genderPreference: "ANY" as GenderPreference,
     requiresHealthCert: false,
+    scheduleRule: "FULL_ONLY" as const,
   };
 
+  /*
+    A타임은 전일만, 야간 · 인형탈은 일자별로 받는다. 한 행사에서 두 규칙을
+    나란히 보여야 포털 공고의 '전일 참여'와 '날짜 골라 지원'이 함께 선다.
+  */
   const positions: EventPosition[] = [
     { ...base, positionId: 1, name: "A타임", jobRole: "STAFF", startTime: "09:00", endTime: "18:00", wageType: "HOURLY", wage: 11000, billingRate: 17000 },
-    { ...base, positionId: 2, name: "B타임(야간)", jobRole: "STAFF", startTime: "21:00", endTime: "06:00", endDayOffset: 1, wageType: "HOURLY", wage: 14000, billingRate: 21000 },
-    { ...base, positionId: 3, name: "인형탈", jobRole: "COSTUME", startTime: "12:00", endTime: "18:00", wageType: "HOURLY", wage: 15000, billingRate: 23000 },
+    { ...base, positionId: 2, name: "B타임(야간)", jobRole: "STAFF", startTime: "21:00", endTime: "06:00", endDayOffset: 1, wageType: "HOURLY", wage: 14000, billingRate: 21000, scheduleRule: "SPLIT_OK" },
+    { ...base, positionId: 3, name: "인형탈", jobRole: "COSTUME", startTime: "12:00", endTime: "18:00", wageType: "HOURLY", wage: 15000, billingRate: 23000, scheduleRule: "SPLIT_OK" },
     { ...base, positionId: 4, name: "푸드 부스", jobRole: "PROMOTER", startTime: "17:00", endTime: "23:00", breakMinutes: 30, wageType: "HOURLY", wage: 13000, billingRate: 20000, requiresHealthCert: true },
     { ...base, positionId: 5, name: "야간 경호", jobRole: "SECURITY", startTime: "20:00", endTime: "04:00", endDayOffset: 1, wageType: "HOURLY", wage: 17000, billingRate: 25000, genderPreference: "MALE" },
     { ...base, positionId: 6, name: "VIP 의전", jobRole: "PROTOCOL", startTime: "10:00", endTime: "16:00", wageType: "DAILY", wage: 110000, billingRate: 26000, genderPreference: "FEMALE" },
@@ -1315,6 +1425,7 @@ const buildDemoWork = () => {
     billingRate: defaultBillingRateOf("STAFF"),
     genderPreference: "ANY",
     requiresHealthCert: false,
+    scheduleRule: "FULL_ONLY",
   };
 
   const assignment: Assignment = {
@@ -1458,6 +1569,7 @@ const buildDemoConsecutiveWork = () => {
     billingRate: defaultBillingRateOf("STAFF"),
     genderPreference: "ANY",
     requiresHealthCert: false,
+    scheduleRule: "FULL_ONLY",
   };
 
   const assignments: Assignment[] = dates.map((date) => ({

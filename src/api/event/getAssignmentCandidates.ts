@@ -36,6 +36,13 @@ export interface AssignmentCandidateParams {
    */
   employment?: EmploymentType;
   /**
+   * 고른 날 **전부** 나올 수 있는 사람만. (다른 행사와 하루라도 겹치면 뺀다)
+   *
+   * 업체가 전 일정 가능자를 원하는 포지션이면 화면이 켠 채로 시작한다.
+   * 노쇼 대타처럼 하루라도 채워야 할 때는 담당자가 끈다.
+   */
+  fullScheduleOnly?: boolean;
+  /**
    * 배치하려는 근무일 (쉼표로 이어 붙인다).
    * 이 날짜들을 기준으로 겹침을 계산하므로, 고른 날에만 맞춰 후보가 걸러진다.
    */

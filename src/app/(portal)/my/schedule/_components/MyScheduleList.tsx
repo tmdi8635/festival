@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMyAssignmentListQuery } from "@/api/my/getMySchedule";
 import { useMyApplicationListQuery } from "@/api/my/getMyRecruit";
+import { useMyOfferListQuery } from "@/api/my/getMyOffers";
 import Card from "@/components/ui/Card";
 import EmptyState from "@/components/ui/EmptyState";
 import Skeleton from "@/components/ui/Skeleton";
@@ -10,6 +11,7 @@ import Tabs, { type TabItem } from "@/components/ui/Tabs";
 import MyWorkCard from "@/app/(portal)/_components/MyWorkCard";
 import PostingDetailModal from "@/app/(portal)/_components/PostingDetailModal";
 import MyApplicationCard from "./MyApplicationCard";
+import MyOfferCard from "./MyOfferCard";
 
 /**
  * 리스트의 탭.
@@ -18,23 +20,34 @@ import MyApplicationCard from "./MyApplicationCard";
  * 공고 화면에 두면 "지원한 뒤 확인하려면 공고를 다시 찾아 들어가야" 하고,
  * 그러면 같은 날 두 곳에 지원한 것도 눈치채지 못한다.
  *
- * 순서는 확정될 가능성이 높은 쪽부터다 — 확정(예정) · 대기(신청) · 끝난 것(종료).
+ * '제안'도 같은 이유로 여기 있다. 담당자가 먼저 권한 자리는 수락하면 바로 일정이 된다.
+ *
+ * 순서는 확정될 가능성이 높은 쪽부터다 — 확정(예정) · 수락만 하면 되는 것(제안) ·
+ * 기다리는 것(신청) · 끝난 것(종료).
  */
-type ScheduleTab = "UPCOMING" | "APPLIED" | "PAST";
+type ScheduleTab = "UPCOMING" | "OFFERED" | "APPLIED" | "PAST";
 
 const TABS: TabItem<ScheduleTab>[] = [
   { label: "예정", value: "UPCOMING" },
+  { label: "제안", value: "OFFERED" },
   { label: "신청", value: "APPLIED" },
   { label: "종료", value: "PAST" },
 ];
 
 const isScheduleTab = (value: string | null): value is ScheduleTab =>
-  value === "UPCOMING" || value === "APPLIED" || value === "PAST";
+  value === "UPCOMING" ||
+  value === "OFFERED" ||
+  value === "APPLIED" ||
+  value === "PAST";
 
 const EMPTY_TEXT: Record<ScheduleTab, { title: string; description: string }> = {
   UPCOMING: {
     title: "예정된 근무가 없습니다.",
     description: "공고에서 원하는 자리에 지원해 보세요.",
+  },
+  OFFERED: {
+    title: "받은 제안이 없습니다.",
+    description: "담당자가 먼저 근무를 권하면 여기에 옵니다.",
   },
   APPLIED: {
     title: "신청한 공고가 없습니다.",
@@ -47,7 +60,7 @@ const EMPTY_TEXT: Record<ScheduleTab, { title: string; description: string }> = 
 };
 
 interface MyScheduleListProps {
-  /** 들어오는 링크의 `?tab=`. 홈의 "지원 결과가 나왔습니다"가 신청 탭으로 보낸다 */
+  /** 들어오는 링크의 `?tab=`. 홈의 "지원 결과" · "받은 제안"이 해당 탭으로 보낸다 */
   initialTab: string | null;
 }
 
@@ -65,12 +78,11 @@ const MyScheduleList = ({ initialTab }: MyScheduleListProps) => {
     null,
   );
 
-  const isApplied = tab === "APPLIED";
-
   const { data: assignmentData, isLoading: isAssignmentLoading } =
     useMyAssignmentListQuery(tab === "PAST" ? "PAST" : "UPCOMING");
   const { data: applicationData, isLoading: isApplicationLoading } =
     useMyApplicationListQuery();
+  const { data: offerData, isLoading: isOfferLoading } = useMyOfferListQuery();
 
   const works = assignmentData?.items ?? [];
 
@@ -88,8 +100,26 @@ const MyScheduleList = ({ initialTab }: MyScheduleListProps) => {
     [applicationData],
   );
 
-  const isLoading = isApplied ? isApplicationLoading : isAssignmentLoading;
-  const isEmpty = isApplied ? applications.length === 0 : works.length === 0;
+  /*
+    응답 대기 제안 + 최근에 닫힌 제안. 닫힌 것을 얼마나 남길지는 **서버가 정한다**
+    (`GET /my/offers` — 14일). 화면에서 지금 시각으로 거르면 렌더할 때마다 결과가 달라진다.
+  */
+  const offers = useMemo(() => offerData?.items ?? [], [offerData]);
+
+  const pendingOfferCount = offers.filter((offer) => offer.state === "PENDING").length;
+
+  const isLoading =
+    tab === "APPLIED"
+      ? isApplicationLoading
+      : tab === "OFFERED"
+        ? isOfferLoading
+        : isAssignmentLoading;
+  const isEmpty =
+    tab === "APPLIED"
+      ? applications.length === 0
+      : tab === "OFFERED"
+        ? offers.length === 0
+        : works.length === 0;
 
   return (
     <>
@@ -97,7 +127,9 @@ const MyScheduleList = ({ initialTab }: MyScheduleListProps) => {
         items={TABS.map((item) =>
           item.value === "APPLIED" && applications.length > 0
             ? { ...item, count: applications.length }
-            : item,
+            : item.value === "OFFERED" && pendingOfferCount > 0
+              ? { ...item, count: pendingOfferCount }
+              : item,
         )}
         value={tab}
         onChange={setTab}
@@ -116,7 +148,7 @@ const MyScheduleList = ({ initialTab }: MyScheduleListProps) => {
             description={EMPTY_TEXT[tab].description}
           />
         </Card>
-      ) : isApplied ? (
+      ) : tab === "APPLIED" ? (
         <div className="flex flex-col gap-3">
           {applications.map((application) => (
             <MyApplicationCard
@@ -124,6 +156,12 @@ const MyScheduleList = ({ initialTab }: MyScheduleListProps) => {
               application={application}
               onOpenDetail={setSelectedPostingId}
             />
+          ))}
+        </div>
+      ) : tab === "OFFERED" ? (
+        <div className="flex flex-col gap-3">
+          {offers.map((offer) => (
+            <MyOfferCard key={offer.offerId} offer={offer} />
           ))}
         </div>
       ) : (

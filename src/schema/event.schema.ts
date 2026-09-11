@@ -78,6 +78,11 @@ export const eventPositionSchema = z
       .min(0, "0 이상이어야 합니다."),
     genderPreference: z.enum(["ANY", "MALE", "FEMALE"]).default("ANY"),
     requiresHealthCert: z.boolean().default(false),
+    /*
+      전일만 · 일자별 가능. 업체가 전 일정 가능자를 원하는 경우가 대부분이라
+      기본값은 전일이다. 하루짜리 행사에서는 화면이 칸을 감추고 값만 그대로 둔다.
+    */
+    scheduleRule: z.enum(["FULL_ONLY", "SPLIT_OK"]).default("FULL_ONLY"),
   })
   .superRefine((position, ctx) => {
     if (position.wageType === "HOURLY" && position.wage < MINIMUM_HOURLY_WAGE) {
@@ -271,6 +276,7 @@ export const EMPTY_POSITION_DRAFT = {
   billingRate: 0,
   genderPreference: "ANY" as const,
   requiresHealthCert: false,
+  scheduleRule: "FULL_ONLY" as const,
   requiredCount: 1,
 };
 

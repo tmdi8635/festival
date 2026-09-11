@@ -86,10 +86,14 @@ export const useMyApplicationListQuery = () =>
     queryFn: getMyApplications,
   });
 
-/** 지원은 **포지션 하나**에 한다. 행사당 살아 있는 지원은 하나뿐이다. */
+/**
+ * 지원은 **모집 줄 하나**에 한다. 한 행사의 여러 줄에 걸어 둘 수 있다.
+ * 분할 줄이면 나올 수 있는 날을 함께 보낸다(하루 이상). 전일 줄은 보내지 않는다.
+ */
 export interface ApplyToPostingRequest {
   postingId: number;
-  positionId: number;
+  targetId: number;
+  dates?: string[];
 }
 
 export const applyToPosting = async (body: ApplyToPostingRequest) => {

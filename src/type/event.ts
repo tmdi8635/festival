@@ -354,7 +354,46 @@ export interface EventPosition {
    * 이 값이 켜진 포지션에는 **유효한 보건증이 있는 사람만 지원할 수 있다.**
    */
   requiresHealthCert: boolean;
+  /**
+   * 여러 날 행사에서 **전 일정을 나와야 하는 자리인가.**
+   *
+   * 업체는 대개 사흘을 끝까지 서는 사람을 원한다. 첫날 온 사람이 이튿날 바뀌면
+   * 매일 아침 교육을 다시 해야 하고, 현장 담당자가 얼굴을 익힐 틈이 없다.
+   * 성별 · 보건증처럼 **발주 조건**이라 포지션이 갖고, 공고는 이 값을 초기값으로 받는다.
+   * 노쇼 · 급구로 하루만 채워야 할 때는 공고에서 그 날만 여는 분할 줄을 따로 둔다.
+   *
+   * 하루짜리 행사에서는 뜻이 없다. (화면이 칸을 감춘다)
+   */
+  scheduleRule: PositionScheduleRule;
 }
+
+/** 전일만 · 일자별 가능. (`EventPosition.scheduleRule`) */
+export type PositionScheduleRule = "FULL_ONLY" | "SPLIT_OK";
+
+export const SCHEDULE_RULE_LABEL: Record<PositionScheduleRule, string> = {
+  FULL_ONLY: "전일 참여만",
+  SPLIT_OK: "일자별 참여 가능",
+};
+
+/**
+ * 이 포지션이 **실제로 서는 날** — 발주가 한 명이라도 있는 근무일.
+ *
+ * 행사 근무일과 같지 않을 수 있다. 설치/철거는 첫날과 마지막 날에만 발주가 있고,
+ * 야간 자리가 주말에만 열리는 일도 흔하다. 공고 · 지원 · 확정이 모두 이 날짜를 보므로
+ * 화면과 목업이 같은 함수를 써야 한다. 한쪽이 행사 근무일을 쓰면 사흘로 알고
+ * 지원한 사람이 이틀만 배치된다.
+ */
+export const resolvePositionWorkDates = (
+  event: { days: readonly EventDayPlan[] },
+  positionId: number,
+): string[] =>
+  event.days
+    .filter((day) =>
+      day.roles.some(
+        (slot) => slot.positionId === positionId && slot.requiredCount > 0,
+      ),
+    )
+    .map((day) => day.date);
 
 /** 포지션 한 건을 사람이 읽는 한 줄로. `A타임 (스태프)` */
 export const formatPositionLabel = (

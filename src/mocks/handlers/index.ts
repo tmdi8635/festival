@@ -6,6 +6,7 @@ import { employeeHandlers } from "./employee";
 import { eventHandlers } from "./event";
 import { fileHandlers } from "./file";
 import { messageHandlers } from "./message";
+import { offerHandlers } from "./offer";
 import { opsHandlers } from "./ops";
 import { payrollHandlers } from "./payroll";
 import { recruitHandlers } from "./recruit";
@@ -35,6 +36,8 @@ export const handlers = [
   ...contractHandlers,
   ...payrollHandlers,
   ...recruitHandlers,
+  /* 근무 제안. `/admin/offers` · `/admin/events/:eventId/offers` · `/my/offers` — 겹치는 주소가 없다. */
+  ...offerHandlers,
   ...messageHandlers,
   ...clientHandlers,
   ...opsHandlers,

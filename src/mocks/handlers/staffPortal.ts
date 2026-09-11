@@ -7,7 +7,7 @@ import type {
   MyHealthCertFormValues,
   MyPayroll,
   MyPosting,
-  MyPostingPosition,
+  MyPostingLine,
   MyProfile,
   MyProfileFormValues,
   MySummary,
@@ -15,7 +15,8 @@ import type {
   MyWork,
 } from "@/type/my";
 import type { Contract } from "@/type/contract";
-import type { Application, JobPosting, PostingPosition } from "@/type/recruit";
+import type { Application, JobPosting, PostingLine } from "@/type/recruit";
+import { applicationDates, resolveTargetDates } from "@/type/recruit";
 import type { Assignment, EventDetail } from "@/type/event";
 import type { StaffDetail } from "@/type/staff";
 import { buildDocumentHash } from "@/type/contract";
@@ -53,11 +54,13 @@ import {
   syncStaffReputationCounts,
 } from "../db/event";
 import { payrollItems, syncPayrollWithAssignment } from "../db/payroll";
+import { offers } from "../db/offer";
+import { resolveOfferState } from "@/type/offer";
 import { operationSettings } from "../db/ops";
 import {
   applications,
   findActiveApplications,
-  findActivePositionApplication,
+  findActiveLineApplication,
   findPosting,
   postings,
   recalculatePostingCounts,
@@ -70,7 +73,7 @@ import {
   syncStaffDocuments,
 } from "../db/staff";
 import { markAssignmentsSigned } from "./contract";
-import { formatDateTime } from "@/lib/dayjs";
+import { formatDate, formatDateTime } from "@/lib/dayjs";
 import {
   BASE_URI,
   MOCK_DELAY_MS,
@@ -441,6 +444,10 @@ const verifyLocation = (
 /**
  * 내 배치를 전부 모은다.
  *
+ * **확정된 배치만 담는다.** 제안 · 대기 배치는 아직 나오기로 한 날이 아니다.
+ * 예전에는 취소만 걸러서, 담당자가 '대기'로 올려 둔 날이 본인 화면에 근무로 떴다.
+ * 그 사람은 확정된 줄 알고 그날을 비워 둔다. (제안은 이제 `WorkOffer`로 따로 온다)
+ *
  * 담당자가 뺀 배치는 담지 않는다 — 나가지 않기로 한 날이다.
  * **본인이 취소한 건은 담는다.** 언제 무슨 이유로 취소했고 그게 노쇼로 남았는지는
  * 본인이 확인할 수 있어야 한다. 목록에서 사라지면 점수가 왜 깎였는지 설명할 곳이 없다.
@@ -452,8 +459,9 @@ const myWorks = (staffId: number): MyWork[] =>
         .filter(
           (assignment) =>
             assignment.staffId === staffId &&
-            (assignment.status !== "CANCELED" ||
-              Boolean(assignment.staffCanceledAt)),
+            (assignment.status === "CONFIRMED" ||
+              (assignment.status === "CANCELED" &&
+                Boolean(assignment.staffCanceledAt))),
         )
         .map((assignment) => toMyWork(event, assignment)),
     )
@@ -529,9 +537,8 @@ const toMyApplication = (application: Application): MyApplication => {
   const position = event
     ? findPosition(event, application.positionId)
     : undefined;
-  const workDates = event
-    ? positionWorkDates(event, application.positionId)
-    : (posting?.workDates ?? [application.workDate]);
+  /* 줄 전체가 아니라 **이 지원이 가리키는 날**이다. 분할 지원은 고른 날만 나온다. */
+  const workDates = applicationDates(application);
   /* 금액은 공고 상세(`toMyPosting`)와 같은 계산이다. 둘이 다르면 지원한 금액이 바뀐 줄 안다. */
   const workHours = position ? calculateScheduledWorkHours(position) : 0;
   const dailyPay = position
@@ -551,6 +558,9 @@ const toMyApplication = (application: Application): MyApplication => {
     workDate: application.workDate,
     /* 카드가 날짜·장소를 그리려고 공고를 한 번 더 부르지 않게 함께 내린다. */
     workDates,
+    participation: application.participation,
+    requestedDates: application.requestedDates,
+    confirmedDates: application.confirmedDates,
     venue: posting?.venue ?? event?.venue ?? "",
     address: event?.address ?? "",
     /* 시각은 지원한 포지션의 것이다. 행사 기본 시간을 적으면 B타임 지원자가 속는다. */
@@ -595,7 +605,7 @@ const findConflictOnDates = (
 /**
  * 이 사람이 **설 수 있는 자리인가** — 직무 · 성별 · 보건증.
  *
- * '지원할 수 있는가'(`resolvePositionBlock`)와 갈라 둔다. 이쪽은 그 사람의
+ * '지원할 수 있는가'(`resolveLineBlock`)와 갈라 둔다. 이쪽은 그 사람의
  * 조건이라 오늘 바뀌지 않지만, 저쪽에는 날짜 겹침 · 이미 낸 지원처럼
  * 일정에 따라 오늘만 막히는 것이 섞여 있다. 목록의 '내가 할 수 있는 직무만'은
  * 앞의 것만 봐야 한다 — 겹치는 날을 빼는 것은 사용자가 따로 켜는 다른 축이다.
@@ -603,7 +613,7 @@ const findConflictOnDates = (
  * 비회원은 거를 기준이 없으므로 전부 통과다.
  */
 const matchesStaffConditions = (
-  position: PostingPosition,
+  position: PostingLine,
   staff: StaffDetail | undefined,
 ): boolean => {
   if (!staff) return true;
@@ -617,15 +627,50 @@ const matchesStaffConditions = (
 };
 
 /**
- * 이 사람이 이 포지션에 지원할 수 없는 이유. 없으면 `undefined`다.
+ * 줄이 여는 날과, 그중 **이 사람이 나올 수 있는 날.**
+ *
+ * - `workDates`: 발주가 있는 날 ∩ 줄이 지정한 날. 지난 날도 담는다(공고에 적힌 그대로).
+ * - `openDates`: 그중 아직 지나지 않은 날. 지원 · 차단은 이것만 본다.
+ * - `availableDates`: 그중 다른 근무와 겹치지 않는 날. 비회원은 겹침을 모르니 `openDates`와 같다.
+ *
+ * 목록 버튼 · 날짜 선택 · 지원 요청이 모두 이 함수를 쓴다. 화면이 잠근 날과
+ * 서버가 막는 날이 다르면, 고른 날을 두고 서버가 거절하는 일이 생긴다.
+ */
+const resolveLineDateState = (
+  event: EventDetail,
+  line: PostingLine,
+  staff: StaffDetail | undefined,
+) => {
+  const today = toDateKey(new Date());
+  const workDates = resolveTargetDates(
+    line,
+    positionWorkDates(event, line.positionId),
+  );
+  const openDates = workDates.filter((date) => date >= today);
+  const conflicts = staff
+    ? openDates.flatMap((date) => {
+        const conflict = findConflictEvent(staff.staffId, date, event.eventId);
+
+        return conflict ? [{ date, title: conflict.title }] : [];
+      })
+    : [];
+  const availableDates = openDates.filter(
+    (date) => !conflicts.some((item) => item.date === date),
+  );
+
+  return { workDates, openDates, availableDates, conflicts };
+};
+
+/**
+ * 이 사람이 이 줄에 지원할 수 없는 이유. 없으면 `undefined`다.
  *
  * **목록 · 상세의 버튼과 지원 요청이 같은 함수를 쓴다.** 화면은 된다고 하는데 서버가
  * 막거나, 서버는 받는데 화면이 잠그는 상태가 생기면 둘 다 고장으로 읽힌다.
  * 순서가 곧 안내 순서다 — 본인이 어떻게 해도 안 되는 것(성별)부터 말한다.
  */
-const resolvePositionBlock = (
+const resolveLineBlock = (
   event: EventDetail,
-  position: PostingPosition,
+  position: PostingLine,
   staff: StaffDetail | undefined,
 ): string | undefined => {
   if (!staff) return "로그인하면 지원할 수 있어요.";
@@ -658,22 +703,26 @@ const resolvePositionBlock = (
     발주가 하루도 없는 자리는 지원을 받아 봐야 확정할 수 없다.
     (담당자가 일별 발주를 0으로 내린 뒤 공고가 남아 있는 경우다)
   */
-  const workDates = positionWorkDates(event, position.positionId);
+  const { openDates, conflicts } = resolveLineDateState(event, position, staff);
 
-  if (workDates.length === 0) return "지금은 모집이 닫힌 자리예요.";
+  if (openDates.length === 0) return "지금은 모집이 닫힌 자리예요.";
 
   /*
     같은 날 이미 확정된 행사가 있으면 미리 알린다.
     지원한 뒤 확정 단계에서 거절당하면, 본인은 왜 떨어졌는지 모른 채
     다음에도 같은 날에 또 지원한다.
-  */
-  const conflict = findConflictOnDates(
-    staff.staffId,
-    workDates,
-    event.eventId,
-  );
 
-  if (conflict) return `같은 날 '${conflict.title}'에 이미 확정되어 있어요.`;
+    **전일 줄은 하루만 겹쳐도 막는다.** 업체가 원한 것은 전 일정을 서는 사람이라,
+    이틀만 나올 수 있는 사람의 지원은 받아 봐야 확정할 수 없다.
+    분할 줄은 겹친 날만 잠그고(날짜 선택), 모든 날이 막혔을 때만 줄을 막는다.
+  */
+  if (position.participation === "FULL" && conflicts.length > 0) {
+    return `전 일정을 나와야 하는 자리예요. ${formatDate(conflicts[0].date)} '${conflicts[0].title}'와 겹쳐요.`;
+  }
+
+  if (conflicts.length === openDates.length) {
+    return `모든 날이 '${conflicts[0].title}'와 겹쳐요.`;
+  }
 
   return undefined;
 };
@@ -695,19 +744,26 @@ const toMyPosting = (
   /* 한 행사의 여러 자리에 걸어 둘 수 있다. 지원은 자리마다 따로 붙는다. */
   const mine = staff ? findActiveApplications(staff.staffId, posting.eventId) : [];
 
-  const positions: MyPostingPosition[] = posting.positions.map((position) => {
+  const lines: MyPostingLine[] = posting.lines.map((position) => {
     const workHours = calculateScheduledWorkHours(position);
-    const blockReason = resolvePositionBlock(event, position, staff);
+    const blockReason = resolveLineBlock(event, position, staff);
     const applied = mine.find(
-      (application) => application.positionId === position.positionId,
+      (application) => application.targetId === position.targetId,
     );
     const isMine = Boolean(applied);
-    /* 발주가 있는 날만이다. 행사 근무일과 같지 않을 수 있다. */
-    const workDates = positionWorkDates(event, position.positionId);
+    /* 줄이 여는 날(발주가 있는 날 ∩ 줄이 지정한 날)과, 그중 내가 나올 수 있는 날. */
+    const { workDates, availableDates } = resolveLineDateState(
+      event,
+      position,
+      staff,
+    );
     const dailyPay = calculateBasePay(position.wageType, position.wage, workHours);
 
     return {
+      targetId: position.targetId,
       positionId: position.positionId,
+      participation: position.participation,
+      isUrgent: position.isUrgent,
       name: position.name,
       jobRole: position.jobRole,
       startTime: position.startTime,
@@ -715,6 +771,7 @@ const toMyPosting = (
       endDayOffset: position.endDayOffset,
       breakMinutes: position.breakMinutes,
       workDates,
+      availableDates,
       workHours,
       wageType: position.wageType,
       wage: position.wage,
@@ -727,6 +784,7 @@ const toMyPosting = (
       matchesMe: matchesStaffConditions(position, staff),
       myApplicationId: applied?.applicationId,
       myApplicationStatus: applied?.status,
+      myDates: applied ? applicationDates(applied) : undefined,
       /* 이미 지원한 포지션은 '지원함'이다. 다시 누를 버튼이 아니다. */
       canApply: !isMine && !blockReason,
       blockReason: isMine ? undefined : blockReason,
@@ -753,8 +811,8 @@ const toMyPosting = (
     description: event.description,
     dressCode: event.dressCode,
     belongings: event.belongings,
-    positions,
-    requiresHealthCert: positions.some((position) => position.requiresHealthCert),
+    lines,
+    requiresHealthCert: lines.some((line) => line.requiresHealthCert),
     isApplied: mine.length > 0,
     /* 카드에는 한 줄만 선다. 확정이 하나라도 있으면 그게 대표다. */
     applicationStatus: mine.some((item) => item.status === "ACCEPTED")
@@ -1568,7 +1626,7 @@ export const staffPortalHandlers = [
       .filter((posting) => posting.workDates.some((date) => date >= today))
       .filter(
         (posting) =>
-          !role || posting.positions.some((position) => position.jobRole === role),
+          !role || posting.lines.some((position) => position.jobRole === role),
       )
       /* 고른 날에 근무가 있는 공고만. */
       .filter((posting) => !workDate || posting.workDates.includes(workDate))
@@ -1587,7 +1645,7 @@ export const staffPortalHandlers = [
         (posting) =>
           !onlyMyRoles ||
           !viewer ||
-          posting.positions.some((position) =>
+          posting.lines.some((position) =>
             matchesStaffConditions(position, viewer),
           ),
       )
@@ -1596,7 +1654,7 @@ export const staffPortalHandlers = [
         남성: 성별 무관 + 남성만 / 여성: 성별 무관 + 여성만 / 모름: 전부.
       */
       .filter((posting) =>
-        posting.positions.some((position) =>
+        posting.lines.some((position) =>
           matchesGenderPreference(position.genderPreference, gender),
         ),
       )
@@ -1608,9 +1666,17 @@ export const staffPortalHandlers = [
         지원해 봐야 서버가 막는 자리라, 켜 두면 목록이 '지금 실제로 잡을 수 있는 일'만 남는다.
         내가 이미 낸 지원은 남긴다 — 상태를 확인할 길이 이 목록뿐이다.
       */
+      /*
+        겹치는 날이 있어도 **아직 지원할 수 있는 줄이 있으면** 남긴다.
+        날짜를 골라 지원하는 줄은 겹친 날만 빼고 낼 수 있다. 하루 겹친다고 공고째 숨기면
+        하루만 비는 사람이 찾는 급구 자리가 정확히 그 사람에게서 사라진다.
+      */
       .filter(
         (posting) =>
-          !excludeConflicts || posting.isApplied || !posting.conflictEventTitle,
+          !excludeConflicts ||
+          posting.isApplied ||
+          !posting.conflictEventTitle ||
+          posting.lines.some((line) => line.canApply),
       )
       .sort((a, b) => a.workDates[0].localeCompare(b.workDates[0]));
 
@@ -1687,7 +1753,8 @@ export const staffPortalHandlers = [
 
     const body = (await request.json()) as {
       postingId: number;
-      positionId: number;
+      targetId: number;
+      dates?: string[];
     };
     const posting = findPosting(Number(body.postingId));
     const event = posting ? findEvent(posting.eventId) : undefined;
@@ -1700,11 +1767,11 @@ export const staffPortalHandlers = [
 
     recalculatePostingCounts();
 
-    const position = posting.positions.find(
-      (item) => item.positionId === Number(body.positionId),
+    const line = posting.lines.find(
+      (item) => item.targetId === Number(body.targetId),
     );
 
-    if (!position) {
+    if (!line) {
       return badRequest("지원할 포지션을 골라 주세요.", "POSITION_REQUIRED");
     }
 
@@ -1713,22 +1780,43 @@ export const staffPortalHandlers = [
       하나가 확정되면 같은 날에 걸린 나머지는 서버가 취소한다.
     */
     if (
-      findActivePositionApplication(
-        staff.staffId,
-        posting.eventId,
-        position.positionId,
-      )
+      findActiveLineApplication(staff.staffId, posting.eventId, line.targetId)
     ) {
       return badRequest("이미 지원한 포지션입니다.", "DUPLICATED_APPLICATION");
     }
 
     /*
       성별 · 보건증 · 날짜 겹침을 **화면과 같은 함수로** 본다.
-      (`resolvePositionBlock`) 화면만 잠그면 주소를 직접 부르는 순간 통과한다.
+      (`resolveLineBlock`) 화면만 잠그면 주소를 직접 부르는 순간 통과한다.
     */
-    const blockReason = resolvePositionBlock(event, position, staff);
+    const blockReason = resolveLineBlock(event, line, staff);
 
     if (blockReason) return badRequest(blockReason, "APPLY_BLOCKED");
+
+    /*
+      **나올 날을 정한다.** 전일 줄은 남은 날 전부이고 본인이 고르지 않는다.
+      분할 줄은 본인이 고른 날인데, 겹치는 날이 섞여 있으면 받지 않는다 —
+      화면이 잠근 날을 주소로 직접 보낸 경우다. 받아 두면 확정 때 조용히 빠진다.
+    */
+    const { openDates, availableDates } = resolveLineDateState(event, line, staff);
+    let requestedDates = openDates;
+
+    if (line.participation === "SPLIT") {
+      const picked = [...new Set(body.dates ?? [])].sort();
+
+      if (picked.length === 0) {
+        return badRequest("나올 수 있는 날을 하루 이상 골라 주세요.", "DATES_REQUIRED");
+      }
+
+      if (picked.some((date) => !availableDates.includes(date))) {
+        return badRequest(
+          "고를 수 없는 날이 섞여 있어요. 화면을 새로 고친 뒤 다시 골라 주세요.",
+          "DATES_UNAVAILABLE",
+        );
+      }
+
+      requestedDates = picked;
+    }
 
     const created: Application = {
       applicationId: nextId(applications, "applicationId"),
@@ -1736,10 +1824,13 @@ export const staffPortalHandlers = [
       postingTitle: posting.title,
       eventId: posting.eventId,
       eventTitle: posting.eventTitle,
-      workDate: positionWorkDates(event, position.positionId)[0] ?? posting.workDate,
-      positionId: position.positionId,
-      positionName: position.name,
-      role: position.jobRole,
+      workDate: requestedDates[0],
+      targetId: line.targetId,
+      positionId: line.positionId,
+      positionName: line.name,
+      role: line.jobRole,
+      participation: line.participation,
+      requestedDates,
       staffId: staff.staffId,
       applicantName: staff.name,
       phoneNumber: staff.phoneNumber,
@@ -1914,6 +2005,26 @@ export const staffPortalHandlers = [
         description: "다시 발급되면 서명할 수 있어요.",
         href: "/my/contracts",
         tone: "info",
+      });
+    }
+
+    /*
+      받은 근무 제안. **응답 대기만 센다.**
+      제안은 기한이 있어서 홈에서 먼저 눈에 걸려야 한다. 기한이 지난 것은 할 일이 아니다
+      (응답할 수 없다). 수락이 곧 확정이라 설명에 그 사실을 적는다.
+    */
+    const pendingOffers = offers.filter(
+      (offer) =>
+        offer.staffId === staff.staffId && resolveOfferState(offer) === "PENDING",
+    );
+
+    if (pendingOffers.length > 0) {
+      todos.push({
+        type: "OFFER_PENDING",
+        title: `받은 근무 제안 ${pendingOffers.length}건이 응답을 기다립니다`,
+        description: "기한 안에 수락하면 바로 확정됩니다.",
+        href: "/my/schedule?tab=OFFERED",
+        tone: "warning",
       });
     }
 

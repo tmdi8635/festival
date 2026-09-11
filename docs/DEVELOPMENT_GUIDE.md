@@ -311,6 +311,14 @@ const handleSave = () => mutation.mutate(rows, { onSuccess: () => setDraft(null)
 | `formatPositionLabel` | `type/event.ts` | 포지션 이름 + 직무를 나란히 적는 곳 |
 | `comparePositionOrder` | `type/event.ts` | 포지션 나열 순서 (카탈로그 순서를 따른다) |
 | `resolveBillingRate` ★ | `type/event.ts` | 청구 단가 (원본은 `EventPosition.billingRate`) |
+| `resolvePositionWorkDates` ★ | `type/event.ts` | 포지션이 실제로 서는 날 (발주가 있는 날). 공고 폼 · 포털 · 목업 (`positionWorkDates`는 목업 쪽 별칭) |
+| `resolveLineDates` · `resolveTargetDates` ★ | `type/recruit.ts` | 모집 줄이 여는 날 (발주 있는 날 ∩ 줄이 지정한 날). 지원 · 확정 쪽은 `today`를 넘겨 지난 날을 뺀다 |
+| `applicationDates` ★ | `type/recruit.ts` | 지원이 가리키는 날 (`confirmedDates ?? requestedDates`). 확정 배치 · 겹친 지원 정리 · 포털 카드 |
+| `suggestPostingTargets` ★ | `type/recruit.ts` | 새 공고의 초기 모집 줄 (공통 부족 = 전일 줄, 더 모자란 날 = 분할 줄). 급구는 붙이지 않는다 — 담당자가 정한다. 공고 폼 · 목업 시드 |
+| `describeLineSchedule` · `formatLineLabel` | `type/recruit.ts` | 줄을 한 마디로 (`전일 3일` · `09.12 · 09.13` · `[급구] A타임 09.13 1명`). 공고 제목 · 목록 칸 |
+| `describeApplicationDates` | `type/recruit.ts` | 지원 날짜 한 마디 (`3일 신청 · 2일 확정`이 먼저). 관리자 지원 목록 |
+| `resolveOfferState` ★ | `type/offer.ts` | 제안 상태 (기한 지남은 저장하지 않고 그때 구한다). 관리자 보낸 제안 · 포털 제안 탭 · 수락 요청 |
+| `resolveOfferRespondBy` | `type/offer.ts` | 응답 기한 (보낸 뒤 24시간, 첫 근무 3시간 전을 넘지 않음) |
 | `resolveDocumentReviewState` ★ | `type/staff.ts` | 서류 심사 결과 (**필수 레인만** 본다 — 보건증 제외) |
 | `buildContractWorkDay` ★ | `type/contract.ts` | 배치 → 계약서 근무일 한 줄 (그날의 포지션 시각 · 금액) |
 | `summarizeContractWork` ★ | `type/contract.ts` | 근무일 목록 → 총 시간 · 총액 · `hasMixedSchedule` |

@@ -18,6 +18,7 @@ import { useJobRoleFilterOptions, useJobRoleLabel } from "@/store/useOrgStore";
 import { DEFAULT_PAGE_SIZE } from "@/type/api";
 import {
   POSTING_STATUS_LABEL,
+  describeLineSchedule,
   type JobPosting,
   type PostingStatus,
 } from "@/type/recruit";
@@ -145,13 +146,20 @@ const PostingManager = () => {
       header: "포지션",
       render: (posting) => (
         <ul className="flex min-w-56 flex-col gap-1">
-          {posting.positions.map((position) => (
+          {posting.lines.map((position) => (
             <li
-              key={position.positionId}
+              key={position.targetId}
               className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px]"
               title={`${jobRoleLabel(position.jobRole)} · 모집 ${position.requiredCount}명 · 지원 ${position.applicantCount}명`}
             >
+              {position.isUrgent && <Badge tone="danger">급구</Badge>}
               <span className="font-medium text-font-1">{position.name}</span>
+              {/* 같은 포지션의 전일 줄과 급구 줄을 가르는 것은 날짜뿐이다. */}
+              {posting.workDates.length > 1 && (
+                <span className="text-[12px] text-font-2 tabular-nums">
+                  {describeLineSchedule(position, position.workDates)}
+                </span>
+              )}
               <span className="text-[12px] text-font-2 tabular-nums">
                 {formatTimeRange(
                   position.startTime,

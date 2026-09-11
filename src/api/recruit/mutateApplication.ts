@@ -6,8 +6,10 @@ import type { Application, ApplicationStatus } from "@/type/recruit";
 
 export interface CreateApplicationRequest {
   postingId: number;
-  /** 어느 포지션에 지원했는지. 확정할 때 이 포지션으로 배치된다. */
-  positionId: number;
+  /** 어느 모집 줄에 지원했는지. 확정할 때 그 줄의 포지션으로 배치된다. */
+  targetId: number;
+  /** 분할 줄일 때 문자로 받은 가능한 날. 전일 줄이면 비워 둔다. */
+  dates: string[];
   applicantName: string;
   phoneNumber: string;
   note: string;
@@ -25,22 +27,31 @@ export const createApplication = async (body: CreateApplicationRequest) => {
 /**
  * 확정 결과.
  *
- * 확정은 그 포지션의 발주가 있는 **모든 근무일**에 배치를 만든다. 그런데 그중
- * 하루가 다른 행사와 겹치면 그 하루만 빠지고 나머지는 들어간다. 이때
- * "확정했습니다"만 띄우면 담당자는 전부 채운 줄 알고, 빠진 날은 현장에서 드러난다.
+ * 확정은 지원이 신청한 날에 배치를 만든다. 분할 지원은 그중 하루가 다른 행사와
+ * 겹치면 그 하루만 빠지고 나머지는 들어간다. 이때 "확정했습니다"만 띄우면
+ * 담당자는 전부 채운 줄 알고, 빠진 날은 현장에서 드러난다.
  */
 export interface ApplicationStatusResponse extends Application {
-  /** 겹쳐서 배치하지 못한 날 안내. 없으면 빈 배열이다 */
+  /** 겹쳐서 배치하지 못한 날 · 함께 정리한 지원 안내. 없으면 빈 배열이다 */
   skipped?: string[];
 }
 
-export const updateApplicationStatus = async (
-  applicationId: number,
-  status: ApplicationStatus,
-) => {
+export interface UpdateApplicationStatusRequest {
+  applicationId: number;
+  status: ApplicationStatus;
+  /** 분할 지원을 일부만 확정할 때 고른 날. 비우면 신청한 날 전부다 */
+  dates?: string[];
+  /** 전일 지원인데 겹치는 날이 있을 때, 되는 날만 넣고 강행한다 */
+  allowPartial?: boolean;
+}
+
+export const updateApplicationStatus = async ({
+  applicationId,
+  ...body
+}: UpdateApplicationStatusRequest) => {
   const response = await adminAxios.patch<ApplicationStatusResponse>(
     `/admin/applications/${applicationId}`,
-    { status },
+    body,
   );
 
   return response.data;
@@ -81,17 +92,17 @@ export const useApplicationMutation = () => {
   const statusMutation = useMutation<
     ApplicationStatusResponse,
     AppError,
-    { applicationId: number; status: ApplicationStatus }
+    UpdateApplicationStatusRequest
   >({
-    mutationFn: ({ applicationId, status }) =>
-      updateApplicationStatus(applicationId, status),
+    mutationFn: updateApplicationStatus,
     onSuccess: (result, variables) => {
       const skipped = result.skipped ?? [];
+      const confirmedCount = result.confirmedDates?.length ?? 0;
 
       showAppToast(
         skipped.length > 0 ? "warning" : "success",
         variables.status === "ACCEPTED"
-          ? "확정 처리했습니다. 행사 배치에 자동으로 반영됩니다."
+          ? `확정했습니다. ${confirmedCount}일 배치에 반영됩니다.`
           : "지원 상태를 변경했습니다.",
         skipped.length > 0 ? { description: skipped.join("\n") } : undefined,
       );

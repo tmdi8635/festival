@@ -21,6 +21,7 @@ import {
   useJobRoleOptions,
 } from "@/store/useOrgStore";
 import {
+  SCHEDULE_RULE_LABEL,
   WAGE_TYPE_UNIT,
   calculateWorkHours,
   formatTimeRange,
@@ -29,6 +30,7 @@ import {
   type EventDetail,
   type EventPosition,
   type GenderPreference,
+  type PositionScheduleRule,
   type WageType,
 } from "@/type/event";
 import type { JobRole } from "@/type/staff";
@@ -52,8 +54,13 @@ interface PositionFormModalProps {
   onClose: () => void;
 }
 
+const SCHEDULE_RULE_OPTIONS = (
+  Object.keys(SCHEDULE_RULE_LABEL) as PositionScheduleRule[]
+).map((value) => ({ label: SCHEDULE_RULE_LABEL[value], value }));
+
 /** 서버 값 → 폼 값 */
 const toFormValues = (position: EventPosition): EventPositionSchemaInput => ({
+  scheduleRule: position.scheduleRule,
   name: position.name,
   jobRole: position.jobRole,
   startTime: position.startTime,
@@ -132,6 +139,7 @@ const PositionFormModal = ({
       billingRate: jobRoleBillingRate("STAFF"),
       genderPreference: "ANY",
       requiresHealthCert: false,
+      scheduleRule: "FULL_ONLY",
     });
   }, [isOpen, position, event, reset]);
 
@@ -459,6 +467,29 @@ const PositionFormModal = ({
               </label>
             )}
           />
+
+          {/*
+            참여 방식. **여러 날 행사에서만** 뜻이 있다.
+            업체가 전 일정 가능자를 원하면 '전일 참여만'이다. 공고는 이 값을 초기값으로 받고,
+            노쇼 · 급구로 하루만 채울 때는 공고에서 그 날만 여는 줄을 따로 둔다.
+          */}
+          {event.dayCount > 1 && (
+            <FormField label="참여 방식" className="w-44">
+              <Controller
+                control={control}
+                name="scheduleRule"
+                render={({ field }) => (
+                  <Select
+                    options={SCHEDULE_RULE_OPTIONS}
+                    value={field.value ?? "FULL_ONLY"}
+                    onChange={(changeEvent) =>
+                      field.onChange(changeEvent.target.value as PositionScheduleRule)
+                    }
+                  />
+                )}
+              />
+            </FormField>
+          )}
         </div>
 
         {/* 추가할 때만. 이미 있는 포지션의 날짜별 인원은 일별 근무자 탭에서 고친다. */}

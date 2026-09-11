@@ -9,7 +9,8 @@ import type {
   StaffStatus,
 } from "./staff";
 import type { EmploymentType } from "./employee";
-import type { ApplicationStatus } from "./recruit";
+import type { ApplicationStatus, PostingParticipation } from "./recruit";
+import type { OfferState } from "./offer";
 import type {
   AmendReasonType,
   ContractRevisionRequest,
@@ -301,8 +302,8 @@ export interface MyPosting {
   description: string;
   dressCode: string;
   belongings: string;
-  /** 모집 중인 포지션. 지원은 이 중 하나를 골라서 한다 */
-  positions: MyPostingPosition[];
+  /** 모집 줄. 지원은 이 중 하나를 골라서 한다 */
+  lines: MyPostingLine[];
   /** 포지션 중 하나라도 보건증이 필요한가. 목록 필터 · 배지에 쓴다 */
   requiresHealthCert: boolean;
 
@@ -330,8 +331,14 @@ export interface MyPosting {
 /**
  * 공고 안의 포지션 한 건. **모집 인원은 여기에도 없다.** (`MyPosting` 주석)
  */
-export interface MyPostingPosition {
+export interface MyPostingLine {
+  /** 지원은 이 번호로 한다. 같은 포지션에 줄이 여럿일 수 있다(전일 · 급구) */
+  targetId: number;
   positionId: number;
+  /** 전일 참여 · 날짜 골라 지원 */
+  participation: PostingParticipation;
+  /** 노쇼 · 급구로 연 줄 */
+  isUrgent: boolean;
   name: string;
   jobRole: JobRole;
   startTime: string;
@@ -347,6 +354,13 @@ export interface MyPostingPosition {
    * 다른 일을 이미 거절한 뒤다.
    */
   workDates: string[];
+  /**
+   * 그중 **내가 나올 수 있는 날** — 다른 근무와 겹치지 않고 아직 지나지 않은 날.
+   *
+   * 분할 줄의 날짜 선택에서 겹친 날을 잠그는 데 쓴다. 고른 뒤에 서버가 거절하면
+   * 본인은 어느 날이 문제였는지 모른다. 비회원은 겹침을 알 수 없어 지난 날만 뺀다.
+   */
+  availableDates: string[];
   /** 하루 실근무 시간 (휴게 제외) */
   workHours: number;
   wageType: WageType;
@@ -378,6 +392,8 @@ export interface MyPostingPosition {
    */
   myApplicationId?: number;
   myApplicationStatus?: ApplicationStatus;
+  /** 이 줄에 내가 신청한 날 (확정됐으면 확정한 날) */
+  myDates?: string[];
   /** 이 포지션에 지금 지원할 수 있는가. 서버가 판단한 결과다 */
   canApply: boolean;
   /**
@@ -405,8 +421,19 @@ export interface MyApplication {
   positionId: number;
   positionName: string;
   workDate: string;
-  /** 근무일 전체. 카드에 "09.12 외 2일"로 줄여 쓴다 */
+  /**
+   * 이 지원이 가리키는 날. 확정됐으면 확정한 날, 그 전에는 신청한 날이다.
+   * 카드에 "09.12 외 2일"로 줄여 쓴다.
+   */
   workDates: string[];
+  participation: PostingParticipation;
+  /** 나오겠다고 한 날 */
+  requestedDates: string[];
+  /**
+   * 담당자가 확정한 날. 신청한 날보다 적을 수 있다(그 날은 이미 찼다).
+   * 그때 카드가 "3일 신청 · 2일 확정"으로 적어야 본인이 빠진 날에 나오지 않는다.
+   */
+  confirmedDates?: string[];
   venue: string;
   address: string;
   startTime: string;
@@ -432,6 +459,63 @@ export interface MyApplication {
   status: ApplicationStatus;
   appliedAt: string;
   processedAt?: string;
+}
+
+/**
+ * 받은 근무 제안 한 건.
+ *
+ * 일정 화면의 '제안' 탭에 선다. 근무 카드와 **같은 만큼** 조건을 내린다 —
+ * 수락이 곧 확정이라, 시급 · 집합 · 복장을 보려고 다른 화면을 열게 두면 안 된다.
+ * 누가 보냈는지(담당자 이름)는 내리지 않는다. 행사 담당 매니저 연락처로 충분하다.
+ */
+export interface MyOffer {
+  offerId: number;
+  eventId: number;
+  eventTitle: string;
+  clientName: string;
+  positionId: number;
+  positionName: string;
+  role: JobRole;
+  /** 제안받은 날 */
+  dates: string[];
+  /**
+   * 그중 **지금 수락할 수 있는 날** — 겹치지 않고, 자리가 남고, 지나지 않은 날.
+   * 분할 제안의 날짜 칩에서 나머지를 잠그는 데 쓴다.
+   */
+  availableDates: string[];
+  participation: PostingParticipation;
+  /** 담당자가 붙인 한마디 */
+  message: string;
+  state: OfferState;
+  respondBy: string;
+  acceptedDates?: string[];
+  declineReason?: string;
+  /** 시스템 · 담당자가 닫은 이유. '철회'만 뜨면 왜 사라졌는지 묻는다 */
+  closedReason?: string;
+  venue: string;
+  address: string;
+  startTime: string;
+  endTime: string;
+  endDayOffset: DayOffset;
+  breakMinutes: number;
+  wageType: WageType;
+  wage: number;
+  /** 하루치 예상 지급액 (세전) */
+  dailyPay: number;
+  /** 제안받은 날을 모두 섰을 때의 예상 지급액 (세전) */
+  totalPay: number;
+  meetingPoint: string;
+  description: string;
+  dressCode: string;
+  belongings: string;
+  managerName: string;
+  managerPhone: string;
+  createdAt: string;
+  respondedAt?: string;
+  /** 지금 수락할 수 있는가. 서버가 판단한 결과다 */
+  canAccept: boolean;
+  /** 못 하는 이유 한 줄 (`자리가 이미 찼어요` · `09.20 '…'와 겹쳐요`) */
+  blockReason?: string;
 }
 
 /** 내 계약서 한 건. 문서 본문은 별도 조회로 받는다 */
@@ -536,7 +620,8 @@ export type MyTodoType =
   | "HEALTH_CERT"
   | "CONTRACT_SIGN"
   | "CONTRACT_REJECTED"
-  | "APPLICATION_RESULT";
+  | "APPLICATION_RESULT"
+  | "OFFER_PENDING";
 
 /**
  * 포털 홈의 할 일 한 줄.

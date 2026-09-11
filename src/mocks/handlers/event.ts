@@ -183,6 +183,8 @@ const normalizePosition = (
   billingRate: Math.max(0, Number(input.billingRate) || 0),
   genderPreference: input.genderPreference ?? "ANY",
   requiresHealthCert: Boolean(input.requiresHealthCert),
+  /* 모르는 값이 오면 전일로 둔다. 업체 대부분이 원하는 쪽이다. */
+  scheduleRule: input.scheduleRule === "SPLIT_OK" ? "SPLIT_OK" : "FULL_ONLY",
 });
 
 /**
@@ -816,6 +818,8 @@ export const eventHandlers = [
         url.searchParams.get("dates")?.split(",").filter(Boolean) ?? [];
       const includeUnavailable =
         url.searchParams.get("includeUnavailable") === "true";
+      /* 고른 날 전부 나올 수 있는 사람만. 하루라도 다른 행사와 겹치면 뺀다. */
+      const fullScheduleOnly = url.searchParams.get("fullScheduleOnly") === "true";
       /*
         성별 필터.
 
@@ -932,6 +936,13 @@ export const eventHandlers = [
           };
         })
         .filter((candidate) => includeUnavailable || candidate.matchScore >= 0)
+        /*
+          전 일정 가능자만. 이 행사에 이미 들어가 있는 날은 막힌 날로 치지 않는다 —
+          나머지 날만 채우면 전 일정이 되는 사람이다.
+        */
+        .filter(
+          (candidate) => !fullScheduleOnly || candidate.conflictDates.length === 0,
+        )
         .sort((a, b) => b.matchScore - a.matchScore);
 
       await delay(MOCK_DELAY_MS);

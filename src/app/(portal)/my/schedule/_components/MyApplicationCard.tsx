@@ -7,7 +7,7 @@ import { formatCurrency } from "@/lib/utils";
 import { openConfirm } from "@/store/useConfirmStore";
 import { useJobRoleLabel } from "@/store/useOrgStore";
 import type { MyApplication } from "@/type/my";
-import { APPLICATION_STATUS_LABEL } from "@/type/recruit";
+import { APPLICATION_STATUS_LABEL, formatDateList } from "@/type/recruit";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
@@ -25,6 +25,26 @@ const describeWorkDates = (workDates: string[]): string => {
   const first = formatDate(workDates[0]);
 
   return workDates.length === 1 ? first : `${first} 외 ${workDates.length - 1}일`;
+};
+
+/**
+ * 날짜 칸.
+ *
+ * - 일부만 확정됐으면 **그 사실을 괄호로 붙인다.** 확정된 날만 적어 두면 본인은
+ *   신청한 날이 다 잡힌 줄 알고, 빠진 날에 다른 일을 거절한 채 기다린다.
+ * - 날짜를 골라 낸 지원은 고른 날을 전부 적는다. "09.12 외 1일"로 줄이면
+ *   사흘 중 어느 이틀을 냈는지 알 수 없다.
+ */
+const describeApplicationDateLabel = (application: MyApplication): string => {
+  const { confirmedDates, requestedDates, workDates } = application;
+
+  if (confirmedDates && confirmedDates.length !== requestedDates.length) {
+    return `${formatDateList(workDates)} (${requestedDates.length}일 신청 · ${confirmedDates.length}일 확정)`;
+  }
+
+  return application.participation === "SPLIT" && workDates.length > 1
+    ? formatDateList(workDates)
+    : describeWorkDates(workDates);
 };
 
 /**
@@ -91,7 +111,7 @@ const MyApplicationCard = ({
         <div className="border-t border-border-main pt-3">
           <WorkInfoList
             info={application}
-            dateLabel={describeWorkDates(application.workDates)}
+            dateLabel={describeApplicationDateLabel(application)}
             payNote={describePay(application)}
           />
         </div>

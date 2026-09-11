@@ -8,6 +8,7 @@ export { default as ContractDocumentView } from "./ContractDocumentView";
 export { default as ContractSheetView } from "./ContractSheetView";
 export { default as SignaturePad } from "./SignaturePad";
 export { default as CopyButton } from "./CopyButton";
+export { default as DateChips } from "./DateChips";
 export { default as DayOffsetField } from "./DayOffsetField";
 export { default as DocumentZoomViewer } from "./DocumentZoomViewer";
 export { default as EventFormModal } from "./EventFormModal";
